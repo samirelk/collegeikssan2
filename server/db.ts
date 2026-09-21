@@ -11,6 +11,10 @@ import {
   cloudDeleteAttendance,
   cloudSaveViolation,
   cloudDeleteViolation,
+  cloudSaveNote,
+  cloudDeleteNote,
+  cloudSaveTeacherSeatOverride,
+  cloudDeleteTeacherSeatOverride,
   cloudSaveSetting,
   cloudSaveAssignment,
   cloudDeleteAssignment
@@ -1228,6 +1232,16 @@ export function updateSeat(
       db.prepare(`UPDATE teacher_seat_overrides SET ${update[0]} = ?, updated_at = ? WHERE teacher_id = ? AND section_id = ? AND seat_num = ?`)
         .run(update[1], now, actorId, sectionId, seatNum);
     }
+
+    try {
+      const savedOverride = db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(actorId, sectionId, seatNum) as any;
+      if (savedOverride) {
+        cloudSaveTeacherSeatOverride(savedOverride);
+      }
+    } catch (err) {
+      console.warn('Firestore cloudSaveTeacherSeatOverride error:', err);
+    }
+
     return { success: true };
   }
 
@@ -1393,6 +1407,21 @@ export function addSeatNote(sectionId: string, seatNum: number, note: { id?: str
     now
   );
 
+  try {
+    cloudSaveNote({
+      id,
+      sectionId,
+      seatNum,
+      noteText: note.text,
+      noteDate: note.date,
+      noteTime: note.time,
+      createdAt: now,
+      teacherId: note.teacherId || ''
+    });
+  } catch (err) {
+    console.warn('Firestore cloudSaveNote error:', err);
+  }
+
   return { id, text: note.text, date: note.date, time: note.time };
 }
 
@@ -1402,6 +1431,13 @@ export function deleteSeatNote(sectionId: string, seatNum: number, noteId: strin
     db.prepare('DELETE FROM daily_violations WHERE id = ?').run(noteId);
   } catch {
     // Ignore
+  }
+
+  try {
+    cloudDeleteNote(noteId);
+    cloudDeleteViolation(noteId);
+  } catch (err) {
+    console.warn('Firestore cloudDeleteNote error:', err);
   }
 
   db.prepare(`
@@ -1621,7 +1657,8 @@ export function addStudentViolation(
       date: recordedDate,
       time: recordedTime,
       academicYear: '2025/2026',
-      notes: cleanType
+      notes: cleanType,
+      teacherId: data.teacherId || ''
     });
   } catch (err) {
     console.warn('Firestore cloudSaveViolation failed:', err);
@@ -2092,6 +2129,16 @@ export function swapSeats(sectionId: string, seatANum: number, seatBNum: number,
       write(seatANum, seatB);
       write(seatBNum, seatA);
       db.exec('COMMIT;');
+
+      try {
+        const oA = db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(teacherId, sectionId, seatANum) as any;
+        const oB = db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(teacherId, sectionId, seatBNum) as any;
+        if (oA) cloudSaveTeacherSeatOverride(oA);
+        if (oB) cloudSaveTeacherSeatOverride(oB);
+      } catch (err) {
+        console.warn('Firestore cloudSaveTeacherSeatOverride in swapSeats error:', err);
+      }
+
       return { success: true, message: 'تم تبديل مقاعدك الخاصة بنجاح' };
     } catch (err) {
       db.exec('ROLLBACK;');

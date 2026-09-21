@@ -35,10 +35,16 @@ export async function syncDatabaseWithFirestore(db: any) {
     // F. Sync Daily Violations
     await syncViolationsFromFirestore(db);
 
-    // G. Sync Section Assignments
+    // G. Sync Notes
+    await syncNotesFromFirestore(db);
+
+    // H. Sync Teacher Seat Overrides
+    await syncTeacherSeatOverridesFromFirestore(db);
+
+    // I. Sync Section Assignments
     await syncAssignmentsFromFirestore(db);
 
-    // H. Push any local records that Firestore doesn't have yet
+    // J. Push any local records that Firestore doesn't have yet
     await pushMissingLocalDataToFirestore(db);
 
     console.log('✅ [FirestoreSync] Full Cloud Firestore synchronization complete!');
@@ -192,20 +198,28 @@ async function syncSectionsFromFirestore(db: any) {
           roster_id, attendance, status_color, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
       for (const st of seats) {
         if (!st.sectionId || st.seatNum === undefined) continue;
-        insertSeat.run(
-          st.sectionId,
-          Number(st.seatNum),
-          st.studentName || '',
-          st.studentNumber || '',
-          st.massarNumber || '',
-          st.rosterId || null,
-          st.attendance || null,
-          st.statusColor || 'default',
-          st.updatedAt || new Date().toISOString()
-        );
+        try {
+          const sectionExists = checkSectionStmt.get(st.sectionId);
+          if (!sectionExists) continue;
+
+          insertSeat.run(
+            st.sectionId,
+            Number(st.seatNum),
+            st.studentName || '',
+            st.studentNumber || '',
+            st.massarNumber || '',
+            st.rosterId || null,
+            st.attendance || null,
+            st.statusColor || 'default',
+            st.updatedAt || new Date().toISOString()
+          );
+        } catch (rowErr: any) {
+          console.warn(`[FirestoreSync] Skipping seat sync for section ${st.sectionId} seat ${st.seatNum}: ${rowErr?.message}`);
+        }
       }
     }
   } catch (e: any) {
@@ -226,25 +240,36 @@ async function syncAttendanceFromFirestore(db: any) {
         justified, justification_reason, notes, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
     for (const a of list) {
       if (!a.id || !a.sectionId) continue;
-      insertStmt.run(
-        a.id,
-        a.sectionId,
-        Number(a.seatNum || 0),
-        a.studentName || '',
-        a.studentNumber || '',
-        a.status || 'absent',
-        a.date || a.recordedDate || new Date().toISOString().slice(0, 10),
-        a.session || a.sessionPeriod || 'كامل اليوم',
-        a.teacherName || '',
-        a.teacherSubject || '',
-        a.isJustified ? 'justified' : (a.justified || 'unjustified'),
-        a.justificationReason || '',
-        a.notes || '',
-        a.createdAt || new Date().toISOString()
-      );
+      try {
+        const sectionExists = checkSectionStmt.get(a.sectionId);
+        if (!sectionExists) {
+          console.warn(`[FirestoreSync] Skipping attendance ${a.id}: Section ${a.sectionId} does not exist.`);
+          continue;
+        }
+
+        insertStmt.run(
+          a.id,
+          a.sectionId,
+          Number(a.seatNum || 0),
+          a.studentName || '',
+          a.studentNumber || '',
+          a.status || 'absent',
+          a.date || a.recordedDate || new Date().toISOString().slice(0, 10),
+          a.session || a.sessionPeriod || 'كامل اليوم',
+          a.teacherName || '',
+          a.teacherSubject || '',
+          a.isJustified ? 'justified' : (a.justified || 'unjustified'),
+          a.justificationReason || '',
+          a.notes || '',
+          a.createdAt || new Date().toISOString()
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping attendance record ${a.id}: ${rowErr?.message}`);
+      }
     }
   } catch (e: any) {
     console.error('Error in syncAttendanceFromFirestore:', e.message);
@@ -261,30 +286,121 @@ async function syncViolationsFromFirestore(db: any) {
       INSERT OR REPLACE INTO daily_violations (
         id, section_id, seat_num, student_name, student_number,
         violation_type, description, action_taken, teacher_name, teacher_subject,
-        recorded_date, recorded_time, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        recorded_date, recorded_time, created_at, teacher_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
     for (const v of list) {
       if (!v.id || !v.sectionId) continue;
-      insertStmt.run(
-        v.id,
-        v.sectionId,
-        Number(v.seatNum || 0),
-        v.studentName || '',
-        v.studentNumber || '',
-        v.violationType || 'مخالفة تربوية أخرى',
-        v.description || v.notes || 'مخالفة سلوكية',
-        v.actionTaken || 'تنبيه شفهي',
-        v.teacherName || '',
-        v.teacherSubject || '',
-        v.date || v.recordedDate || new Date().toISOString().slice(0, 10),
-        v.time || v.recordedTime || new Date().toTimeString().slice(0, 5),
-        v.createdAt || new Date().toISOString()
-      );
+      try {
+        const sectionExists = checkSectionStmt.get(v.sectionId);
+        if (!sectionExists) {
+          console.warn(`[FirestoreSync] Skipping violation ${v.id}: Section ${v.sectionId} does not exist.`);
+          continue;
+        }
+
+        insertStmt.run(
+          v.id,
+          v.sectionId,
+          Number(v.seatNum || 0),
+          v.studentName || '',
+          v.studentNumber || '',
+          v.violationType || 'مخالفة تربوية أخرى',
+          v.description || v.notes || 'مخالفة سلوكية',
+          v.actionTaken || 'تنبيه شفهي',
+          v.teacherName || '',
+          v.teacherSubject || '',
+          v.date || v.recordedDate || new Date().toISOString().slice(0, 10),
+          v.time || v.recordedTime || new Date().toTimeString().slice(0, 5),
+          v.createdAt || new Date().toISOString(),
+          v.teacherId || ''
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping violation ${v.id}: ${rowErr?.message}`);
+      }
     }
   } catch (e: any) {
     console.error('Error in syncViolationsFromFirestore:', e.message);
+  }
+}
+
+async function syncNotesFromFirestore(db: any) {
+  try {
+    const list = await listDocs('notes');
+    if (!list || list.length === 0) return;
+
+    console.log(`📥 [FirestoreSync] Found ${list.length} notes in Firestore.`);
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO notes (
+        id, section_id, seat_num, note_text, note_date, note_time, created_at, teacher_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
+
+    for (const n of list) {
+      if (!n.id || !n.sectionId) continue;
+      try {
+        const sectionExists = checkSectionStmt.get(n.sectionId);
+        if (!sectionExists) continue;
+
+        insertStmt.run(
+          n.id,
+          n.sectionId,
+          Number(n.seatNum || 0),
+          n.noteText || n.text || '',
+          n.noteDate || n.date || '',
+          n.noteTime || n.time || '',
+          n.createdAt || new Date().toISOString(),
+          n.teacherId || ''
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping note ${n.id}: ${rowErr?.message}`);
+      }
+    }
+  } catch (e: any) {
+    console.error('Error in syncNotesFromFirestore:', e.message);
+  }
+}
+
+async function syncTeacherSeatOverridesFromFirestore(db: any) {
+  try {
+    const list = await listDocs('teacher_seat_overrides');
+    if (!list || list.length === 0) return;
+
+    console.log(`📥 [FirestoreSync] Found ${list.length} teacher seat overrides in Firestore.`);
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO teacher_seat_overrides (
+        teacher_id, section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
+    const checkUserStmt = db.prepare('SELECT 1 FROM users WHERE id = ?');
+
+    for (const o of list) {
+      if (!o.teacherId || !o.sectionId || o.seatNum === undefined) continue;
+      try {
+        const sectionExists = checkSectionStmt.get(o.sectionId);
+        const userExists = checkUserStmt.get(o.teacherId);
+        if (!sectionExists || !userExists) continue;
+
+        insertStmt.run(
+          o.teacherId,
+          o.sectionId,
+          Number(o.seatNum),
+          o.studentName || '',
+          o.studentNumber || '',
+          o.massarNumber || '',
+          o.rosterId || null,
+          o.statusColor || 'default',
+          o.updatedAt || new Date().toISOString()
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping seat override for teacher ${o.teacherId} sec ${o.sectionId} seat ${o.seatNum}: ${rowErr?.message}`);
+      }
+    }
+  } catch (e: any) {
+    console.error('Error in syncTeacherSeatOverridesFromFirestore:', e.message);
   }
 }
 
@@ -298,20 +414,33 @@ async function syncAssignmentsFromFirestore(db: any) {
         id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    const checkUserStmt = db.prepare('SELECT 1 FROM users WHERE id = ?');
+    const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
     for (const a of list) {
       if (!a.id || !a.teacherId || !a.sectionId) continue;
-      insertStmt.run(
-        a.id,
-        a.teacherId,
-        a.sectionId,
-        a.status || 'pending',
-        a.requestNote || '',
-        a.requestedAt || new Date().toISOString(),
-        a.reviewedAt || null,
-        a.reviewedBy || null,
-        a.academicYear || '2025/2026'
-      );
+      try {
+        const userExists = checkUserStmt.get(a.teacherId);
+        const sectionExists = checkSectionStmt.get(a.sectionId);
+        if (!userExists || !sectionExists) {
+          console.warn(`[FirestoreSync] Skipping assignment ${a.id}: user or section missing.`);
+          continue;
+        }
+
+        insertStmt.run(
+          a.id,
+          a.teacherId,
+          a.sectionId,
+          a.status || 'pending',
+          a.requestNote || '',
+          a.requestedAt || new Date().toISOString(),
+          a.reviewedAt || null,
+          a.reviewedBy || null,
+          a.academicYear || '2025/2026'
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping assignment ${a.id}: ${rowErr?.message}`);
+      }
     }
   } catch (e: any) {
     console.error('Error in syncAssignmentsFromFirestore:', e.message);
@@ -361,6 +490,62 @@ async function pushMissingLocalDataToFirestore(db: any) {
         key: s.key,
         value: s.value,
         updatedAt: s.updated_at || new Date().toISOString()
+      });
+    }
+
+    // 4. Daily Violations (with teacherId)
+    const localViolations = db.prepare('SELECT * FROM daily_violations').all() as any[];
+    for (const v of localViolations) {
+      await setDoc('daily_violations', v.id, {
+        id: v.id,
+        sectionId: v.section_id,
+        seatNum: Number(v.seat_num || 0),
+        studentName: v.student_name || '',
+        studentNumber: v.student_number || '',
+        massarNumber: v.massar_number || '',
+        violationType: v.violation_type || '',
+        actionTaken: v.action_taken || '',
+        teacherName: v.teacher_name || '',
+        teacherSubject: v.teacher_subject || '',
+        date: v.recorded_date || '',
+        time: v.recorded_time || '',
+        academicYear: '2025/2026',
+        notes: v.description || '',
+        createdAt: v.created_at || new Date().toISOString(),
+        teacherId: v.teacher_id || ''
+      });
+    }
+
+    // 5. Notes (with teacherId)
+    const localNotes = db.prepare('SELECT * FROM notes').all() as any[];
+    for (const n of localNotes) {
+      await setDoc('notes', n.id, {
+        id: n.id,
+        sectionId: n.section_id,
+        seatNum: Number(n.seat_num || 0),
+        noteText: n.note_text || '',
+        noteDate: n.note_date || '',
+        noteTime: n.note_time || '',
+        createdAt: n.created_at || new Date().toISOString(),
+        teacherId: n.teacher_id || ''
+      });
+    }
+
+    // 6. Teacher Seat Overrides (with teacherId and sectionId)
+    const localOverrides = db.prepare('SELECT * FROM teacher_seat_overrides').all() as any[];
+    for (const o of localOverrides) {
+      const overrideId = `${o.teacher_id}_${o.section_id}_seat_${o.seat_num}`;
+      await setDoc('teacher_seat_overrides', overrideId, {
+        id: overrideId,
+        teacherId: o.teacher_id,
+        sectionId: o.section_id,
+        seatNum: Number(o.seat_num),
+        studentName: o.student_name || '',
+        studentNumber: o.student_number || '',
+        massarNumber: o.massar_number || '',
+        rosterId: o.roster_id || null,
+        statusColor: o.status_color || 'default',
+        updatedAt: o.updated_at || new Date().toISOString()
       });
     }
   } catch (e: any) {
@@ -509,7 +694,8 @@ export function cloudSaveViolation(vio: any) {
         time: vio.time || '',
         academicYear: vio.academicYear || vio.academic_year || '2025/2026',
         notes: vio.notes || '',
-        createdAt: vio.createdAt || vio.created_at || new Date().toISOString()
+        createdAt: vio.createdAt || vio.created_at || new Date().toISOString(),
+        teacherId: vio.teacherId || vio.teacher_id || ''
       });
     } catch (e) {
       console.error(`cloudSaveViolation(${vio.id}) error:`, e);
@@ -523,6 +709,68 @@ export function cloudDeleteViolation(id: string) {
       await deleteDoc('daily_violations', id);
     } catch (e) {
       console.error(`cloudDeleteViolation(${id}) error:`, e);
+    }
+  });
+}
+
+export function cloudSaveNote(note: any) {
+  setImmediate(async () => {
+    try {
+      await setDoc('notes', note.id, {
+        id: note.id,
+        sectionId: note.sectionId || note.section_id,
+        seatNum: Number(note.seatNum || note.seat_num || 0),
+        noteText: note.noteText || note.note_text || note.text || '',
+        noteDate: note.noteDate || note.note_date || note.date || '',
+        noteTime: note.noteTime || note.note_time || note.time || '',
+        createdAt: note.createdAt || note.created_at || new Date().toISOString(),
+        teacherId: note.teacherId || note.teacher_id || ''
+      });
+    } catch (e) {
+      console.error(`cloudSaveNote(${note.id}) error:`, e);
+    }
+  });
+}
+
+export function cloudDeleteNote(id: string) {
+  setImmediate(async () => {
+    try {
+      await deleteDoc('notes', id);
+    } catch (e) {
+      console.error(`cloudDeleteNote(${id}) error:`, e);
+    }
+  });
+}
+
+export function cloudSaveTeacherSeatOverride(override: any) {
+  setImmediate(async () => {
+    try {
+      const overrideId = `${override.teacherId || override.teacher_id}_${override.sectionId || override.section_id}_seat_${override.seatNum || override.seat_num}`;
+      await setDoc('teacher_seat_overrides', overrideId, {
+        id: overrideId,
+        teacherId: override.teacherId || override.teacher_id,
+        sectionId: override.sectionId || override.section_id,
+        seatNum: Number(override.seatNum || override.seat_num),
+        studentName: override.studentName || override.student_name || '',
+        studentNumber: override.studentNumber || override.student_number || '',
+        massarNumber: override.massarNumber || override.massar_number || '',
+        rosterId: override.rosterId || override.roster_id || null,
+        statusColor: override.statusColor || override.status_color || 'default',
+        updatedAt: override.updatedAt || override.updated_at || new Date().toISOString()
+      });
+    } catch (e) {
+      console.error(`cloudSaveTeacherSeatOverride error:`, e);
+    }
+  });
+}
+
+export function cloudDeleteTeacherSeatOverride(teacherId: string, sectionId: string, seatNum: number) {
+  setImmediate(async () => {
+    try {
+      const overrideId = `${teacherId}_${sectionId}_seat_${seatNum}`;
+      await deleteDoc('teacher_seat_overrides', overrideId);
+    } catch (e) {
+      console.error(`cloudDeleteTeacherSeatOverride error:`, e);
     }
   });
 }

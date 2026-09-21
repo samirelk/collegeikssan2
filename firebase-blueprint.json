@@ -40,14 +40,48 @@
       "properties": {
         "id": { "type": "string" },
         "sectionId": { "type": "string" },
-        "seat": { "type": "number" },
-        "name": { "type": "string" },
-        "number": { "type": "string" },
+        "seatNum": { "type": "number" },
+        "studentName": { "type": "string" },
+        "studentNumber": { "type": "string" },
         "massarNumber": { "type": "string" },
         "attendance": { "type": "string" },
         "statusColor": { "type": "string" }
       },
-      "required": ["id", "sectionId", "seat", "name"]
+      "required": ["id", "sectionId", "seatNum"]
+    },
+    "TeacherSeatOverride": {
+      "title": "TeacherSeatOverride",
+      "description": "Personalized seat arrangement override tied to a specific teacher and section",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "seatNum": { "type": "number" },
+        "studentName": { "type": "string" },
+        "studentNumber": { "type": "string" },
+        "massarNumber": { "type": "string" },
+        "rosterId": { "type": "string" },
+        "statusColor": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "sectionId", "seatNum"]
+    },
+    "TeacherNote": {
+      "title": "TeacherNote",
+      "description": "Teacher note tied to a specific seat, teacher, and section",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "seatNum": { "type": "number" },
+        "noteText": { "type": "string" },
+        "noteDate": { "type": "string" },
+        "noteTime": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "sectionId", "seatNum", "noteText"]
     },
     "AbsenceRecord": {
       "title": "AbsenceRecord",
@@ -56,9 +90,9 @@
       "properties": {
         "id": { "type": "string" },
         "sectionId": { "type": "string" },
+        "seatNum": { "type": "number" },
         "studentName": { "type": "string" },
         "studentNumber": { "type": "string" },
-        "seatNumber": { "type": "number" },
         "date": { "type": "string" },
         "time": { "type": "string" },
         "session": { "type": "string" },
@@ -73,24 +107,27 @@
     },
     "ViolationRecord": {
       "title": "ViolationRecord",
-      "description": "Recorded student behavioral violation",
+      "description": "Recorded student behavioral violation linked to teacher and section",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
+        "teacherId": { "type": "string" },
         "sectionId": { "type": "string" },
+        "seatNum": { "type": "number" },
         "studentName": { "type": "string" },
         "studentNumber": { "type": "string" },
-        "seatNumber": { "type": "number" },
-        "date": { "type": "string" },
-        "time": { "type": "string" },
+        "massarNumber": { "type": "string" },
         "violationType": { "type": "string" },
         "actionTaken": { "type": "string" },
         "teacherName": { "type": "string" },
-        "subject": { "type": "string" },
+        "teacherSubject": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
         "academicYear": { "type": "string" },
-        "notes": { "type": "string" }
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
       },
-      "required": ["id", "sectionId", "studentName", "date", "violationType"]
+      "required": ["id", "teacherId", "sectionId", "studentName", "date", "violationType"]
     },
     "ViolationType": {
       "title": "ViolationType",
@@ -98,11 +135,11 @@
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "name": { "type": "string" },
+        "title": { "type": "string" },
         "severity": { "type": "string" },
         "defaultAction": { "type": "string" }
       },
-      "required": ["id", "name"]
+      "required": ["id", "title"]
     },
     "AppSetting": {
       "title": "AppSetting",
@@ -126,9 +163,17 @@
       "schema": "Section",
       "description": "Class sections"
     },
-    "/sections/{sectionId}/seats/{seatId}": {
+    "/seats/{seatId}": {
       "schema": "StudentSeat",
-      "description": "Student seats inside a section"
+      "description": "Base student seats in a section"
+    },
+    "/teacher_seat_overrides/{overrideId}": {
+      "schema": "TeacherSeatOverride",
+      "description": "Teacher custom seat arrangements linked to teacherId and sectionId"
+    },
+    "/notes/{noteId}": {
+      "schema": "TeacherNote",
+      "description": "Teacher notes linked to teacherId and sectionId"
     },
     "/attendance_history/{recordId}": {
       "schema": "AbsenceRecord",
@@ -136,7 +181,7 @@
     },
     "/daily_violations/{violationId}": {
       "schema": "ViolationRecord",
-      "description": "Daily behavioral violations records"
+      "description": "Daily behavioral violations linked to teacherId and sectionId"
     },
     "/violation_types/{typeId}": {
       "schema": "ViolationType",
