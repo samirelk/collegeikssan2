@@ -1,0 +1,150 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User account for director or teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["director", "teacher", "admin"] },
+        "status": { "type": "string", "enum": ["active", "pending", "inactive"] },
+        "subject": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "username", "fullName", "role", "status"]
+    },
+    "Section": {
+      "title": "Section",
+      "description": "School classroom section with level, classNumber and students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "level": { "type": "string" },
+        "classNumber": { "type": "string" },
+        "teacher": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "level", "classNumber"]
+    },
+    "StudentSeat": {
+      "title": "StudentSeat",
+      "description": "Student assigned to a section seat",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "seat": { "type": "number" },
+        "name": { "type": "string" },
+        "number": { "type": "string" },
+        "massarNumber": { "type": "string" },
+        "attendance": { "type": "string" },
+        "statusColor": { "type": "string" }
+      },
+      "required": ["id", "sectionId", "seat", "name"]
+    },
+    "AbsenceRecord": {
+      "title": "AbsenceRecord",
+      "description": "Recorded student absence with section, date, session and justification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentNumber": { "type": "string" },
+        "seatNumber": { "type": "number" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "session": { "type": "string" },
+        "subject": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "status": { "type": "string", "enum": ["absent", "late"] },
+        "isJustified": { "type": "boolean" },
+        "justificationReason": { "type": "string" },
+        "academicYear": { "type": "string" }
+      },
+      "required": ["id", "sectionId", "studentName", "date", "status"]
+    },
+    "ViolationRecord": {
+      "title": "ViolationRecord",
+      "description": "Recorded student behavioral violation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "studentName": { "type": "string" },
+        "studentNumber": { "type": "string" },
+        "seatNumber": { "type": "number" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "violationType": { "type": "string" },
+        "actionTaken": { "type": "string" },
+        "teacherName": { "type": "string" },
+        "subject": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "sectionId", "studentName", "date", "violationType"]
+    },
+    "ViolationType": {
+      "title": "ViolationType",
+      "description": "Predefined type of violation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "severity": { "type": "string" },
+        "defaultAction": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "AppSetting": {
+      "title": "AppSetting",
+      "description": "Institution and academic settings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "institution": { "type": "string" },
+        "year": { "type": "string" },
+        "teacher": { "type": "string" }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Registered application users (directors and teachers)"
+    },
+    "/sections/{sectionId}": {
+      "schema": "Section",
+      "description": "Class sections"
+    },
+    "/sections/{sectionId}/seats/{seatId}": {
+      "schema": "StudentSeat",
+      "description": "Student seats inside a section"
+    },
+    "/attendance_history/{recordId}": {
+      "schema": "AbsenceRecord",
+      "description": "Historical student attendance and absence records"
+    },
+    "/daily_violations/{violationId}": {
+      "schema": "ViolationRecord",
+      "description": "Daily behavioral violations records"
+    },
+    "/violation_types/{typeId}": {
+      "schema": "ViolationType",
+      "description": "Configured violation types list"
+    },
+    "/app_settings/{settingId}": {
+      "schema": "AppSetting",
+      "description": "Global application configuration and institutional info"
+    }
+  }
+}

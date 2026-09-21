@@ -1,0 +1,1329 @@
+import { NoteItem, StudentViolationRecord } from '../types';
+
+export interface PrintViolationsOptions {
+  institution: string;
+  academicYear: string;
+  level: string;
+  classNumber: string;
+  teacherName?: string;
+  subject?: string;
+  studentName: string;
+  seatNum: number;
+  studentNumber?: string;
+  massarNumber?: string;
+  violations?: (StudentViolationRecord | NoteItem)[];
+  notes?: NoteItem[];
+}
+
+export function printViolationsReport(options: PrintViolationsOptions): boolean {
+  const {
+    institution,
+    academicYear,
+    level,
+    classNumber,
+    teacherName,
+    subject,
+    studentName,
+    seatNum,
+    studentNumber,
+    massarNumber,
+    violations,
+    notes
+  } = options;
+
+  const actualViolations = violations || notes || [];
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const violationsHtml =
+    actualViolations.length === 0
+      ? `<tr><td colspan="7" style="text-align:center; padding: 24px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا توجد أي مخالفات مسجلة في ملف هذا التلميذ(ة) حتى تاريخ إصدار هذه الوثيقة (انضباط تام وسلوك حسن).</td></tr>`
+      : actualViolations
+          .map((v: any, idx) => {
+            const vType = v.violationType || v.text || 'مخالفة تربوية';
+            const vDate = v.recordedDate || v.date || printDate;
+            const vTime = v.recordedTime || v.time || printTime;
+            const vTeacher = v.teacherName || teacherName || 'أستاذ المادة';
+            const vSubject = v.teacherSubject || subject || 'عام';
+            const vAction = v.actionTaken || 'تنبيه شفهي';
+
+            return `
+          <tr>
+            <td style="text-align: center; font-weight: bold; width: 35px; font-family: monospace;">${idx + 1}</td>
+            <td style="padding: 10px 12px; font-size: 13.5px; font-weight: bold; color: #991b1b; text-align: right;">${escapeHtml(vType)}</td>
+            <td style="text-align: center; width: 105px; font-family: monospace; font-size: 13px; font-weight: bold;">${vDate}</td>
+            <td style="text-align: center; width: 75px; font-family: monospace; font-size: 13px;">${vTime}</td>
+            <td style="text-align: center; width: 130px; font-size: 12.5px; font-weight: 600;">${escapeHtml(vTeacher)}</td>
+            <td style="text-align: center; width: 100px; font-size: 12px; color: #4b5563;">${escapeHtml(vSubject)}</td>
+            <td style="text-align: center; width: 110px; font-size: 12px; font-weight: bold; color: #1e3a8a;">${escapeHtml(vAction)}</td>
+          </tr>
+        `;
+          })
+          .join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>بطاقة تسجيل المخالفات والانضباط — ${escapeHtml(studentName)}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 15mm 15mm 15mm 15mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif;
+      color: #1a1a1a;
+      background: #fff;
+      margin: 0;
+      padding: 0;
+      direction: rtl;
+      font-size: 13px;
+    }
+    .print-container {
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 10px;
+    }
+    .header-table {
+      width: 100%;
+      border-bottom: 2px solid #854d0e;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .header-table td {
+      vertical-align: middle;
+    }
+    .official-head {
+      font-size: 12px;
+      line-height: 1.6;
+      color: #333;
+    }
+    .official-head b {
+      font-size: 13px;
+      color: #854d0e;
+    }
+    .doc-title-box {
+      text-align: center;
+      margin: 15px 0 20px 0;
+    }
+    .doc-title {
+      display: inline-block;
+      font-size: 20px;
+      font-weight: bold;
+      color: #991b1b;
+      background: #fef2f2;
+      border: 1.5px solid #dc2626;
+      border-radius: 30px;
+      padding: 6px 32px;
+      margin: 0 0 6px 0;
+    }
+    .doc-sub {
+      font-size: 12px;
+      color: #666;
+    }
+    .info-card {
+      background: #FAF8F5;
+      border: 1.5px solid #D5CDC0;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 22px;
+    }
+    .info-grid {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .info-grid td {
+      padding: 6px 8px;
+      font-size: 13.5px;
+      vertical-align: middle;
+    }
+    .info-label {
+      color: #555;
+      font-weight: 600;
+      width: 15%;
+    }
+    .info-val {
+      color: #111;
+      font-weight: bold;
+      width: 35%;
+    }
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      background: #854d0e;
+      color: #fff;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .massar-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      background: #1e3a8a;
+      color: #fff;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 13px;
+      font-weight: bold;
+    }
+    .notes-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      margin-bottom: 30px;
+    }
+    .notes-table th {
+      background: #991b1b;
+      color: #fff;
+      padding: 9px 10px;
+      font-size: 12.5px;
+      border: 1px solid #7f1d1d;
+      text-align: center;
+    }
+    .notes-table td {
+      border: 1px solid #D5CDC0;
+      padding: 8px 10px;
+      vertical-align: middle;
+    }
+    .notes-table tr:nth-child(even) td {
+      background: #FAF8F5;
+    }
+    .signatures-table {
+      width: 100%;
+      margin-top: 40px;
+      border-collapse: collapse;
+    }
+    .signatures-table td {
+      width: 50%;
+      text-align: center;
+      vertical-align: top;
+      padding: 10px;
+    }
+    .sig-title {
+      font-weight: bold;
+      font-size: 13px;
+      color: #1f2937;
+      margin-bottom: 60px;
+    }
+    .footer-bar {
+      margin-top: 35px;
+      padding-top: 12px;
+      border-top: 1px dashed #ccc;
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: #777;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    <table class="header-table">
+      <tr>
+        <td style="width: 40%; text-align: right;" class="official-head">
+          المملكة المغربية<br>
+          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
+          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
+        </td>
+        <td style="width: 20%; text-align: center;">
+          <div style="font-size: 26px; color: #854d0e;">🏛️</div>
+        </td>
+        <td style="width: 40%; text-align: left;" class="official-head">
+          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
+          تاريخ الاستخراج: <b>${printDate}</b><br>
+          الساعة: <b>${printTime}</b>
+        </td>
+      </tr>
+    </table>
+
+    <div class="doc-title-box">
+      <div class="doc-title">بطاقة تتبع المخالفات والانضباط المدرسي</div>
+      <div class="doc-sub">سجل رسمي لمتابعة سلوك وانضباط التلميذ(ة) داخل الحصص الدراسية</div>
+    </div>
+
+    <div class="info-card">
+      <table class="info-grid">
+        <tr>
+          <td class="info-label">اسم التلميذ(ة):</td>
+          <td class="info-val" style="font-size: 16px; color: #991b1b;">${escapeHtml(studentName || 'غير مسجل')}</td>
+          <td class="info-label">رقم المقعد:</td>
+          <td class="info-val"><span class="badge">مقعد #${seatNum}</span></td>
+        </tr>
+        <tr>
+          <td class="info-label">المستوى والقسم:</td>
+          <td class="info-val">${escapeHtml(level || '')} (${escapeHtml(classNumber || '')})</td>
+          <td class="info-label">الرقم الترتيبي:</td>
+          <td class="info-val" style="font-family: monospace; font-size: 14px;">${escapeHtml(studentNumber || '—')}</td>
+        </tr>
+        <tr>
+          <td class="info-label">رقم مسار / البطاقة:</td>
+          <td class="info-val"><span class="massar-badge">${escapeHtml(massarNumber || '—')}</span></td>
+          <td class="info-label">إجمالي المخالفات:</td>
+          <td class="info-val" style="color: #b91c1c; font-size: 15px;">${actualViolations.length} مخالفة</td>
+        </tr>
+      </table>
+    </div>
+
+    <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px; color: #991b1b;">
+      ⚠️ سجل المخالفات السلوكية المسجلة (${actualViolations.length}):
+    </div>
+
+    <table class="notes-table">
+      <thead>
+        <tr>
+          <th style="width: 40px;">#</th>
+          <th>نوع المخالفة المرتكبة</th>
+          <th style="width: 105px;">التاريخ</th>
+          <th style="width: 75px;">التوقيت</th>
+          <th style="width: 130px;">الأستاذ المسجل</th>
+          <th style="width: 100px;">المادة</th>
+          <th style="width: 110px;">الإجراء المتخذ</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${violationsHtml}
+      </tbody>
+    </table>
+
+    <table class="signatures-table">
+      <tr>
+        <td>
+          <div class="sig-title">توقيع الأستاذ(ة) المسجل(ة)</div>
+          <div style="color: #666; font-size: 12px;">${escapeHtml(teacherName || 'أستاذ المادة')}</div>
+        </td>
+        <td>
+          <div class="sig-title">خاتم وتأشيرة الإدارة التربوية</div>
+          <div style="color: #666; font-size: 12px;">مدير المؤسسة / الحراسة العامة</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="footer-bar">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</span>
+      <span>التواريخ والأوقات مسجلة رسمياً بالأرقام الفرنسية</span>
+    </div>
+  </div>
+
+  <script>
+    window.onload = function() {
+      setTimeout(function() {
+        window.focus();
+        window.print();
+      }, 300);
+    };
+  </script>
+</body>
+</html>`;
+
+  // Method 1: Try using a hidden iframe to trigger printing seamlessly
+  try {
+    let printIframe = document.getElementById('notes-print-iframe') as HTMLIFrameElement | null;
+    if (!printIframe) {
+      printIframe = document.createElement('iframe');
+      printIframe.id = 'notes-print-iframe';
+      printIframe.style.position = 'fixed';
+      printIframe.style.right = '0';
+      printIframe.style.bottom = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      printIframe.style.border = '0';
+      document.body.appendChild(printIframe);
+    }
+
+    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+      return true;
+    }
+  } catch (e) {
+    console.warn('Iframe print failed, falling back to popup window', e);
+  }
+
+  // Method 2: Fallback to window.open
+  try {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      return true;
+    }
+  } catch (e) {
+    console.error('Window.open failed for print', e);
+  }
+
+  return false;
+}
+
+// Keep printNotesReport as alias for backwards compatibility
+export const printNotesReport = printViolationsReport;
+
+export interface PrintBatchViolationsOptions {
+  institution: string;
+  academicYear: string;
+  sectionTitle: string; // e.g. "جميع الأقسام" or "الثانية إعدادي 3"
+  dateFilterText?: string;
+  violations: Array<{
+    id?: string;
+    sectionName?: string;
+    level?: string;
+    classNumber?: string;
+    studentName: string;
+    studentNumber?: string;
+    massarNumber?: string;
+    violationType: string;
+    recordedDate?: string;
+    date?: string;
+    recordedTime?: string;
+    time?: string;
+    teacherName?: string;
+    teacherSubject?: string;
+    actionTaken?: string;
+    notes?: string;
+  }>;
+}
+
+export function printAllViolationsReport(options: PrintBatchViolationsOptions): boolean {
+  const { institution, academicYear, sectionTitle, dateFilterText, violations } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const rowsHtml = violations.length === 0
+    ? `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا توجد أي مخالفات مسجلة مطابقة لمعايير البحث المحددة (السجل سليم تماماً).</td></tr>`
+    : violations.map((v, idx) => {
+        const sec = v.sectionName || (v.level && v.classNumber ? `${v.level} (${v.classNumber})` : '—');
+        const vDate = v.recordedDate || v.date || printDate;
+        const vTime = v.recordedTime || v.time || '—';
+        const teacher = v.teacherName ? `${v.teacherName} ${v.teacherSubject ? `(${v.teacherSubject})` : ''}` : 'أستاذ المادة';
+        const action = v.actionTaken || 'تنبيه شفهي';
+
+        return `
+          <tr>
+            <td style="text-align: center; font-weight: bold; width: 35px; font-family: monospace;">${idx + 1}</td>
+            <td style="padding: 8px 10px; font-size: 13px; font-weight: bold; color: #111;">${escapeHtml(v.studentName)}</td>
+            <td style="text-align: center; font-family: monospace; font-size: 12.5px; font-weight: bold; color: #1e3a8a;">${escapeHtml(v.massarNumber || '—')}</td>
+            <td style="text-align: center; font-size: 12.5px; font-weight: 600; color: #047857;">${escapeHtml(sec)}</td>
+            <td style="padding: 8px 10px; font-size: 13px; font-weight: bold; color: #991b1b;">${escapeHtml(v.violationType)}</td>
+            <td style="text-align: center; font-family: monospace; font-size: 12px;">${vDate} ${vTime !== '—' ? `<span style="color:#666">(${vTime})</span>` : ''}</td>
+            <td style="text-align: center; font-size: 12px; color: #374151;">${escapeHtml(teacher)}</td>
+            <td style="text-align: center; font-size: 12px; font-weight: bold; color: #b45309;">${escapeHtml(action)}</td>
+          </tr>
+        `;
+      }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>لائحة المخالفات والانضباط المدرسي — ${escapeHtml(sectionTitle)}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 12mm 12mm 12mm;
+    }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #1a1a1a; background: #fff; margin: 0; padding: 0; direction: rtl; font-size: 12.5px; }
+    .print-container { max-width: 100%; margin: 0 auto; padding: 8px; }
+    .header-table { width: 100%; border-bottom: 2px solid #854d0e; padding-bottom: 10px; margin-bottom: 14px; }
+    .official-head { font-size: 12px; line-height: 1.5; color: #333; }
+    .official-head b { font-size: 13px; color: #854d0e; }
+    .doc-title-box { text-align: center; margin: 10px 0 16px 0; }
+    .doc-title { display: inline-block; font-size: 19px; font-weight: bold; color: #991b1b; background: #fef2f2; border: 1.5px solid #dc2626; border-radius: 25px; padding: 5px 30px; margin: 0 0 4px 0; }
+    .doc-sub { font-size: 12px; color: #555; }
+    .summary-cards { display: flex; gap: 12px; margin-bottom: 16px; justify-content: center; }
+    .scard { background: #FAF8F5; border: 1px solid #D5CDC0; border-radius: 8px; padding: 8px 16px; text-align: center; }
+    .scard-num { font-size: 18px; font-weight: bold; color: #991b1b; font-family: monospace; }
+    .scard-label { font-size: 11px; color: #666; font-weight: 600; }
+    .table-main { width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 25px; }
+    .table-main th { background: #991b1b; color: #fff; padding: 8px; font-size: 12px; border: 1px solid #7f1d1d; text-align: center; }
+    .table-main td { border: 1px solid #D5CDC0; padding: 6px 8px; vertical-align: middle; }
+    .table-main tr:nth-child(even) td { background: #FAF8F5; }
+    .signatures-table { width: 100%; margin-top: 30px; border-collapse: collapse; }
+    .signatures-table td { width: 50%; text-align: center; vertical-align: top; padding: 8px; }
+    .sig-title { font-weight: bold; font-size: 12.5px; color: #1f2937; margin-bottom: 50px; }
+    .footer-bar { margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10.5px; color: #777; }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    <table class="header-table">
+      <tr>
+        <td style="width: 40%; text-align: right;" class="official-head">
+          المملكة المغربية<br>
+          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
+          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
+        </td>
+        <td style="width: 20%; text-align: center;">
+          <div style="font-size: 26px; color: #854d0e;">🏛️</div>
+        </td>
+        <td style="width: 40%; text-align: left;" class="official-head">
+          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
+          تاريخ الاستخراج: <b>${printDate}</b><br>
+          الساعة: <b>${printTime}</b>
+        </td>
+      </tr>
+    </table>
+
+    <div class="doc-title-box">
+      <div class="doc-title">سجل ولائحة المخالفات السلوكية الرسمية</div>
+      <div class="doc-sub">نطاق التقرير: <strong>${escapeHtml(sectionTitle)}</strong> ${dateFilterText ? `• الفترة: <strong>${escapeHtml(dateFilterText)}</strong>` : ''}</div>
+    </div>
+
+    <div class="summary-cards">
+      <div class="scard">
+        <div class="scard-num">${violations.length}</div>
+        <div class="scard-label">إجمالي المخالفات المسجلة</div>
+      </div>
+      <div class="scard">
+        <div class="scard-num">${new Set(violations.map(v => v.studentName)).size}</div>
+        <div class="scard-label">عدد التلاميذ المعنيين</div>
+      </div>
+      <div class="scard">
+        <div class="scard-num" style="color:#047857;">${sectionTitle}</div>
+        <div class="scard-label">القسم المستهدف</div>
+      </div>
+    </div>
+
+    <table class="table-main">
+      <thead>
+        <tr>
+          <th style="width: 35px;">#</th>
+          <th>اسم التلميذ(ة)</th>
+          <th style="width: 100px;">رقم مسار</th>
+          <th style="width: 110px;">القسم والمستوى</th>
+          <th>نوع المخالفة</th>
+          <th style="width: 125px;">التاريخ والتوقيت</th>
+          <th style="width: 130px;">الأستاذ / المادة</th>
+          <th style="width: 105px;">الإجراء المتخذ</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+
+    <table class="signatures-table">
+      <tr>
+        <td>
+          <div class="sig-title">توقيع الحراسة العامة للخارجية</div>
+        </td>
+        <td>
+          <div class="sig-title">تأشيرة وخاتم السيد مدير المؤسسة</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="footer-bar">
+      <span>منظومة خرائط الأقسام وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</span>
+      <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
+    </div>
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.focus(); window.print(); }, 300);
+    };
+  </script>
+</body>
+</html>`;
+
+  return deliverPrintHtml(html);
+}
+
+export interface PrintAbsencesOptions {
+  institution: string;
+  academicYear: string;
+  sectionTitle: string; // e.g. "جميع الأقسام" or "الثالثة إعدادي 1"
+  dateFilterText?: string;
+  absences: Array<{
+    id?: string | number;
+    sectionName?: string;
+    level?: string;
+    classNumber?: string;
+    studentName: string;
+    studentNumber?: string;
+    massarNumber?: string;
+    status?: string; // 'absent' | 'late'
+    date?: string;
+    time?: string;
+    session?: string;
+    teacherName?: string;
+    subject?: string;
+    isJustified?: boolean;
+    justificationReason?: string;
+  }>;
+}
+
+export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
+  const { institution, academicYear, sectionTitle, dateFilterText, absences } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const rowsHtml = absences.length === 0
+    ? `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا توجد أي حالات غياب مسجلة مطابقة لمعايير البحث المحددة (المواظبة تامة والحضور كامل).</td></tr>`
+    : absences.map((a, idx) => {
+        const sec = a.sectionName || (a.level && a.classNumber ? `${a.level} (${a.classNumber})` : '—');
+        const aDate = a.date || printDate;
+        const session = a.session || 'الحصة الدراسية';
+        const isLate = a.status === 'late';
+        const statusBadge = isLate
+          ? `<span style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:6px; font-weight:bold;">تأخر</span>`
+          : `<span style="background:#fee2e2; color:#991b1b; padding:2px 8px; border-radius:6px; font-weight:bold;">غياب</span>`;
+
+        const justificationBadge = a.isJustified
+          ? `<span style="background:#dcfce7; color:#166534; padding:2px 8px; border-radius:6px; font-weight:bold;">مبرر ${a.justificationReason ? `(${escapeHtml(a.justificationReason)})` : ''}</span>`
+          : `<span style="background:#fee2e2; color:#b91c1c; padding:2px 8px; border-radius:6px; font-weight:bold;">غير مبرر</span>`;
+
+        const teacherInfo = a.teacherName ? `${escapeHtml(a.teacherName)} ${a.subject ? `(${escapeHtml(a.subject)})` : ''}` : '—';
+
+        return `
+          <tr>
+            <td style="text-align: center; font-weight: bold; width: 35px; font-family: monospace;">${idx + 1}</td>
+            <td style="padding: 8px 10px; font-size: 13px; font-weight: bold; color: #111;">${escapeHtml(a.studentName)}</td>
+            <td style="text-align: center; font-family: monospace; font-size: 12.5px; font-weight: bold; color: #1e3a8a;">${escapeHtml(a.massarNumber || '—')}</td>
+            <td style="text-align: center; font-size: 12.5px; font-weight: 600; color: #047857;">${escapeHtml(sec)}</td>
+            <td style="text-align: center; font-family: monospace; font-size: 12px;">${aDate} <div style="color:#666; font-size:11px;">${escapeHtml(session)}</div></td>
+            <td style="text-align: center;">${statusBadge}</td>
+            <td style="text-align: center; font-size: 12px;">${justificationBadge}</td>
+            <td style="text-align: center; font-size: 12px; color: #374151;">${teacherInfo}</td>
+          </tr>
+        `;
+      }).join('');
+
+  const totalAbsencesCount = absences.filter(a => a.status !== 'late').length;
+  const totalLatesCount = absences.filter(a => a.status === 'late').length;
+  const unjustifiedCount = absences.filter(a => !a.isJustified).length;
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>لائحة الغياب والمواظبة الرسمية — ${escapeHtml(sectionTitle)}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 12mm 12mm 12mm;
+    }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #1a1a1a; background: #fff; margin: 0; padding: 0; direction: rtl; font-size: 12.5px; }
+    .print-container { max-width: 100%; margin: 0 auto; padding: 8px; }
+    .header-table { width: 100%; border-bottom: 2px solid #854d0e; padding-bottom: 10px; margin-bottom: 14px; }
+    .official-head { font-size: 12px; line-height: 1.5; color: #333; }
+    .official-head b { font-size: 13px; color: #854d0e; }
+    .doc-title-box { text-align: center; margin: 10px 0 16px 0; }
+    .doc-title { display: inline-block; font-size: 19px; font-weight: bold; color: #854d0e; background: #fefce8; border: 1.5px solid #ca8a04; border-radius: 25px; padding: 5px 30px; margin: 0 0 4px 0; }
+    .doc-sub { font-size: 12px; color: #555; }
+    .summary-cards { display: flex; gap: 12px; margin-bottom: 16px; justify-content: center; }
+    .scard { background: #FAF8F5; border: 1px solid #D5CDC0; border-radius: 8px; padding: 8px 16px; text-align: center; }
+    .scard-num { font-size: 18px; font-weight: bold; color: #854d0e; font-family: monospace; }
+    .scard-label { font-size: 11px; color: #666; font-weight: 600; }
+    .table-main { width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 25px; }
+    .table-main th { background: #854d0e; color: #fff; padding: 8px; font-size: 12px; border: 1px solid #713f12; text-align: center; }
+    .table-main td { border: 1px solid #D5CDC0; padding: 6px 8px; vertical-align: middle; }
+    .table-main tr:nth-child(even) td { background: #FAF8F5; }
+    .signatures-table { width: 100%; margin-top: 30px; border-collapse: collapse; }
+    .signatures-table td { width: 50%; text-align: center; vertical-align: top; padding: 8px; }
+    .sig-title { font-weight: bold; font-size: 12.5px; color: #1f2937; margin-bottom: 50px; }
+    .footer-bar { margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10.5px; color: #777; }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    <table class="header-table">
+      <tr>
+        <td style="width: 40%; text-align: right;" class="official-head">
+          المملكة المغربية<br>
+          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
+          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
+        </td>
+        <td style="width: 20%; text-align: center;">
+          <div style="font-size: 26px; color: #854d0e;">🏛️</div>
+        </td>
+        <td style="width: 40%; text-align: left;" class="official-head">
+          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
+          تاريخ الاستخراج: <b>${printDate}</b><br>
+          الساعة: <b>${printTime}</b>
+        </td>
+      </tr>
+    </table>
+
+    <div class="doc-title-box">
+      <div class="doc-title">سجل ولائحة تتبع الغياب والمواظبة اليومية</div>
+      <div class="doc-sub">نطاق التقرير: <strong>${escapeHtml(sectionTitle)}</strong> ${dateFilterText ? `• الفترة: <strong>${escapeHtml(dateFilterText)}</strong>` : ''}</div>
+    </div>
+
+    <div class="summary-cards">
+      <div class="scard">
+        <div class="scard-num">${totalAbsencesCount}</div>
+        <div class="scard-label">إجمالي حالات الغياب</div>
+      </div>
+      <div class="scard">
+        <div class="scard-num" style="color:#b45309;">${totalLatesCount}</div>
+        <div class="scard-label">حالات التأخر</div>
+      </div>
+      <div class="scard">
+        <div class="scard-num" style="color:#dc2626;">${unjustifiedCount}</div>
+        <div class="scard-label">غير مبرر</div>
+      </div>
+      <div class="scard">
+        <div class="scard-num" style="color:#047857;">${sectionTitle}</div>
+        <div class="scard-label">القسم المستهدف</div>
+      </div>
+    </div>
+
+    <table class="table-main">
+      <thead>
+        <tr>
+          <th style="width: 35px;">#</th>
+          <th>اسم التلميذ(ة)</th>
+          <th style="width: 100px;">رقم مسار</th>
+          <th style="width: 110px;">القسم والمستوى</th>
+          <th style="width: 125px;">تاريخ وحصة الغياب</th>
+          <th style="width: 80px;">نوع الحالة</th>
+          <th style="width: 120px;">التبرير القانوني</th>
+          <th style="width: 130px;">الأستاذ / المادة</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+
+    <table class="signatures-table">
+      <tr>
+        <td>
+          <div class="sig-title">توقيع الحراسة العامة للخارجية</div>
+        </td>
+        <td>
+          <div class="sig-title">تأشيرة وخاتم السيد مدير المؤسسة</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="footer-bar">
+      <span>منظومة خرائط الأقسام وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</span>
+      <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
+    </div>
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.focus(); window.print(); }, 300);
+    };
+  </script>
+</body>
+</html>`;
+
+  return deliverPrintHtml(html);
+}
+
+// Print single violation notice / summons
+export interface PrintSingleViolationOptions {
+  institution: string;
+  academicYear: string;
+  level: string;
+  classNumber: string;
+  teacherName?: string;
+  subject?: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  violationType: string;
+  actionTaken?: string;
+  date?: string;
+  time?: string;
+  notes?: string;
+}
+
+export function printSingleViolationNotice(options: PrintSingleViolationOptions): boolean {
+  const {
+    institution,
+    academicYear,
+    level,
+    classNumber,
+    teacherName,
+    subject,
+    studentName,
+    studentNumber,
+    massarNumber,
+    violationType,
+    actionTaken,
+    date,
+    time,
+    notes
+  } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = date || `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const printTime = time || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>إشعار بمخالفة انضباطية — ${escapeHtml(studentName)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 15mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #1a1a1a; background: #fff; margin: 0; padding: 0; direction: rtl; font-size: 13.5px; }
+    .print-container { max-width: 100%; margin: 0 auto; border: 2px solid #991b1b; border-radius: 12px; padding: 20px; }
+    .header-table { width: 100%; border-bottom: 2px solid #854d0e; padding-bottom: 12px; margin-bottom: 20px; }
+    .doc-title-box { text-align: center; margin: 15px 0 25px 0; }
+    .doc-title { display: inline-block; font-size: 20px; font-weight: bold; color: #991b1b; background: #fef2f2; border: 2px solid #dc2626; border-radius: 25px; padding: 6px 36px; }
+    .notice-card { background: #fafaf9; border: 1.5px solid #e7e5e4; border-radius: 10px; padding: 16px 20px; margin-bottom: 20px; }
+    .notice-grid { width: 100%; border-collapse: collapse; }
+    .notice-grid td { padding: 8px 10px; font-size: 14px; }
+    .label { color: #57534e; font-weight: 600; width: 22%; }
+    .val { color: #1c1917; font-weight: bold; }
+    .val-highlight { color: #991b1b; font-size: 16px; }
+    .warning-box { background: #fff1f2; border: 1.5px dashed #f43f5e; border-radius: 8px; padding: 14px; margin: 20px 0; font-size: 13px; line-height: 1.7; color: #881337; }
+    .signatures-table { width: 100%; margin-top: 40px; border-collapse: collapse; }
+    .signatures-table td { width: 33.3%; text-align: center; vertical-align: top; }
+    .sig-title { font-weight: bold; font-size: 13px; margin-bottom: 60px; }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    <table class="header-table">
+      <tr>
+        <td style="width: 40%; text-align: right;">
+          المملكة المغربية<br>
+          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
+          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
+        </td>
+        <td style="width: 20%; text-align: center; font-size: 28px;">⚠️</td>
+        <td style="width: 40%; text-align: left;">
+          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
+          تاريخ التحرير: <b>${printDate}</b> (${printTime})
+        </td>
+      </tr>
+    </table>
+
+    <div class="doc-title-box">
+      <div class="doc-title">إشعار بارتكاب مخالفة انضباطية واستدعاء ولي الأمر</div>
+    </div>
+
+    <div class="notice-card">
+      <table class="notice-grid">
+        <tr>
+          <td class="label">اسم التلميذ(ة):</td>
+          <td class="val val-highlight">${escapeHtml(studentName)}</td>
+          <td class="label">القسم والمستوى:</td>
+          <td class="val">${escapeHtml(level)} (${escapeHtml(classNumber)})</td>
+        </tr>
+        <tr>
+          <td class="label">رقم مسار:</td>
+          <td class="val" style="font-family:monospace;">${escapeHtml(massarNumber || '—')}</td>
+          <td class="label">الرقم الترتيبي:</td>
+          <td class="val" style="font-family:monospace;">${escapeHtml(studentNumber || '—')}</td>
+        </tr>
+        <tr>
+          <td class="label">المخالفة المرتكبة:</td>
+          <td class="val" style="color: #991b1b; font-size: 15px;">${escapeHtml(violationType)}</td>
+          <td class="label">تاريخ وتوقيت المخالفة:</td>
+          <td class="val" style="font-family:monospace;">${printDate} — ${printTime}</td>
+        </tr>
+        <tr>
+          <td class="label">الأستاذ(ة) المحرر(ة):</td>
+          <td class="val">${escapeHtml(teacherName || 'أستاذ المادة')} ${subject ? `(${escapeHtml(subject)})` : ''}</td>
+          <td class="label">الإجراء المتخذ:</td>
+          <td class="val" style="color: #b45309;">${escapeHtml(actionTaken || 'تنبيه شفهي')}</td>
+        </tr>
+        ${notes ? `
+        <tr>
+          <td class="label">ملاحظات إضافية:</td>
+          <td class="val" colspan="3" style="color:#555; font-weight:normal;">${escapeHtml(notes)}</td>
+        </tr>` : ''}
+      </table>
+    </div>
+
+    <div class="warning-box">
+      <strong>تنبيه تربوي لولي الأمر الكريم:</strong><br>
+      يشهد الطاقم التربوي والإداري للمؤسسة بأن التلميذ(ة) المذكور(ة) أعلاه قد ارتكب(ت) المخالفة الموضحة أعلاه والتي تمس بالسير العادي للدراسة وبالنظام الداخلي للمؤسسة. نرجو منكم الحضور إلى إدارة المؤسسة أو توجيه ابنكم/ابنتكم للالتزام والانضباط وحسن الخلق، صوناً لمصلحته التربوية والتعليمية.
+    </div>
+
+    <table class="signatures-table">
+      <tr>
+        <td>
+          <div class="sig-title">توقيع الأستاذ(ة)</div>
+          <div style="font-size:12px; color:#666;">${escapeHtml(teacherName || 'أستاذ المادة')}</div>
+        </td>
+        <td>
+          <div class="sig-title">تأشيرة وخاتم إدارة المؤسسة</div>
+          <div style="font-size:12px; color:#666;">مدير المؤسسة / الحراسة العامة</div>
+        </td>
+        <td>
+          <div class="sig-title">توقيع ولي الأمر بالعلم والالتزام</div>
+          <div style="font-size:12px; color:#666;">(الاسم والتوقيع وتاريخ الاستلام)</div>
+        </td>
+      </tr>
+    </table>
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.focus(); window.print(); }, 300);
+    };
+  </script>
+</body>
+</html>`;
+
+  return deliverPrintHtml(html);
+}
+
+// Generate formatted WhatsApp text and trigger WhatsApp
+export function shareViolationViaWhatsApp(data: {
+  institution: string;
+  studentName: string;
+  level: string;
+  classNumber: string;
+  massarNumber?: string;
+  violationType: string;
+  date?: string;
+  time?: string;
+  teacherName?: string;
+  subject?: string;
+  actionTaken?: string;
+  phoneNumber?: string;
+}) {
+  const {
+    institution,
+    studentName,
+    level,
+    classNumber,
+    massarNumber,
+    violationType,
+    date,
+    time,
+    teacherName,
+    subject,
+    actionTaken,
+    phoneNumber
+  } = data;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const dStr = date || `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const tStr = time || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const message = `*المملكة المغربية — وزارة التربية الوطنية*
+🏛️ *المؤسسة:* ${institution || 'الثانوية الإعدادية ايكسان'}
+
+⚠️ *إشعار بارتكاب مخالفة انضباطية*
+━━━━━━━━━━━━━━━━━
+👤 *اسم التلميذ(ة):* ${studentName}
+🏫 *القسم والمستوى:* ${level} (${classNumber})
+${massarNumber ? `🔢 *رقم مسار:* ${massarNumber}\n` : ''}📌 *نوع المخالفة:* ${violationType}
+⏱️ *التاريخ والتوقيت:* ${dStr} — ${tStr}
+⚖️ *الإجراء المتخذ:* ${actionTaken || 'تنبيه شفهي'}
+👨‍🏫 *الأستاذ المسجل:* ${teacherName || 'أستاذ المادة'} ${subject ? `(${subject})` : ''}
+━━━━━━━━━━━━━━━━━
+*رسالة لولي الأمر:*
+نحيطكم علماً بارتكاب التلميذ(ة) للمخالفة المذكورة أعلاه أثناء الحصة الدراسية، ونلتمس منكم حثّه(ا) على الانضباط وحسن الخلق واحترام النظام الداخلي للمؤسسة لضمان متابعة دراسية ناجحة.`;
+
+  const cleanPhone = (phoneNumber || '').replace(/[^0-9]/g, '');
+  let waUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`;
+  if (cleanPhone) {
+    waUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(message)}`;
+  }
+
+  window.open(waUrl, '_blank');
+}
+
+// Deliver HTML to printer via hidden iframe or popup
+function deliverPrintHtml(html: string): boolean {
+  try {
+    let printIframe = document.getElementById('report-print-iframe') as HTMLIFrameElement | null;
+    if (!printIframe) {
+      printIframe = document.createElement('iframe');
+      printIframe.id = 'report-print-iframe';
+      printIframe.style.position = 'fixed';
+      printIframe.style.right = '0';
+      printIframe.style.bottom = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      printIframe.style.border = '0';
+      document.body.appendChild(printIframe);
+    }
+
+    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+      return true;
+    }
+  } catch (e) {
+    console.warn('Iframe print failed, falling back to popup window', e);
+  }
+
+  try {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      return true;
+    }
+  } catch (e) {
+    console.error('Window.open failed for print', e);
+  }
+
+  return false;
+}
+
+export interface PrintDailyArchiveOptions {
+  institution?: string;
+  academicYear?: string;
+  dateStr: string;
+  formattedArabicDate: string;
+  sectionFilterName?: string;
+  absences: Array<{
+    id?: number | string;
+    studentName: string;
+    studentNumber?: string;
+    sectionLevel?: string;
+    sectionClass?: string;
+    seatNum?: number;
+    status: string;
+    sessionPeriod?: string;
+    teacherName?: string;
+    justified?: string;
+    justificationReason?: string;
+    notes?: string;
+  }>;
+  violations: Array<{
+    id?: string;
+    studentName: string;
+    studentNumber?: string;
+    sectionLevel?: string;
+    sectionClass?: string;
+    violationType: string;
+    description?: string;
+    actionTaken?: string;
+    teacherName?: string;
+    teacherSubject?: string;
+    recordedTime?: string;
+  }>;
+  stats?: {
+    totalAbsences: number;
+    totalLates: number;
+    totalViolations: number;
+    justifiedCount: number;
+    unjustifiedCount: number;
+  };
+}
+
+export function printDailyArchiveReport(options: PrintDailyArchiveOptions): boolean {
+  const {
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2025/2026',
+    dateStr,
+    formattedArabicDate,
+    sectionFilterName = 'كافة الأقسام',
+    absences = [],
+    violations = [],
+    stats = {
+      totalAbsences: absences.filter(a => a.status === 'absent').length,
+      totalLates: absences.filter(a => a.status === 'late').length,
+      totalViolations: violations.length,
+      justifiedCount: absences.filter(a => a.justified && a.justified !== 'unjustified').length,
+      unjustifiedCount: absences.filter(a => !a.justified || a.justified === 'unjustified').length
+    }
+  } = options;
+
+  const absencesRows =
+    absences.length === 0
+      ? `<tr><td colspan="9" style="text-align:center; padding: 16px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا يوجد أي غياب أو تأخر مسجل في هذا اليوم (حضور تام وانضباط كامل).</td></tr>`
+      : absences
+          .map((a, i) => {
+            const isLate = a.status === 'late';
+            const statusLabel = isLate ? 'تأخر' : 'غياب';
+            const statusColor = isLate ? '#b45309' : '#b91c1c';
+            const justifiedLabel =
+              a.justified === 'justified'
+                ? 'مبرر ✓'
+                : a.justified === 'medical'
+                ? 'شهادة طبية 🩺'
+                : a.justified === 'permission'
+                ? 'إذن رسمي'
+                : 'غير مبرر ✕';
+            const justColor = a.justified && a.justified !== 'unjustified' ? '#15803d' : '#991b1b';
+
+            return `
+        <tr>
+          <td style="text-align: center; font-weight: bold; width: 30px;">${i + 1}</td>
+          <td style="font-weight: bold; text-align: right; padding: 6px 8px;">${escapeHtml(a.studentName)}</td>
+          <td style="text-align: center; width: 110px;">${escapeHtml(a.sectionLevel || '')} (${escapeHtml(a.sectionClass || '')})</td>
+          <td style="text-align: center; width: 50px;">${a.seatNum || '—'}</td>
+          <td style="text-align: center; width: 65px; font-weight: bold; color: ${statusColor};">${statusLabel}</td>
+          <td style="text-align: center; width: 85px;">${escapeHtml(a.sessionPeriod || 'كامل اليوم')}</td>
+          <td style="text-align: center; width: 110px;">${escapeHtml(a.teacherName || '—')}</td>
+          <td style="text-align: center; width: 90px; font-weight: bold; color: ${justColor};">${justifiedLabel}</td>
+          <td style="text-align: right; padding: 6px 8px; color: #475569;">${escapeHtml(a.justificationReason || a.notes || '—')}</td>
+        </tr>`;
+          })
+          .join('');
+
+  const violationsRows =
+    violations.length === 0
+      ? `<tr><td colspan="7" style="text-align:center; padding: 16px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا توجد أي مخالفات أو ملاحظات سلوكية مسجلة في هذا اليوم.</td></tr>`
+      : violations
+          .map((v, i) => {
+            return `
+        <tr>
+          <td style="text-align: center; font-weight: bold; width: 30px;">${i + 1}</td>
+          <td style="font-weight: bold; text-align: right; padding: 6px 8px;">${escapeHtml(v.studentName)}</td>
+          <td style="text-align: center; width: 110px;">${escapeHtml(v.sectionLevel || '')} (${escapeHtml(v.sectionClass || '')})</td>
+          <td style="font-weight: bold; color: #991b1b; text-align: right; padding: 6px 8px;">${escapeHtml(v.violationType)}</td>
+          <td style="text-align: right; padding: 6px 8px; color: #334155;">${escapeHtml(v.description || v.violationType)}</td>
+          <td style="text-align: center; width: 110px; font-weight: bold; color: #1e3a8a;">${escapeHtml(v.actionTaken || 'تنبيه شفهي')}</td>
+          <td style="text-align: center; width: 70px; font-family: monospace;">${escapeHtml(v.recordedTime || '—')}</td>
+        </tr>`;
+          })
+          .join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>ورقة المراقبة اليومية للغيابات والمخالفات — ${escapeHtml(dateStr)}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 12mm 12mm 12mm;
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif;
+      color: #0f172a;
+      background: #fff;
+      margin: 0;
+      padding: 0;
+      direction: rtl;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .print-container {
+      width: 100%;
+      margin: 0 auto;
+    }
+    .header-box {
+      border-bottom: 2px solid #0f172a;
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+      text-align: center;
+    }
+    .stats-bar {
+      display: flex;
+      justify-content: space-between;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 8px 14px;
+      margin-bottom: 14px;
+      font-size: 11.5px;
+    }
+    .stats-item {
+      display: inline-block;
+      margin-left: 14px;
+    }
+    .stats-num {
+      font-weight: bold;
+      font-size: 13px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 16px;
+      font-size: 11px;
+    }
+    th {
+      background-color: #f1f5f9;
+      color: #0f172a;
+      border: 1px solid #94a3b8;
+      padding: 6px;
+      font-weight: bold;
+      text-align: center;
+    }
+    td {
+      border: 1px solid #cbd5e1;
+      padding: 5px 6px;
+    }
+    .section-title {
+      font-size: 13px;
+      font-weight: bold;
+      margin: 10px 0 6px 0;
+      padding-bottom: 4px;
+      border-bottom: 1.5px solid #64748b;
+      color: #1e293b;
+    }
+    .signatures {
+      margin-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      text-align: center;
+      page-break-inside: avoid;
+    }
+    .sig-block {
+      width: 45%;
+      border-top: 1px dashed #64748b;
+      padding-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    <div class="header-box">
+      <div style="font-size: 13px; font-weight: bold; color: #334155;">المملكة المغربية</div>
+      <div style="font-size: 13px; font-weight: bold; color: #334155;">وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
+      <div style="font-size: 12px; color: #475569;">الأكاديمية الجهوية للتربية والتكوين - المديرية الإقليمية بالناظور</div>
+      <div style="font-size: 16px; font-weight: 900; margin: 4px 0; color: #0f172a;">${escapeHtml(institution)}</div>
+      <div style="font-size: 14px; font-weight: bold; text-decoration: underline; margin-top: 2px;">
+        ورقة المراقبة اليومية للغيابات والمخالفات السلوكية
+      </div>
+      <div style="font-size: 11.5px; margin-top: 4px; color: #1e293b;">
+        <strong>تاريخ اليوم:</strong> ${escapeHtml(formattedArabicDate)} (${escapeHtml(dateStr)}) | 
+        <strong>نطاق التقرير:</strong> ${escapeHtml(sectionFilterName)} | 
+        <strong>الموسم الدراسي:</strong> ${escapeHtml(academicYear)}
+      </div>
+    </div>
+
+    <div class="stats-bar">
+      <div class="stats-item">مجموع الغيابات: <span class="stats-num" style="color: #b91c1c;">${stats.totalAbsences}</span></div>
+      <div class="stats-item">التأخرات: <span class="stats-num" style="color: #b45309;">${stats.totalLates}</span></div>
+      <div class="stats-item">الغيابات المبررة: <span class="stats-num" style="color: #15803d;">${stats.justifiedCount}</span></div>
+      <div class="stats-item">الغيابات غير المبررة: <span class="stats-num" style="color: #991b1b;">${stats.unjustifiedCount}</span></div>
+      <div class="stats-item">المخالفات والملاحظات: <span class="stats-num" style="color: #7c2d12;">${stats.totalViolations}</span></div>
+    </div>
+
+    <div class="section-title">
+      أولاً: سجل الغيابات والتأخرات اليومية (${absences.length} حالة مسجلة)
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 30px;">#</th>
+          <th>اسم التلميذ(ة)</th>
+          <th style="width: 110px;">القسم</th>
+          <th style="width: 50px;">المقعد</th>
+          <th style="width: 65px;">الحالة</th>
+          <th style="width: 85px;">الفترة</th>
+          <th style="width: 110px;">الأستاذ(ة)</th>
+          <th style="width: 90px;">التبرير</th>
+          <th>ملاحظات وتفاصيل التبرير</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${absencesRows}
+      </tbody>
+    </table>
+
+    <div class="section-title">
+      ثانياً: سجل المخالفات والملاحظات السلوكية (${violations.length} مخالفة مسجلة)
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 30px;">#</th>
+          <th>اسم التلميذ(ة)</th>
+          <th style="width: 110px;">القسم</th>
+          <th style="width: 140px;">نوع المخالفة</th>
+          <th>وصف المخالفة</th>
+          <th style="width: 110px;">الإجراء المتخذ</th>
+          <th style="width: 70px;">التوقيت</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${violationsRows}
+      </tbody>
+    </table>
+
+    <div class="signatures">
+      <div class="sig-block">
+        <strong>توقيع الحراسة العامة للخارجية</strong>
+        <div style="height: 48px;"></div>
+      </div>
+      <div class="sig-block">
+        <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
+        <div style="height: 48px;"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
+}
+
+export function printReportHtml(html: string): boolean {
+  // Method 1: Try using a hidden iframe to trigger printing seamlessly
+  try {
+    let printIframe = document.getElementById('notes-print-iframe') as HTMLIFrameElement | null;
+    if (!printIframe) {
+      printIframe = document.createElement('iframe');
+      printIframe.id = 'notes-print-iframe';
+      printIframe.style.position = 'fixed';
+      printIframe.style.right = '0';
+      printIframe.style.bottom = '0';
+      printIframe.style.width = '0';
+      printIframe.style.height = '0';
+      printIframe.style.border = '0';
+      document.body.appendChild(printIframe);
+    }
+
+    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(html);
+      doc.close();
+      return true;
+    }
+  } catch (e) {
+    console.warn('Iframe print failed, falling back to popup window', e);
+  }
+
+  // Method 2: Fallback to window.open
+  try {
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.open();
+      printWindow.document.write(html);
+      printWindow.document.close();
+      return true;
+    }
+  } catch (e) {
+    console.error('Failed to open print window', e);
+  }
+
+  return false;
+}
+
+function escapeHtml(str: string): string {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}

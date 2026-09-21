@@ -1,0 +1,6 @@
+{
+  "name": "خرائط الأقسام - إدارة الفصول وقاعدة البيانات",
+  "description": "نظام إدارة مقاعد التلاميذ بثانوية ايكسان الإعدادية مع حسابات الأساتذة، ونظام إسناد الأقسام، ولوحة الإشراف للمدير",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
