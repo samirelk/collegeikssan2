@@ -50,6 +50,7 @@ export async function syncDatabaseWithFirestore(db: any) {
     console.log('✅ [FirestoreSync] Full Cloud Firestore synchronization complete!');
   } catch (err: any) {
     console.error('❌ [FirestoreSync] Error during Firestore synchronization:', err?.message || err);
+    throw err;
   }
 }
 
@@ -554,267 +555,149 @@ async function pushMissingLocalDataToFirestore(db: any) {
 }
 
 // ----------------------------------------------------
-// Real-time asynchronous single-item Firestore writers
+// Durable single-item Firestore writers
 // ----------------------------------------------------
 
-export function cloudSaveUser(user: any) {
-  setImmediate(async () => {
-    try {
-      await setDoc('users', user.id, {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        fullName: user.fullName || user.full_name,
-        role: user.role,
-        status: user.status || 'active',
-        subject: user.subject || '',
-        academicYear: user.academicYear || user.academic_year || '2025/2026',
-        emailVerified: Boolean(user.emailVerified ?? user.email_verified),
-        createdAt: user.createdAt || user.created_at || new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error(`cloudSaveUser(${user.id}) error:`, e);
-    }
+const pendingCloudWrites = new Set<Promise<boolean>>();
+
+function trackCloudWrite(label: string, operation: () => Promise<boolean>): Promise<boolean> {
+  const promise = operation().catch((error) => {
+    console.error(`[FirestoreSync] ${label} failed:`, error);
+    return false;
   });
+  pendingCloudWrites.add(promise);
+  void promise.finally(() => pendingCloudWrites.delete(promise));
+  return promise;
+}
+
+export async function flushPendingCloudWrites(): Promise<boolean> {
+  let allSucceeded = true;
+  while (pendingCloudWrites.size > 0) {
+    const results = await Promise.all(Array.from(pendingCloudWrites));
+    if (results.some((result) => !result)) allSucceeded = false;
+  }
+  return allSucceeded;
+}
+
+export function cloudSaveUser(user: any) {
+  return trackCloudWrite(`cloudSaveUser(${user.id})`, () => setDoc('users', user.id, {
+    id: user.id, username: user.username, email: user.email,
+    fullName: user.fullName || user.full_name, role: user.role,
+    status: user.status || 'active', subject: user.subject || '',
+    academicYear: user.academicYear || user.academic_year || '2025/2026',
+    emailVerified: Boolean(user.emailVerified ?? user.email_verified),
+    createdAt: user.createdAt || user.created_at || new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }));
 }
 
 export function cloudDeleteUser(userId: string) {
-  setImmediate(async () => {
-    try {
-      await deleteDoc('users', userId);
-    } catch (e) {
-      console.error(`cloudDeleteUser(${userId}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudDeleteUser(${userId})`, () => deleteDoc('users', userId));
 }
 
 export function cloudSaveSection(sec: any) {
-  setImmediate(async () => {
-    try {
-      await setDoc('sections', sec.id, {
-        id: sec.id,
-        level: sec.level,
-        classNumber: sec.classNumber || sec.class_number,
-        teacher: sec.teacher || '',
-        assignedTeacherId: sec.assignedTeacherId || sec.assigned_teacher_id || null,
-        academicYear: sec.academicYear || sec.academic_year || '2025/2026',
-        updatedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error(`cloudSaveSection(${sec.id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudSaveSection(${sec.id})`, () => setDoc('sections', sec.id, {
+    id: sec.id, level: sec.level, classNumber: sec.classNumber || sec.class_number,
+    teacher: sec.teacher || '', assignedTeacherId: sec.assignedTeacherId || sec.assigned_teacher_id || null,
+    academicYear: sec.academicYear || sec.academic_year || '2025/2026',
+    updatedAt: new Date().toISOString()
+  }));
 }
 
 export function cloudDeleteSection(sectionId: string) {
-  setImmediate(async () => {
-    try {
-      await deleteDoc('sections', sectionId);
-    } catch (e) {
-      console.error(`cloudDeleteSection(${sectionId}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudDeleteSection(${sectionId})`, () => deleteDoc('sections', sectionId));
 }
 
 export function cloudSaveSeat(sectionId: string, seat: any) {
-  setImmediate(async () => {
-    try {
-      const seatId = `${sectionId}_seat_${seat.seat || seat.seat_num}`;
-      await setDoc('seats', seatId, {
-        id: seatId,
-        sectionId,
-        seatNum: Number(seat.seat || seat.seat_num),
-        studentName: seat.name || seat.student_name || '',
-        studentNumber: seat.number || seat.student_number || '',
-        massarNumber: seat.massarNumber || seat.massar_number || '',
-        rosterId: seat.rosterId || seat.roster_id || null,
-        attendance: seat.attendance || null,
-        statusColor: seat.statusColor || seat.status_color || 'default',
-        updatedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error(`cloudSaveSeat error:`, e);
-    }
-  });
+  const seatId = `${sectionId}_seat_${seat.seat || seat.seat_num}`;
+  return trackCloudWrite(`cloudSaveSeat(${seatId})`, () => setDoc('seats', seatId, {
+    id: seatId, sectionId, seatNum: Number(seat.seat || seat.seat_num),
+    studentName: seat.name || seat.student_name || '', studentNumber: seat.number || seat.student_number || '',
+    massarNumber: seat.massarNumber || seat.massar_number || '', rosterId: seat.rosterId || seat.roster_id || null,
+    attendance: seat.attendance || null, statusColor: seat.statusColor || seat.status_color || 'default',
+    updatedAt: new Date().toISOString()
+  }));
 }
 
 export function cloudSaveAttendance(att: any) {
-  setImmediate(async () => {
-    try {
-      await setDoc('attendance_history', att.id, {
-        id: att.id,
-        sectionId: att.sectionId || att.section_id,
-        seatNum: Number(att.seatNum || att.seat_num || 0),
-        studentName: att.studentName || att.student_name || '',
-        studentNumber: att.studentNumber || att.student_number || '',
-        massarNumber: att.massarNumber || att.massar_number || '',
-        status: att.status,
-        date: att.date,
-        time: att.time || '',
-        session: att.session || '',
-        subject: att.subject || '',
-        teacherName: att.teacherName || att.teacher_name || '',
-        isJustified: Boolean(att.isJustified ?? att.is_justified),
-        justificationReason: att.justificationReason || att.justification_reason || '',
-        academicYear: att.academicYear || att.academic_year || '2025/2026',
-        createdAt: att.createdAt || att.created_at || new Date().toISOString()
-      });
-    } catch (e) {
-      console.error(`cloudSaveAttendance(${att.id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudSaveAttendance(${att.id})`, () => setDoc('attendance_history', att.id, {
+    id: att.id, sectionId: att.sectionId || att.section_id, seatNum: Number(att.seatNum || att.seat_num || 0),
+    studentName: att.studentName || att.student_name || '', studentNumber: att.studentNumber || att.student_number || '',
+    massarNumber: att.massarNumber || att.massar_number || '', status: att.status, date: att.date,
+    time: att.time || '', session: att.session || '', subject: att.subject || '',
+    teacherName: att.teacherName || att.teacher_name || '',
+    isJustified: Boolean(att.isJustified ?? att.is_justified),
+    justificationReason: att.justificationReason || att.justification_reason || '',
+    academicYear: att.academicYear || att.academic_year || '2025/2026',
+    createdAt: att.createdAt || att.created_at || new Date().toISOString()
+  }));
 }
 
 export function cloudDeleteAttendance(id: string) {
-  setImmediate(async () => {
-    try {
-      await deleteDoc('attendance_history', id);
-    } catch (e) {
-      console.error(`cloudDeleteAttendance(${id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudDeleteAttendance(${id})`, () => deleteDoc('attendance_history', id));
 }
 
 export function cloudSaveViolation(vio: any) {
-  setImmediate(async () => {
-    try {
-      await setDoc('daily_violations', vio.id, {
-        id: vio.id,
-        sectionId: vio.sectionId || vio.section_id,
-        seatNum: Number(vio.seatNum || vio.seat_num || 0),
-        studentName: vio.studentName || vio.student_name || '',
-        studentNumber: vio.studentNumber || vio.student_number || '',
-        massarNumber: vio.massarNumber || vio.massar_number || '',
-        violationType: vio.violationType || vio.violation_type || '',
-        actionTaken: vio.actionTaken || vio.action_taken || '',
-        teacherName: vio.teacherName || vio.teacher_name || '',
-        teacherSubject: vio.teacherSubject || vio.teacher_subject || '',
-        date: vio.date || '',
-        time: vio.time || '',
-        academicYear: vio.academicYear || vio.academic_year || '2025/2026',
-        notes: vio.notes || '',
-        createdAt: vio.createdAt || vio.created_at || new Date().toISOString(),
-        teacherId: vio.teacherId || vio.teacher_id || ''
-      });
-    } catch (e) {
-      console.error(`cloudSaveViolation(${vio.id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudSaveViolation(${vio.id})`, () => setDoc('daily_violations', vio.id, {
+    id: vio.id, sectionId: vio.sectionId || vio.section_id, seatNum: Number(vio.seatNum || vio.seat_num || 0),
+    studentName: vio.studentName || vio.student_name || '', studentNumber: vio.studentNumber || vio.student_number || '',
+    massarNumber: vio.massarNumber || vio.massar_number || '', violationType: vio.violationType || vio.violation_type || '',
+    actionTaken: vio.actionTaken || vio.action_taken || '', teacherName: vio.teacherName || vio.teacher_name || '',
+    teacherSubject: vio.teacherSubject || vio.teacher_subject || '', date: vio.date || '', time: vio.time || '',
+    academicYear: vio.academicYear || vio.academic_year || '2025/2026', notes: vio.notes || '',
+    createdAt: vio.createdAt || vio.created_at || new Date().toISOString(), teacherId: vio.teacherId || vio.teacher_id || ''
+  }));
 }
 
 export function cloudDeleteViolation(id: string) {
-  setImmediate(async () => {
-    try {
-      await deleteDoc('daily_violations', id);
-    } catch (e) {
-      console.error(`cloudDeleteViolation(${id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudDeleteViolation(${id})`, () => deleteDoc('daily_violations', id));
 }
 
 export function cloudSaveNote(note: any) {
-  setImmediate(async () => {
-    try {
-      await setDoc('notes', note.id, {
-        id: note.id,
-        sectionId: note.sectionId || note.section_id,
-        seatNum: Number(note.seatNum || note.seat_num || 0),
-        noteText: note.noteText || note.note_text || note.text || '',
-        noteDate: note.noteDate || note.note_date || note.date || '',
-        noteTime: note.noteTime || note.note_time || note.time || '',
-        createdAt: note.createdAt || note.created_at || new Date().toISOString(),
-        teacherId: note.teacherId || note.teacher_id || ''
-      });
-    } catch (e) {
-      console.error(`cloudSaveNote(${note.id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudSaveNote(${note.id})`, () => setDoc('notes', note.id, {
+    id: note.id, sectionId: note.sectionId || note.section_id, seatNum: Number(note.seatNum || note.seat_num || 0),
+    noteText: note.noteText || note.note_text || note.text || '', noteDate: note.noteDate || note.note_date || note.date || '',
+    noteTime: note.noteTime || note.note_time || note.time || '', createdAt: note.createdAt || note.created_at || new Date().toISOString(),
+    teacherId: note.teacherId || note.teacher_id || ''
+  }));
 }
 
 export function cloudDeleteNote(id: string) {
-  setImmediate(async () => {
-    try {
-      await deleteDoc('notes', id);
-    } catch (e) {
-      console.error(`cloudDeleteNote(${id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudDeleteNote(${id})`, () => deleteDoc('notes', id));
 }
 
 export function cloudSaveTeacherSeatOverride(override: any) {
-  setImmediate(async () => {
-    try {
-      const overrideId = `${override.teacherId || override.teacher_id}_${override.sectionId || override.section_id}_seat_${override.seatNum || override.seat_num}`;
-      await setDoc('teacher_seat_overrides', overrideId, {
-        id: overrideId,
-        teacherId: override.teacherId || override.teacher_id,
-        sectionId: override.sectionId || override.section_id,
-        seatNum: Number(override.seatNum || override.seat_num),
-        studentName: override.studentName || override.student_name || '',
-        studentNumber: override.studentNumber || override.student_number || '',
-        massarNumber: override.massarNumber || override.massar_number || '',
-        rosterId: override.rosterId || override.roster_id || null,
-        statusColor: override.statusColor || override.status_color || 'default',
-        updatedAt: override.updatedAt || override.updated_at || new Date().toISOString()
-      });
-    } catch (e) {
-      console.error(`cloudSaveTeacherSeatOverride error:`, e);
-    }
-  });
+  const overrideId = `${override.teacherId || override.teacher_id}_${override.sectionId || override.section_id}_seat_${override.seatNum || override.seat_num}`;
+  return trackCloudWrite(`cloudSaveTeacherSeatOverride(${overrideId})`, () => setDoc('teacher_seat_overrides', overrideId, {
+    id: overrideId, teacherId: override.teacherId || override.teacher_id, sectionId: override.sectionId || override.section_id,
+    seatNum: Number(override.seatNum || override.seat_num), studentName: override.studentName || override.student_name || '',
+    studentNumber: override.studentNumber || override.student_number || '', massarNumber: override.massarNumber || override.massar_number || '',
+    rosterId: override.rosterId || override.roster_id || null, statusColor: override.statusColor || override.status_color || 'default',
+    updatedAt: override.updatedAt || override.updated_at || new Date().toISOString()
+  }));
 }
 
 export function cloudDeleteTeacherSeatOverride(teacherId: string, sectionId: string, seatNum: number) {
-  setImmediate(async () => {
-    try {
-      const overrideId = `${teacherId}_${sectionId}_seat_${seatNum}`;
-      await deleteDoc('teacher_seat_overrides', overrideId);
-    } catch (e) {
-      console.error(`cloudDeleteTeacherSeatOverride error:`, e);
-    }
-  });
+  const overrideId = `${teacherId}_${sectionId}_seat_${seatNum}`;
+  return trackCloudWrite(`cloudDeleteTeacherSeatOverride(${overrideId})`, () => deleteDoc('teacher_seat_overrides', overrideId));
 }
 
 export function cloudSaveAssignment(asgn: any) {
-  setImmediate(async () => {
-    try {
-      await setDoc('section_assignments', asgn.id, {
-        id: asgn.id,
-        teacherId: asgn.teacherId || asgn.teacher_id,
-        sectionId: asgn.sectionId || asgn.section_id,
-        status: asgn.status,
-        requestNote: asgn.requestNote || asgn.request_note || '',
-        requestedAt: asgn.requestedAt || asgn.requested_at || new Date().toISOString(),
-        reviewedAt: asgn.reviewedAt || asgn.reviewed_at || null,
-        reviewedBy: asgn.reviewedBy || asgn.reviewed_by || null,
-        academicYear: asgn.academicYear || asgn.academic_year || '2025/2026'
-      });
-    } catch (e) {
-      console.error(`cloudSaveAssignment(${asgn.id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudSaveAssignment(${asgn.id})`, () => setDoc('section_assignments', asgn.id, {
+    id: asgn.id, teacherId: asgn.teacherId || asgn.teacher_id, sectionId: asgn.sectionId || asgn.section_id,
+    status: asgn.status, requestNote: asgn.requestNote || asgn.request_note || '',
+    requestedAt: asgn.requestedAt || asgn.requested_at || new Date().toISOString(),
+    reviewedAt: asgn.reviewedAt || asgn.reviewed_at || null, reviewedBy: asgn.reviewedBy || asgn.reviewed_by || null,
+    academicYear: asgn.academicYear || asgn.academic_year || '2025/2026'
+  }));
 }
 
 export function cloudDeleteAssignment(id: string) {
-  setImmediate(async () => {
-    try {
-      await deleteDoc('section_assignments', id);
-    } catch (e) {
-      console.error(`cloudDeleteAssignment(${id}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudDeleteAssignment(${id})`, () => deleteDoc('section_assignments', id));
 }
 
 export function cloudSaveSetting(key: string, value: string) {
-  setImmediate(async () => {
-    try {
-      await setDoc('app_settings', key, {
-        key,
-        value,
-        updatedAt: new Date().toISOString()
-      });
-    } catch (e) {
-      console.error(`cloudSaveSetting(${key}) error:`, e);
-    }
-  });
+  return trackCloudWrite(`cloudSaveSetting(${key})`, () => setDoc('app_settings', key, {
+    key, value, updatedAt: new Date().toISOString()
+  }));
 }

@@ -69,7 +69,7 @@ export const AppFooter: React.FC<AppFooterProps> = ({
             فكرة وتصميم الأستاذ <span className="font-bold text-[#1F2926]">سمير القراشي</span> • الثانوية الإعدادية ايكسان © {currentYear}
           </p>
           <div className="flex items-center gap-3">
-            <span>نظام تدبير خرائط المقاعد والأقسام v2.0</span>
+            <span>نظام تدبير الغيابات والمخالفات v2.0</span>
             <span className="text-[#D5CDC0]">•</span>
             <span className="text-emerald-800 font-medium">البيانات مؤمنة ومحفوظة</span>
           </div>

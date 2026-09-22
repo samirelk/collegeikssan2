@@ -132,38 +132,38 @@ export async function setDoc(collection: string, docId: string, data: Record<str
     }
   }
 
-  try {
-    const res = await fetch(url, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fields })
-    });
-    if (!res.ok) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields })
+      });
+      if (res.ok) return true;
       const errText = await res.text();
-      console.error(`Firestore setDoc(${collection}/${docId}) failed [${res.status}]:`, errText);
-      return false;
+      console.error(`Firestore setDoc(${collection}/${docId}) failed [${res.status}] attempt ${attempt}:`, errText);
+    } catch (err) {
+      console.error(`Firestore setDoc(${collection}/${docId}) network error attempt ${attempt}:`, err);
     }
-    return true;
-  } catch (err) {
-    console.error(`Firestore setDoc(${collection}/${docId}) network error:`, err);
-    return false;
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 250));
   }
+  return false;
 }
 
 export async function deleteDoc(collection: string, docId: string): Promise<boolean> {
   const config = getFirebaseConfig();
   const url = `${getFirestoreBaseUrl()}/${collection}/${encodeURIComponent(docId)}?key=${config.apiKey}`;
-  try {
-    const res = await fetch(url, { method: 'DELETE' });
-    if (!res.ok && res.status !== 404) {
-      console.error(`Firestore deleteDoc(${collection}/${docId}) failed [${res.status}]`);
-      return false;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await fetch(url, { method: 'DELETE' });
+      if (res.ok || res.status === 404) return true;
+      console.error(`Firestore deleteDoc(${collection}/${docId}) failed [${res.status}] attempt ${attempt}`);
+    } catch (err) {
+      console.error(`Firestore deleteDoc(${collection}/${docId}) network error attempt ${attempt}:`, err);
     }
-    return true;
-  } catch (err) {
-    console.error(`Firestore deleteDoc(${collection}/${docId}) network error:`, err);
-    return false;
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, attempt * 250));
   }
+  return false;
 }
 
 export async function listDocs(collection: string): Promise<Record<string, any>[]> {

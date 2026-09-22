@@ -81,7 +81,7 @@ import {
   deleteStudentViolation,
   db
 } from './server/db.ts';
-import { syncDatabaseWithFirestore } from './server/firestoreSync.ts';
+import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
 import {
   configureCloudBackup,
   restoreLatestSnapshotOnBoot,
@@ -125,6 +125,7 @@ async function startServer() {
     shuttingDown = true;
     console.log(`\n[CloudBackup] Received ${signal}; flushing final snapshot before exit...`);
     try {
+      await flushPendingCloudWrites();
       await flushSnapshot('shutdown');
     } catch {
       // ignore
@@ -138,6 +139,49 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json({ limit: '15mb' }));
+
+  // Every successful mutation must wait for its Firestore writes and a full
+  // snapshot before the response leaves the server. This prevents navigation,
+  // logout, or a container restart from racing the cloud persistence layer.
+  app.use((req, res, next) => {
+    const method = req.method.toUpperCase();
+    const isMutation = method === 'POST' || method === 'PUT' || method === 'DELETE' || method === 'PATCH';
+    const isCloudControlRoute = req.path.startsWith('/api/cloud-backup') || req.path.startsWith('/api/cloud-sync');
+    const isReadOnlyAuth = req.path === '/api/auth/login';
+    if (!isMutation || !req.path.startsWith('/api') || isCloudControlRoute || isReadOnlyAuth) {
+      next();
+      return;
+    }
+
+    const originalJson = res.json.bind(res);
+    let responseStarted = false;
+    res.json = ((body: unknown) => {
+      if (responseStarted) return res;
+      responseStarted = true;
+      void (async () => {
+        const cloudWritesSucceeded = await flushPendingCloudWrites();
+        const snapshot = cloudWritesSucceeded ? await flushSnapshot('request') : null;
+        if (!cloudWritesSucceeded || !snapshot) {
+          res.status(503);
+          originalJson({
+            success: false,
+            error: 'تم حفظ التغيير محلياً، لكن تعذر تجديد قاعدة البيانات في Firebase. يرجى المحاولة مرة أخرى.'
+          });
+          return;
+        }
+        originalJson(body);
+      })().catch((error) => {
+        console.error('[CloudPersistence] Failed before response:', error);
+        res.status(503);
+        originalJson({
+          success: false,
+          error: 'تم حفظ التغيير محلياً، لكن تعذر تأكيد حفظه في Firebase.'
+        });
+      });
+      return res;
+    }) as express.Response['json'];
+    next();
+  });
 
   // Mark the database dirty after any successful mutating API request so the
   // cloud-backup engine schedules a fresh snapshot automatically.
