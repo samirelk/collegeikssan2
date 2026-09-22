@@ -533,6 +533,7 @@ export function initDatabase() {
   if (settingsCount === 0) {
     seedInitialData();
   }
+  const dataResetCompleted = (db.prepare('SELECT value FROM app_settings WHERE key = ?').get('data_reset_completed') as { value?: string } | undefined)?.value === 'true';
 
   // Ensure default institution is "الثانوية الإعدادية ايكسان"
   const now = new Date().toISOString();
@@ -622,6 +623,7 @@ export function initDatabase() {
   // مدير المؤسسة (يدير الأقسام، طلبات الأساتذة، الأرشيف اليومي، والمواسم الدراسية)
   // الايميل الافتراضي: directeur.iksan@gmail.com / كلمة المرور الافتراضية: Director@2026
   // يتم تغييرها عند تسجيل الدخول الأول
+  if (!dataResetCompleted) {
   const directorUser = db.prepare("SELECT id, full_name, must_change_profile FROM users WHERE username = 'directeur' OR email = 'directeur.iksan@gmail.com' OR role = 'director'").get() as { id: string; full_name?: string; must_change_profile?: number } | undefined;
   if (!directorUser) {
     db.prepare(`
@@ -755,6 +757,7 @@ export function initDatabase() {
     }
   } catch (err) {
     console.error('Failed to seed school activities:', err);
+  }
   }
 }
 
@@ -5403,5 +5406,4 @@ export function deleteAcademicYear(yearId: string) {
 
   return getAllAcademicYears();
 }
-
 

@@ -81,9 +81,13 @@ export async function writeSnapshot(reason: string = 'manual'): Promise<Snapshot
     return null;
   }
   if (writing) {
-    // A write is already in flight; mark dirty so another runs afterwards.
+    // A write is already in flight. Wait for it instead of allowing a request
+    // to finish while the latest local change is still only in memory.
     dirty = true;
-    return null;
+    while (writing) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return writeSnapshot(reason);
   }
 
   writing = true;
@@ -104,12 +108,16 @@ export async function writeSnapshot(reason: string = 'manual'): Promise<Snapshot
 
     // Write chunks (sequential to keep memory + concurrency modest).
     for (let i = 0; i < chunks.length; i++) {
-      await setDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`, { data: chunks[i], index: i });
+      if (!await setDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`, { data: chunks[i], index: i })) {
+        throw new Error(`تعذر حفظ مقطع النسخة السحابية رقم ${i}.`);
+      }
     }
 
     // Remove leftover chunks from a previously larger snapshot for this day.
     for (let i = chunks.length; i < prevChunkCount; i++) {
-      await deleteDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`);
+      if (!await deleteDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`)) {
+        throw new Error(`تعذر حذف المقطع القديم رقم ${i} من النسخة السحابية.`);
+      }
     }
 
     const manifest: SnapshotManifest = {
@@ -120,7 +128,9 @@ export async function writeSnapshot(reason: string = 'manual'): Promise<Snapshot
       sectionsCount,
       reason,
     };
-    await setDoc(SNAPSHOT_COLLECTION, snapshotId, manifest as any);
+    if (!await setDoc(SNAPSHOT_COLLECTION, snapshotId, manifest as any)) {
+      throw new Error('تعذر حفظ بيان النسخة السحابية.');
+    }
 
     lastSnapshotAt = now;
     lastSnapshotError = null;

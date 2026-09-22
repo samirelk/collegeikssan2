@@ -162,17 +162,17 @@ export const LandingView: React.FC<LandingViewProps> = ({
     <div className="w-full max-w-4xl mx-auto px-4 py-4 md:py-8 font-['Tajawal',sans-serif]">
       
       {/* Top Bar matching image */}
-      <header className="flex items-center justify-between gap-4 mb-8">
+      <header className="relative flex items-center justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#E8F2F0] border border-[#D5CDC0] flex items-center justify-center text-[#1A4E47] shadow-xs">
             <School className="w-5 h-5" />
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-[#1F2926] m-0 font-['Amiri',serif]">
-              {institutionName || 'الثانوية الإعدادية ايكسان'}
+              نظام تدبير الغيابات والمخالفات
             </h1>
             <p className="text-xs text-[#6C6356] m-0">
-              الموسم الدراسي {academicYear || '2025/2026'}
+              {institutionName || 'الثانوية الإعدادية ايكسان'} • الموسم الدراسي {academicYear || '2025/2026'}
             </p>
           </div>
         </div>
@@ -220,6 +220,11 @@ export const LandingView: React.FC<LandingViewProps> = ({
             <span>دخول</span>
             <ArrowLeft className="w-3.5 h-3.5" />
           </button>
+        </div>
+        <div className="hidden lg:block absolute left-0 top-0 max-w-[250px] text-left text-[10px] leading-4 font-semibold text-[#6C6356]">
+          وزارة التربية الوطنية والتعليم الأولي والرياضة
+          <br />
+          أكاديمية الشرق: المديرية الإقليمية الناضور
         </div>
       </header>
 

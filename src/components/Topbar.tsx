@@ -58,7 +58,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   isAdminRoute = false,
 }) => {
   return (
-    <div className="flex items-center justify-between gap-4 flex-wrap mb-6 pb-4 border-b border-[#E5DFD4]">
+    <div className="relative flex items-center justify-between gap-4 flex-wrap mb-6 pb-4 border-b border-[#E5DFD4]">
       
       {/* Brand & Institution Info - Clicking returns directly to Home */}
       <div
@@ -82,10 +82,12 @@ export const Topbar: React.FC<TopbarProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-bold text-[#1F2926] group-hover:text-[#1A4E47] m-0 tracking-wide font-['Amiri',serif] transition-colors">
-              {settings.institution ? settings.institution : 'الثانوية الإعدادية ايكسان'}
+              نظام تدبير الغيابات والمخالفات
             </h1>
           </div>
           <div className="flex items-center gap-2 mt-0.5 text-xs text-[#6C6356] flex-wrap">
+            <span>{settings.institution || 'الثانوية الإعدادية ايكسان'}</span>
+            <span className="text-[#D5CDC0]">•</span>
             <span className="font-semibold text-[#1A4E47]">
               {currentUser ? `الموسم: ${currentUser.academicYear || settings.year}` : `الموسم: ${settings.year || '2025/2026'}`}
             </span>
@@ -288,7 +290,12 @@ export const Topbar: React.FC<TopbarProps> = ({
 
       </div>
 
+      <div className="hidden lg:block absolute left-0 top-0 max-w-[280px] text-left text-[11px] leading-5 font-semibold text-[#6C6356]">
+        وزارة التربية الوطنية والتعليم الأولي والرياضة
+        <br />
+        أكاديمية الشرق: المديرية الإقليمية الناضور
+      </div>
+
     </div>
   );
 };
-
