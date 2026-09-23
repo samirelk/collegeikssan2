@@ -30,6 +30,7 @@ import { AppFooter } from './components/AppFooter';
 import { SchoolActivitiesWall } from './components/SchoolActivitiesWall';
 import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { DbInfoModal } from './components/DbInfoModal';
+import { TeacherTimetable } from './components/TeacherTimetable';
 
 export default function App() {
   // Independent Admin Route State (/admin) (Order #1)
@@ -60,7 +61,7 @@ export default function App() {
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
   // Sections filter for teachers / admin
-  const [teacherFilterTab, setTeacherFilterTab] = useState<'my' | 'all'>('my');
+  const [teacherFilterTab, setTeacherFilterTab] = useState<'timetable' | 'my' | 'all'>('timetable');
 
   // Settings state
   const [settings, setSettings] = useState<AppSettings>({
@@ -215,6 +216,9 @@ export default function App() {
   // Auth Handlers
   const handleLoginSuccess = (user: UserType) => {
     setCurrentUser(user);
+    if (user.role === 'teacher') {
+      setTeacherFilterTab('timetable');
+    }
     try {
       localStorage.setItem('echsa_user', JSON.stringify(user));
     } catch (e) {
@@ -231,6 +235,7 @@ export default function App() {
 
   const handleLogout = () => {
     setCurrentUser(null);
+    setTeacherFilterTab('timetable');
     try {
       localStorage.removeItem('echsa_user');
     } catch (e) {
@@ -1438,7 +1443,21 @@ export default function App() {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                setActiveSectionId(null);
+                setTeacherFilterTab(teacherFilterTab === 'timetable' ? 'my' : 'timetable');
+              }}
+              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors ${
+                teacherFilterTab === 'timetable'
+                  ? 'bg-[#1A4E47] text-white'
+                  : 'bg-[#E8F2F0] hover:bg-[#D0E4E0] text-[#1A4E47] border border-[#B9D8D2]'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>{teacherFilterTab === 'timetable' ? 'عرض بطاقات الأقسام' : 'استعمال الزمان (جدول الحصص)'}</span>
+            </button>
             <button
               onClick={() => setShowTeacherAssignmentModal(true)}
               className="px-4 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
@@ -1593,6 +1612,20 @@ export default function App() {
                 </div>
 
                 <div className="actions">
+                  {currentUser?.role === 'teacher' && (
+                    <button
+                      className="btn btn-ghost btn-sm text-[#E8F2F0] border-[#1A4E47] bg-[#1A4E47]/30 hover:bg-[#1A4E47]/50 flex items-center gap-1.5"
+                      onClick={() => {
+                        setActiveSectionId(null);
+                        setTeacherFilterTab('timetable');
+                      }}
+                      title="العودة مباشرة إلى استعمال الزمان وجدول الحصص"
+                    >
+                      <Calendar className="w-3.5 h-3.5 text-emerald-300" />
+                      <span>📅 جدول الحصص</span>
+                    </button>
+                  )}
+
                   <button
                     id="order-by-number-btn"
                     className="btn btn-ghost btn-sm text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/10 flex items-center gap-1.5"
@@ -1950,6 +1983,18 @@ export default function App() {
                 <>
                   <button
                     type="button"
+                    onClick={() => setTeacherFilterTab('timetable')}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      teacherFilterTab === 'timetable'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'bg-white text-[#6C6356] border border-[#D5CDC0] hover:bg-[#FAF8F5]'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>📅 استعمال الزمان (جدول الحصص)</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setTeacherFilterTab('my')}
                     className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                       teacherFilterTab === 'my'
@@ -1981,11 +2026,28 @@ export default function App() {
           )}
 
           {currentUser?.role === 'teacher' && teacherOverview && (
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5" dir="rtl">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5" dir="rtl">
+              <button
+                type="button"
+                onClick={() => setTeacherFilterTab('timetable')}
+                className={`text-right rounded-xl p-3 border transition-all cursor-pointer ${
+                  teacherFilterTab === 'timetable'
+                    ? 'bg-[#1A4E47] text-white border-[#1A4E47] shadow-xs'
+                    : 'bg-[#E8F2F0] border-[#B9D8D2] hover:border-[#1A4E47]'
+                }`}
+              >
+                <div className={`text-[11px] font-bold flex items-center gap-1 ${teacherFilterTab === 'timetable' ? 'text-white' : 'text-[#1A4E47]'}`}>
+                  <Calendar className="w-3.5 h-3.5" />
+                  <span>استعمال الزمان</span>
+                </div>
+                <div className={`text-sm font-bold mt-1 ${teacherFilterTab === 'timetable' ? 'text-white' : 'text-[#1A4E47]'}`}>جدول الحصص 📅</div>
+              </button>
               <button
                 type="button"
                 onClick={() => setTeacherFilterTab('my')}
-                className="text-right bg-[#E8F2F0] border border-[#B9D8D2] rounded-xl p-3 hover:border-[#1A4E47] transition-colors cursor-pointer"
+                className={`text-right border rounded-xl p-3 hover:border-[#1A4E47] transition-colors cursor-pointer ${
+                  teacherFilterTab === 'my' ? 'bg-[#E8F2F0] border-[#1A4E47]' : 'bg-white border-[#E5DFD4]'
+                }`}
               >
                 <div className="text-[11px] font-bold text-[#5C746F]">أقسامي المسندة</div>
                 <div className="text-2xl font-bold text-[#1A4E47] mt-1">{teacherOverview.sections}</div>
@@ -2017,7 +2079,17 @@ export default function App() {
             </div>
           )}
 
-          {(() => {
+          {currentUser?.role === 'teacher' && teacherFilterTab === 'timetable' ? (
+            <TeacherTimetable
+              currentUser={currentUser}
+              sections={sections}
+              settings={settings}
+              onSelectSection={(secId) => {
+                setActiveSectionId(secId);
+              }}
+            />
+          ) : (
+            (() => {
             const displayedSections =
               currentUser?.role === 'teacher' && teacherFilterTab === 'my'
                 ? sections.filter((s) => s.assignedTeacherId === currentUser.id || s.assignedTeachers?.some((t) => t.teacherId === currentUser.id))
@@ -2173,7 +2245,7 @@ export default function App() {
               })}
             </div>
             );
-          })()}
+          })())}
         </main>
       )}
 
@@ -2899,9 +2971,7 @@ function SeatCard({
 
       {/* Violations button */}
       {(() => {
-        const violationsCount = (seat.violations && seat.violations.length > 0)
-          ? seat.violations.length
-          : (seat.notes ? seat.notes.length : 0);
+        const violationsCount = seat.violations ? seat.violations.length : 0;
 
         return (
           <button

@@ -24,7 +24,7 @@ const CHUNK_SIZE = 700_000;
 // How many daily snapshots to retain before pruning the oldest.
 const MAX_DAILY_SNAPSHOTS = 21;
 // Debounce window after a change before writing a snapshot.
-const DEBOUNCE_MS = 10_000;
+const DEBOUNCE_MS = 2_000;
 // Safety interval to catch anything the debounce missed.
 const INTERVAL_MS = 5 * 60 * 1000;
 
@@ -105,6 +105,12 @@ export async function writeSnapshot(reason: string = 'manual'): Promise<Snapshot
     // Read the previous manifest so we can delete any now-orphaned chunks.
     const prev = (await getDoc(SNAPSHOT_COLLECTION, snapshotId)) as SnapshotManifest | null;
     const prevChunkCount = prev?.chunkCount || 0;
+
+    // Safety guard: never overwrite a snapshot that had sections with an auto snapshot of 0 sections
+    if (reason === 'auto' && sectionsCount === 0 && prev && (prev.sectionsCount || 0) > 0) {
+      console.warn(`[CloudBackup] Skipping auto-snapshot: local DB has 0 sections while existing snapshot "${snapshotId}" has ${prev.sectionsCount} sections.`);
+      return prev;
+    }
 
     // Write chunks (sequential to keep memory + concurrency modest).
     for (let i = 0; i < chunks.length; i++) {
@@ -234,29 +240,25 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
       localSections = 0;
     }
 
-    // Firestore synchronization runs before this recovery step. If sections
-    // already exist, they are the current synchronized state and must not be
-    // replaced by an older daily snapshot.
-    if (localSections > 0) {
-      console.log(`✅ [CloudBackup] Skipping snapshot restore; ${localSections} local section(s) already loaded.`);
-      return;
-    }
-
     const all = await listSnapshots();
     if (all.length === 0) {
       console.log('☁️  [CloudBackup] No cloud snapshot found yet. Local data will seed the first one.');
       return;
     }
 
-    const latest = all[0];
+    // Always use the most recent daily snapshot
+    const targetSnapshot = all[0];
 
-    // The snapshot is used only as a recovery source when synchronization left
-    // the local database empty, such as on a fresh deployment or a temporary
-    // Firestore outage.
-    console.log(`♻️  [CloudBackup] Auto-restoring latest cloud snapshot "${latest.id}" (local sections before restore=${localSections})...`);
-    const res = await restoreSnapshot(latest.id);
+    // Only skip if the local database already has multiple sections matching or exceeding the snapshot
+    if (localSections > 0 && localSections >= (targetSnapshot.sectionsCount || 0)) {
+      console.log(`✅ [CloudBackup] Skipping snapshot restore; ${localSections} local section(s) already loaded.`);
+      return;
+    }
+
+    console.log(`♻️  [CloudBackup] Auto-restoring cloud snapshot "${targetSnapshot.id}" (${targetSnapshot.sectionsCount} section[s], local was ${localSections})...`);
+    const res = await restoreSnapshot(targetSnapshot.id);
     if (res?.success) {
-      console.log(`✅ [CloudBackup] Auto-restored ${res.count} section(s) from snapshot "${latest.id}".`);
+      console.log(`✅ [CloudBackup] Auto-restored ${res.count} section(s) from snapshot "${targetSnapshot.id}".`);
     }
   } catch (err: any) {
     console.error('[CloudBackup] restoreLatestSnapshotOnBoot failed:', err?.message || err);

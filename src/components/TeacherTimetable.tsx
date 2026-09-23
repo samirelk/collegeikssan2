@@ -1,0 +1,1203 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Calendar,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  Trash2,
+  Edit2,
+  ExternalLink,
+  Printer,
+  Sparkles,
+  CheckCircle,
+  AlertTriangle,
+  BookOpen,
+  MapPin,
+  RefreshCw,
+  Sun,
+  Moon,
+  Coffee,
+  Info
+} from 'lucide-react';
+import { SectionItem, User as UserType, AppSettings, TimetableDay, TeacherTimetableEntry } from '../types';
+
+export interface TimetableSlotConfig {
+  id: string;
+  period: 'morning' | 'evening';
+  index: number;
+  label: string; // '08:00 - 09:00'
+  shortLabel: string; // 'ح1'
+  startTime: string; // '08:00'
+  endTime: string; // '09:00'
+  startMinutes: number; // 480
+  endMinutes: number; // 540
+}
+
+export const MORNING_SLOTS: TimetableSlotConfig[] = [
+  { id: 'm1', period: 'morning', index: 1, label: '08:00 - 09:00', shortLabel: '08:00 - 09:00', startTime: '08:00', endTime: '09:00', startMinutes: 8 * 60, endMinutes: 9 * 60 },
+  { id: 'm2', period: 'morning', index: 2, label: '09:00 - 10:00', shortLabel: '09:00 - 10:00', startTime: '09:00', endTime: '10:00', startMinutes: 9 * 60, endMinutes: 10 * 60 },
+  { id: 'm3', period: 'morning', index: 3, label: '10:00 - 11:00', shortLabel: '10:00 - 11:00', startTime: '10:00', endTime: '11:00', startMinutes: 10 * 60, endMinutes: 11 * 60 },
+  { id: 'm4', period: 'morning', index: 4, label: '11:00 - 12:00', shortLabel: '11:00 - 12:00', startTime: '11:00', endTime: '12:00', startMinutes: 11 * 60, endMinutes: 12 * 60 }
+];
+
+export const EVENING_SLOTS: TimetableSlotConfig[] = [
+  { id: 'e1', period: 'evening', index: 1, label: '14:00 - 15:00', shortLabel: '14:00 - 15:00', startTime: '14:00', endTime: '15:00', startMinutes: 14 * 60, endMinutes: 15 * 60 },
+  { id: 'e2', period: 'evening', index: 2, label: '15:00 - 16:00', shortLabel: '15:00 - 16:00', startTime: '15:00', endTime: '16:00', startMinutes: 15 * 60, endMinutes: 16 * 60 },
+  { id: 'e3', period: 'evening', index: 3, label: '16:00 - 17:00', shortLabel: '16:00 - 17:00', startTime: '16:00', endTime: '17:00', startMinutes: 16 * 60, endMinutes: 17 * 60 },
+  { id: 'e4', period: 'evening', index: 4, label: '17:00 - 18:00', shortLabel: '17:00 - 18:00', startTime: '17:00', endTime: '18:00', startMinutes: 17 * 60, endMinutes: 18 * 60 }
+];
+
+export const ALL_SLOTS = [...MORNING_SLOTS, ...EVENING_SLOTS];
+
+export const DAYS_OF_WEEK: { key: TimetableDay; label: string; jsDay: number }[] = [
+  { key: 'monday', label: 'الإثنين', jsDay: 1 },
+  { key: 'tuesday', label: 'الثلاثاء', jsDay: 2 },
+  { key: 'wednesday', label: 'الأربعاء', jsDay: 3 },
+  { key: 'thursday', label: 'الخميس', jsDay: 4 },
+  { key: 'friday', label: 'الجمعة', jsDay: 5 },
+  { key: 'saturday', label: 'السبت', jsDay: 6 }
+];
+
+interface TeacherTimetableProps {
+  currentUser: UserType;
+  sections: SectionItem[];
+  settings: AppSettings;
+  onSelectSection: (sectionId: string) => void;
+  onClose?: () => void;
+}
+
+export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
+  currentUser,
+  sections,
+  settings,
+  onSelectSection,
+  onClose
+}) => {
+  const [entries, setEntries] = useState<TeacherTimetableEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  // View modes: 'grid' (full week table) or 'day' (tabbed daily cards, best on mobile)
+  const [viewMode, setViewMode] = useState<'day' | 'grid'>('day');
+
+  // Currently selected day for day view
+  const [selectedDay, setSelectedDay] = useState<TimetableDay>(() => {
+    const todayNum = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const found = DAYS_OF_WEEK.find((d) => d.jsDay === todayNum);
+    return found ? found.key : 'monday';
+  });
+
+  // Slot editor modal state
+  const [editingSlot, setEditingSlot] = useState<{
+    dayOfWeek: TimetableDay;
+    slot: TimetableSlotConfig;
+    existingEntry?: TeacherTimetableEntry;
+  } | null>(null);
+
+  const [formSectionId, setFormSectionId] = useState('');
+  const [formRoom, setFormRoom] = useState('');
+  const [formSubject, setFormSubject] = useState(currentUser.subject || '');
+  const [formNotes, setFormNotes] = useState('');
+
+  // Clock state for highlighting the current slot
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Determine current active slot based on real time
+  const currentSlotInfo = useMemo(() => {
+    const jsDay = currentTime.getDay();
+    const currentDayConfig = DAYS_OF_WEEK.find((d) => d.jsDay === jsDay);
+    if (!currentDayConfig) return null;
+
+    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const activeSlot = ALL_SLOTS.find(
+      (s) => currentMinutes >= s.startMinutes && currentMinutes < s.endMinutes
+    );
+
+    if (!activeSlot) return null;
+
+    const activeEntry = entries.find(
+      (e) => e.dayOfWeek === currentDayConfig.key && e.slotId === activeSlot.id
+    );
+
+    return {
+      day: currentDayConfig.key,
+      dayLabel: currentDayConfig.label,
+      slot: activeSlot,
+      entry: activeEntry,
+      section: activeEntry ? sections.find((s) => s.id === activeEntry.sectionId) : null
+    };
+  }, [currentTime, entries, sections]);
+
+  // Check if current real-time is within midday break (12:00 - 14:00) on school days
+  const isBreakTime = useMemo(() => {
+    const jsDay = currentTime.getDay();
+    if (jsDay === 0) return false; // Sunday
+    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    return currentMinutes >= 12 * 60 && currentMinutes < 14 * 60;
+  }, [currentTime]);
+
+  // Fetch timetable entries
+  const fetchTimetable = async () => {
+    try {
+      setIsLoading(true);
+      setErrorMsg(null);
+      const res = await fetch(`/api/teacher/timetable?teacherId=${currentUser.id}`, {
+        headers: {
+          'x-user-id': currentUser.id,
+          'x-user-role': currentUser.role
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEntries(data.entries || []);
+      } else {
+        setErrorMsg(data.error || 'تعذر تحميل استعمال الزمان');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'خطأ في الاتصال بالخادم');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTimetable();
+  }, [currentUser.id]);
+
+  // Open slot editor
+  const handleOpenEdit = (dayOfWeek: TimetableDay, slot: TimetableSlotConfig) => {
+    const existing = entries.find((e) => e.dayOfWeek === dayOfWeek && e.slotId === slot.id);
+    setEditingSlot({ dayOfWeek, slot, existingEntry: existing });
+    if (existing) {
+      setFormSectionId(existing.sectionId);
+      setFormRoom(existing.room || '');
+      setFormSubject(existing.subject || currentUser.subject || '');
+      setFormNotes(existing.notes || '');
+    } else {
+      // Default to first assigned section if available
+      const teacherSections = sections.filter(
+        (s) => s.assignedTeacherId === currentUser.id || s.assignedTeachers?.some((t) => t.teacherId === currentUser.id)
+      );
+      setFormSectionId(teacherSections[0]?.id || sections[0]?.id || '');
+      setFormRoom('');
+      setFormSubject(currentUser.subject || '');
+      setFormNotes('');
+    }
+  };
+
+  // Save slot
+  const handleSaveSlot = async () => {
+    if (!editingSlot || !formSectionId) {
+      setErrorMsg('يرجى اختيار القسم المسند للحصة');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      setErrorMsg(null);
+
+      const payload = {
+        teacherId: currentUser.id,
+        dayOfWeek: editingSlot.dayOfWeek,
+        slotId: editingSlot.slot.id,
+        periodType: editingSlot.slot.period,
+        startTime: editingSlot.slot.startTime,
+        endTime: editingSlot.slot.endTime,
+        sectionId: formSectionId,
+        room: formRoom.trim(),
+        subject: formSubject.trim() || currentUser.subject || '',
+        notes: formNotes.trim()
+      };
+
+      const res = await fetch('/api/teacher/timetable', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUser.id,
+          'x-user-role': currentUser.role
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const data = await res.json();
+      if (data.success && data.entry) {
+        setEntries((prev) => {
+          const filtered = prev.filter(
+            (e) => !(e.dayOfWeek === editingSlot.dayOfWeek && e.slotId === editingSlot.slot.id)
+          );
+          return [...filtered, data.entry];
+        });
+        setEditingSlot(null);
+        setSuccessMsg('تم حفظ الحصة بنجاح في استعمال الزمان');
+        setTimeout(() => setSuccessMsg(null), 3000);
+      } else {
+        setErrorMsg(data.error || 'تعذر حفظ الحصة');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'خطأ أثناء الحفظ');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Delete slot
+  const handleDeleteSlot = async (dayOfWeek: TimetableDay, slotId: string) => {
+    try {
+      setIsSaving(true);
+      const res = await fetch(`/api/teacher/timetable/slot/${dayOfWeek}/${slotId}?teacherId=${currentUser.id}`, {
+        method: 'DELETE',
+        headers: {
+          'x-user-id': currentUser.id,
+          'x-user-role': currentUser.role
+        }
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEntries((prev) => prev.filter((e) => !(e.dayOfWeek === dayOfWeek && e.slotId === slotId)));
+        setEditingSlot(null);
+        setSuccessMsg('تم تفريغ الحصة بنجاح');
+        setTimeout(() => setSuccessMsg(null), 3000);
+      } else {
+        setErrorMsg(data.error || 'تعذر حذف الحصة');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'خطأ أثناء الحذف');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Print Timetable
+  const handlePrintTimetable = () => {
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const teacherName = currentUser.fullName || 'أستاذ المادة';
+    const institution = settings.institution || 'المؤسسة التعليمية';
+    const academicYear = currentUser.academicYear || settings.year || '2025/2026';
+    const subject = currentUser.subject || 'عام';
+
+    const renderSlotCell = (dayKey: TimetableDay, slotId: string) => {
+      const entry = entries.find((e) => e.dayOfWeek === dayKey && e.slotId === slotId);
+      if (!entry) return '<div class="empty-slot">—</div>';
+      const sec = sections.find((s) => s.id === entry.sectionId);
+      const secName = sec ? `${sec.level}/${sec.classNumber}` : entry.sectionName || 'قسم';
+      return `
+        <div class="filled-slot">
+          <div class="sec-name">${secName}</div>
+          ${entry.room ? `<div class="room-tag">قاعة: ${entry.room}</div>` : ''}
+          ${entry.subject ? `<div class="subj-tag">${entry.subject}</div>` : ''}
+        </div>
+      `;
+    };
+
+    const html = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="utf-8">
+        <title>استعمال الزمان - ${teacherName}</title>
+        <style>
+          @page { size: landscape; margin: 10mm; }
+          body { font-family: 'Amiri', 'Traditional Arabic', serif, Arial; direction: rtl; padding: 10px; color: #1f2926; background: #fff; }
+          .header { text-align: center; border-bottom: 2px solid #1a4e47; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+          .title { font-size: 22px; font-weight: bold; color: #1a4e47; }
+          .meta { font-size: 13px; color: #555; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+          th, td { border: 1px solid #c8d3d0; text-align: center; padding: 6px 4px; }
+          th { background: #e8f2f0; color: #1a4e47; font-weight: bold; }
+          .period-header { background: #d0e4e0; font-weight: bold; font-size: 13px; }
+          .day-col { font-weight: bold; background: #faf8f5; width: 85px; }
+          .filled-slot { background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 4px; }
+          .sec-name { font-weight: bold; font-size: 13px; color: #166534; }
+          .room-tag { font-size: 10px; color: #475569; }
+          .subj-tag { font-size: 10px; color: #64748b; }
+          .empty-slot { color: #ccc; }
+          .footer { margin-top: 24px; display: flex; justify-content: space-between; font-size: 12px; }
+          .sign-box { text-align: center; width: 200px; padding-top: 30px; border-top: 1px dashed #999; }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <div>
+            <div style="font-weight: bold; font-size: 14px;">المملكة المغربية</div>
+            <div>وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
+            <div>${institution}</div>
+          </div>
+          <div>
+            <div class="title">استعمال زمان الأستاذ(ة)</div>
+            <div class="meta">الأستاذ: <b>${teacherName}</b> | المادة: <b>${subject}</b></div>
+          </div>
+          <div>
+            <div>الموسم الدراسي: <b>${academicYear}</b></div>
+            <div>تاريخ الإصدار: ${new Date().toLocaleDateString('fr-CA')}</div>
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th rowspan="2" class="day-col">اليوم / الحصة</th>
+              <th colspan="4" class="period-header">الفترة الصباحية (08:00 - 12:00)</th>
+              <th rowspan="2" class="period-header" style="background:#fef3c7;color:#92400e;width:65px;border:1px solid #000;">فترة راحة للجميع<br/>(12:00 - 14:00)</th>
+              <th colspan="4" class="period-header">الفترة المسائية (14:00 - 18:00)</th>
+            </tr>
+            <tr>
+              ${MORNING_SLOTS.map((s) => `<th>${s.label}</th>`).join('')}
+              ${EVENING_SLOTS.map((s) => `<th>${s.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${DAYS_OF_WEEK.map((d) => `
+              <tr>
+                <td class="day-col">${d.label}</td>
+                ${MORNING_SLOTS.map((s) => `<td>${renderSlotCell(d.key, s.id)}</td>`).join('')}
+                <td style="background:#fffbeb;font-size:10px;font-weight:bold;color:#b45309;text-align:center;border:1px solid #000;">استراحة</td>
+                ${EVENING_SLOTS.map((s) => `<td>${renderSlotCell(d.key, s.id)}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          <div class="sign-box">توقيع وتأشيرة الأستاذ(ة)</div>
+          <div class="sign-box">تأشيرة رئيس المؤسسة (المدير)</div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+    }, 500);
+  };
+
+  // Sections assigned to this teacher
+  const teacherAssignedSections = useMemo(() => {
+    return sections.filter(
+      (s) =>
+        s.assignedTeacherId === currentUser.id ||
+        s.assignedTeachers?.some((t) => t.teacherId === currentUser.id)
+    );
+  }, [sections, currentUser.id]);
+
+  const displayedSectionsForPick = teacherAssignedSections.length > 0 ? teacherAssignedSections : sections;
+
+  return (
+    <div className="bg-[#FAF8F5] min-h-[500px] rounded-2xl border border-[#E5DFD4] p-4 sm:p-6 mb-6 shadow-xs" dir="rtl">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-[#E5DFD4]">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-[#1A4E47] text-white flex items-center justify-center shadow-sm">
+            <Calendar className="w-6 h-6" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold text-[#1F2926] font-['Amiri',serif]">
+                استعمال زمان الأستاذ(ة)
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-[#E8F2F0] text-[#1A4E47] text-xs font-bold border border-[#1A4E47]/20">
+                {currentUser.fullName}
+              </span>
+              {currentUser.subject && (
+                <span className="px-2 py-0.5 rounded-full bg-white text-[#6C6356] text-xs font-semibold border border-[#D5CDC0]">
+                  {currentUser.subject}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-[#6C6356] mt-0.5">
+              جدول الحصص الأسبوعي • الفترة الصباحية (8:00 - 14:00) والمسائية (14:00 - 18:00). اضغط على أي قسم للانتقال فوراً لتسجيل الغيابات والمخالفات.
+            </p>
+          </div>
+        </div>
+
+        {/* View toggles & actions */}
+        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end flex-wrap">
+          {/* View switcher */}
+          <div className="flex items-center bg-white rounded-xl border border-[#D5CDC0] p-1 shadow-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('day')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'day'
+                  ? 'bg-[#1A4E47] text-white shadow-xs'
+                  : 'text-[#6C6356] hover:bg-[#FAF8F5]'
+              }`}
+            >
+              عرض الأيام (بطاقات)
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === 'grid'
+                  ? 'bg-[#1A4E47] text-white shadow-xs'
+                  : 'text-[#6C6356] hover:bg-[#FAF8F5]'
+              }`}
+            >
+              الجدول الكامل (أسبوعي)
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handlePrintTimetable}
+            className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#1F2926] font-semibold text-xs border border-[#D5CDC0] flex items-center gap-1.5 shadow-xs cursor-pointer"
+            title="طباعة استعمال الزمان الرسمي"
+          >
+            <Printer className="w-4 h-4 text-[#1A4E47]" />
+            <span>طباعة</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={fetchTimetable}
+            disabled={isLoading}
+            className="p-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#6C6356] border border-[#D5CDC0] shadow-xs cursor-pointer"
+            title="تحديث البيانات"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#1A4E47]' : ''}`} />
+          </button>
+
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-2 rounded-xl bg-white hover:bg-rose-50 text-rose-700 text-xs font-bold border border-rose-200 cursor-pointer"
+            >
+              إغلاق
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Messages */}
+      {errorMsg && (
+        <div className="mt-4 p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="mt-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 shrink-0 text-emerald-600" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {/* Current Real-Time Slot Highlight Card */}
+      {currentSlotInfo && (
+        <div className="mt-4 p-4 rounded-2xl bg-emerald-50 border-2 border-emerald-500 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <span className="flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-600"></span>
+              </span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-emerald-950 text-sm">
+                  الحصة الحالية الآن:
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-700 text-white font-bold text-xs">
+                  {currentSlotInfo.dayLabel} • {currentSlotInfo.slot.label}
+                </span>
+                <span className="text-xs text-emerald-800 font-medium">
+                  ({currentSlotInfo.slot.period === 'morning' ? 'الفترة الصباحية' : 'الفترة المسائية'})
+                </span>
+              </div>
+              <div className="text-xs text-emerald-900 mt-0.5">
+                {currentSlotInfo.entry && currentSlotInfo.section ? (
+                  <span>
+                    القسم المجدول الآن: <strong className="text-emerald-950 font-bold text-sm underline">{currentSlotInfo.section.level}/{currentSlotInfo.section.classNumber}</strong>
+                    {currentSlotInfo.entry.room ? ` (القاعة: ${currentSlotInfo.entry.room})` : ''}
+                  </span>
+                ) : (
+                  <span className="text-emerald-800 italic">
+                    لم يتم تعيين قسم لهذه الحصة بعد في استعمال الزمان.
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {currentSlotInfo.entry && currentSlotInfo.section ? (
+            <button
+              type="button"
+              onClick={() => onSelectSection(currentSlotInfo.entry!.sectionId)}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center justify-center gap-2 shadow-sm cursor-pointer transition-all hover:scale-102"
+            >
+              <ExternalLink className="w-4 h-4" />
+              <span>الذهاب فوراً لتسجيل الغيابات والمخالفات</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleOpenEdit(currentSlotInfo.day, currentSlotInfo.slot)}
+              className="w-full sm:w-auto px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>تحديد قسم هذه الحصة الآن</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Real-time Midday Break Banner (Active 12:00 - 14:00 on school days) */}
+      {!currentSlotInfo && isBreakTime && (
+        <div className="mt-4 p-4 rounded-2xl bg-amber-50 border-2 border-amber-300 shadow-xs flex items-center justify-between gap-3 animate-fade-in" dir="rtl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 border border-amber-200">
+              <Coffee className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-amber-950 text-sm">
+                  فترة استراحة الزوال الحالية (12:00 - 14:00):
+                </span>
+                <span className="px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 font-bold text-xs">
+                  فترة راحة للجميع ☕
+                </span>
+              </div>
+              <p className="text-xs text-amber-800 mt-0.5">
+                فترة راحة وتناول وجبة الغداء لكافة أطر المؤسسة والتلاميذ. تستأنف الحصص المسائية على الساعة 14:00.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Day Selector (Tabs for responsive day view) */}
+      <div className="mt-5 flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-thin">
+        {DAYS_OF_WEEK.map((day) => {
+          const dayEntries = entries.filter((e) => e.dayOfWeek === day.key);
+          const isToday = currentSlotInfo?.day === day.key;
+          const isSelected = selectedDay === day.key;
+
+          return (
+            <button
+              key={day.key}
+              type="button"
+              onClick={() => setSelectedDay(day.key)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all shrink-0 cursor-pointer ${
+                isSelected
+                  ? 'bg-[#1A4E47] text-white shadow-sm'
+                  : isToday
+                  ? 'bg-emerald-100 text-emerald-900 border border-emerald-300 hover:bg-emerald-200'
+                  : 'bg-white text-[#6C6356] border border-[#D5CDC0] hover:bg-[#FAF8F5]'
+              }`}
+            >
+              <span>{day.label}</span>
+              {isToday && (
+                <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-emerald-300"></span>
+              )}
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                  isSelected ? 'bg-white/20 text-white' : 'bg-[#FAF8F5] text-[#7A6B58]'
+                }`}
+              >
+                {dayEntries.length}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Main Content Area */}
+      {viewMode === 'day' ? (
+        /* DAY VIEW: Clear, mobile-friendly cards separated into Morning (8-12), Midday Break (12-14), and Evening (14-18) */
+        <div className="mt-5 space-y-5">
+          {/* 1. Morning Period: 08:00 - 12:00 (4 sessions) */}
+          <div className="bg-white rounded-2xl border border-[#E5DFD4] p-4 sm:p-5 shadow-xs">
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#E5DFD4] mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-700 border border-amber-200 flex items-center justify-center">
+                  <Sun className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#1F2926]">
+                    الفترة الصباحية (من 08:00 إلى 12:00)
+                  </h3>
+                  <p className="text-[11px] text-[#7A6B58]">
+                    4 حصص صباحية فقط • 08:00 إلى 12:00
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                صباحاً (4 حصص)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {MORNING_SLOTS.map((slot) => {
+                const entry = entries.find(
+                  (e) => e.dayOfWeek === selectedDay && e.slotId === slot.id
+                );
+                const isCurrentSlot =
+                  currentSlotInfo?.day === selectedDay && currentSlotInfo?.slot.id === slot.id;
+                const section = entry ? sections.find((s) => s.id === entry.sectionId) : null;
+
+                return (
+                  <SlotCard
+                    key={slot.id}
+                    slot={slot}
+                    dayOfWeek={selectedDay}
+                    entry={entry}
+                    section={section}
+                    isCurrentSlot={isCurrentSlot}
+                    onOpenEdit={() => handleOpenEdit(selectedDay, slot)}
+                    onSelectSection={(secId) => onSelectSection(secId)}
+                    onDelete={() => handleDeleteSlot(selectedDay, slot.id)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 2. Midday Break: 12:00 - 14:00 (فترة راحة للجميع) */}
+          <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-100 border border-amber-300/80 text-amber-800 flex items-center justify-center shrink-0 shadow-xs">
+                <Coffee className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="text-sm font-bold text-amber-950">فترة راحة للجميع (استراحة الزوال)</h4>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-amber-200/90 text-amber-900 border border-amber-300">
+                    من 12:00 إلى 14:00
+                  </span>
+                </div>
+                <p className="text-xs text-amber-800 mt-0.5">
+                  فترة راحة وتناول وجبة الغداء لكافة الأطر الإدارية والتربوية والتلاميذ (ساعتان كاملتان). لا توجد حصص في هذه الفترة.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-bold text-amber-900 bg-white/95 px-3 py-1.5 rounded-xl border border-amber-200 shrink-0 shadow-xs">
+              ☕ استراحة الجميع (12h - 14h)
+            </span>
+          </div>
+
+          {/* 3. Evening Period: 14:00 - 18:00 (4 sessions) */}
+          <div className="bg-white rounded-2xl border border-[#E5DFD4] p-4 sm:p-5 shadow-xs">
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-[#E5DFD4] mb-4">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center justify-center">
+                  <Moon className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-[#1F2926]">
+                    الفترة المسائية (من 14:00 إلى 18:00)
+                  </h3>
+                  <p className="text-[11px] text-[#7A6B58]">
+                    4 حصص مسائية • 14:00 إلى 18:00
+                  </p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200">
+                مساءً (4 حصص)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {EVENING_SLOTS.map((slot) => {
+                const entry = entries.find(
+                  (e) => e.dayOfWeek === selectedDay && e.slotId === slot.id
+                );
+                const isCurrentSlot =
+                  currentSlotInfo?.day === selectedDay && currentSlotInfo?.slot.id === slot.id;
+                const section = entry ? sections.find((s) => s.id === entry.sectionId) : null;
+
+                return (
+                  <SlotCard
+                    key={slot.id}
+                    slot={slot}
+                    dayOfWeek={selectedDay}
+                    entry={entry}
+                    section={section}
+                    isCurrentSlot={isCurrentSlot}
+                    onOpenEdit={() => handleOpenEdit(selectedDay, slot)}
+                    onSelectSection={(secId) => onSelectSection(secId)}
+                    onDelete={() => handleDeleteSlot(selectedDay, slot.id)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* GRID VIEW: Full weekly timetable table with horizontal scrolling */
+        <div className="mt-5 bg-white rounded-2xl border border-[#E5DFD4] p-4 shadow-xs overflow-hidden">
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="w-full min-w-[950px] border-collapse text-right text-xs">
+              <thead>
+                <tr className="bg-[#FAF8F5] border-b border-[#E5DFD4]">
+                  <th className="p-2.5 font-bold text-[#1F2926] border-l border-[#E5DFD4] text-center w-24">
+                    اليوم / الحصة
+                  </th>
+                  <th colSpan={4} className="p-2.5 font-bold text-[#1A4E47] bg-[#E8F2F0] text-center border-l border-[#E5DFD4]">
+                    ☀️ الفترة الصباحية (08:00 - 12:00)
+                  </th>
+                  <th className="p-2.5 font-bold text-amber-900 bg-amber-50 text-center border-l border-[#E5DFD4] w-28">
+                    ☕ استراحة للجميع (12:00 - 14:00)
+                  </th>
+                  <th colSpan={4} className="p-2.5 font-bold text-indigo-900 bg-indigo-50 text-center">
+                    🌙 الفترة المسائية (14:00 - 18:00)
+                  </th>
+                </tr>
+                <tr className="bg-[#FAF8F5] border-b border-[#E5DFD4] text-[11px] text-[#7A6B58]">
+                  <th className="p-2 border-l border-[#E5DFD4] text-center font-medium">—</th>
+                  {MORNING_SLOTS.map((s) => (
+                    <th key={s.id} className="p-2 border-l border-[#E5DFD4] text-center font-medium">
+                      {s.label}
+                    </th>
+                  ))}
+                  <th className="p-2 border-l border-[#E5DFD4] text-center font-bold text-amber-800 bg-amber-100/50">
+                    راحة (ساعتان)
+                  </th>
+                  {EVENING_SLOTS.map((s) => (
+                    <th key={s.id} className="p-2 border-l border-[#E5DFD4] text-center font-medium last:border-l-0">
+                      {s.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#E5DFD4]">
+                {DAYS_OF_WEEK.map((day) => {
+                  const isCurrentDay = currentSlotInfo?.day === day.key;
+
+                  return (
+                    <tr key={day.key} className={isCurrentDay ? 'bg-emerald-50/40' : 'hover:bg-[#FAF8F5]'}>
+                      <td className="p-2.5 font-bold text-[#1F2926] border-l border-[#E5DFD4] text-center bg-[#FAF8F5]/80">
+                        <div className="flex items-center justify-center gap-1.5">
+                          <span>{day.label}</span>
+                          {isCurrentDay && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Morning slots (4 sessions: 08:00 - 12:00) */}
+                      {MORNING_SLOTS.map((slot) => {
+                        const entry = entries.find(
+                          (e) => e.dayOfWeek === day.key && e.slotId === slot.id
+                        );
+                        const isCurrent =
+                          currentSlotInfo?.day === day.key && currentSlotInfo?.slot.id === slot.id;
+                        const sec = entry ? sections.find((s) => s.id === entry.sectionId) : null;
+
+                        return (
+                          <td
+                            key={slot.id}
+                            className={`p-1.5 border-l border-[#E5DFD4] align-top text-center transition-all ${
+                              isCurrent
+                                ? 'bg-emerald-100/70 ring-2 ring-emerald-500'
+                                : ''
+                            }`}
+                          >
+                            <GridCellSlot
+                              slot={slot}
+                              dayOfWeek={day.key}
+                              entry={entry}
+                              section={sec}
+                              isCurrentSlot={isCurrent}
+                              onOpenEdit={() => handleOpenEdit(day.key, slot)}
+                              onSelectSection={(secId) => onSelectSection(secId)}
+                            />
+                          </td>
+                        );
+                      })}
+
+                      {/* Midday Rest Break Column (12:00 - 14:00) */}
+                      <td className="p-2 border-l border-[#E5DFD4] text-center bg-amber-50/50 text-[11px] text-amber-800 font-bold align-middle">
+                        استراحة الزوال
+                      </td>
+
+                      {/* Evening slots (4 sessions: 14:00 - 18:00) */}
+                      {EVENING_SLOTS.map((slot) => {
+                        const entry = entries.find(
+                          (e) => e.dayOfWeek === day.key && e.slotId === slot.id
+                        );
+                        const isCurrent =
+                          currentSlotInfo?.day === day.key && currentSlotInfo?.slot.id === slot.id;
+                        const sec = entry ? sections.find((s) => s.id === entry.sectionId) : null;
+
+                        return (
+                          <td
+                            key={slot.id}
+                            className={`p-1.5 border-l border-[#E5DFD4] last:border-l-0 align-top text-center transition-all ${
+                              isCurrent
+                                ? 'bg-emerald-100/70 ring-2 ring-emerald-500'
+                                : ''
+                            }`}
+                          >
+                            <GridCellSlot
+                              slot={slot}
+                              dayOfWeek={day.key}
+                              entry={entry}
+                              section={sec}
+                              isCurrentSlot={isCurrent}
+                              onOpenEdit={() => handleOpenEdit(day.key, slot)}
+                              onSelectSection={(secId) => onSelectSection(secId)}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Slot Modal */}
+      {editingSlot && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-xs animate-fade-in" dir="rtl">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5 border border-[#E5DFD4] animate-scale-up">
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-[#1A4E47] text-white flex items-center justify-center">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-[#1F2926]">
+                    {editingSlot.existingEntry ? 'تعديل الحصة' : 'إسناد قسم للحصة'}
+                  </h3>
+                  <div className="text-xs text-[#7A6B58]">
+                    {DAYS_OF_WEEK.find((d) => d.key === editingSlot.dayOfWeek)?.label} • {editingSlot.slot.label} ({editingSlot.slot.period === 'morning' ? 'الفترة الصباحية' : 'الفترة المسائية'})
+                  </div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingSlot(null)}
+                className="w-8 h-8 rounded-full bg-[#FAF8F5] text-[#6C6356] hover:bg-rose-50 hover:text-rose-600 flex items-center justify-center font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              {/* Section selector */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1.5">
+                  القسم المسند لهذه الحصة: <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  value={formSectionId}
+                  onChange={(e) => setFormSectionId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-[#1F2926] text-xs font-bold focus:outline-hidden focus:border-[#1A4E47]"
+                >
+                  <option value="">-- اختر القسم --</option>
+                  {displayedSectionsForPick.map((sec) => (
+                    <option key={sec.id} value={sec.id}>
+                      {sec.level} / {sec.classNumber} {sec.teacher ? `(الأستاذ: ${sec.teacher})` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-[#7A6B58] mt-1">
+                  عند النقر على الحصة مستقبلاً، سيتم فتح هذا القسم مباشرة لتسجيل الغيابات والمخالفات.
+                </p>
+              </div>
+
+              {/* Room (القاعة) */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1.5">
+                  القاعة (اختياري):
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formRoom}
+                    onChange={(e) => setFormRoom(e.target.value)}
+                    placeholder="مثال: قاعة 14 أو مختبر العلوم"
+                    className="w-full px-3 py-2 pl-8 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-[#1F2926] text-xs focus:outline-hidden focus:border-[#1A4E47]"
+                  />
+                  <MapPin className="w-4 h-4 text-[#7A6B58] absolute left-2.5 top-2.5 pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1.5">
+                  المادة:
+                </label>
+                <input
+                  type="text"
+                  value={formSubject}
+                  onChange={(e) => setFormSubject(e.target.value)}
+                  placeholder="مثال: الرياضيات"
+                  className="w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-[#1F2926] text-xs focus:outline-hidden focus:border-[#1A4E47]"
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1.5">
+                  ملاحظات أو توصيف الحصة (اختياري):
+                </label>
+                <textarea
+                  value={formNotes}
+                  onChange={(e) => setFormNotes(e.target.value)}
+                  placeholder="ملاحظات حول الحصة (أنشطة، مراجعة، دعم...)"
+                  rows={2}
+                  className="w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-[#1F2926] text-xs focus:outline-hidden focus:border-[#1A4E47]"
+                />
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-5 pt-3 border-t border-[#E5DFD4] flex items-center justify-between gap-2">
+              {editingSlot.existingEntry ? (
+                <button
+                  type="button"
+                  onClick={() => handleDeleteSlot(editingSlot.dayOfWeek, editingSlot.slot.id)}
+                  disabled={isSaving}
+                  className="px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold border border-rose-200 flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>تفريغ الحصة</span>
+                </button>
+              ) : (
+                <div></div>
+              )}
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingSlot(null)}
+                  disabled={isSaving}
+                  className="px-3 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#6C6356] text-xs font-semibold border border-[#D5CDC0] cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveSlot}
+                  disabled={isSaving || !formSectionId}
+                  className="px-4 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                  <span>حفظ الحصة</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Sub-component: Tactile card for daily view
+interface SlotCardProps {
+  slot: TimetableSlotConfig;
+  dayOfWeek: TimetableDay;
+  entry?: TeacherTimetableEntry;
+  section?: SectionItem | null;
+  isCurrentSlot?: boolean;
+  onOpenEdit: () => void;
+  onSelectSection: (sectionId: string) => void;
+  onDelete: () => void;
+}
+
+const SlotCard: React.FC<SlotCardProps> = ({
+  slot,
+  entry,
+  section,
+  isCurrentSlot,
+  onOpenEdit,
+  onSelectSection,
+  onDelete
+}) => {
+  const isFilled = Boolean(entry && (section || entry.sectionName));
+
+  return (
+    <div
+      className={`rounded-xl border p-3 transition-all relative flex flex-col justify-between min-h-[115px] ${
+        isCurrentSlot
+          ? 'bg-emerald-50 border-2 border-emerald-500 shadow-md ring-2 ring-emerald-300 ring-offset-1'
+          : isFilled
+          ? 'bg-[#F4F9F8] border-[#B9D8D2] hover:border-[#1A4E47]'
+          : 'bg-[#FAF8F5]/60 border-dashed border-[#D5CDC0] hover:bg-white'
+      }`}
+    >
+      {/* Header of card: Time label & Current Badge */}
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-[#1F2926]">
+          <Clock className="w-3.5 h-3.5 text-[#7A6B58]" />
+          <span>{slot.label}</span>
+        </div>
+
+        {isCurrentSlot && (
+          <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white font-bold text-[10px] flex items-center gap-1 shadow-xs animate-pulse">
+            <span>🟢</span>
+            <span>الآن</span>
+          </span>
+        )}
+      </div>
+
+      {/* Body of card */}
+      {isFilled && section ? (
+        <div className="my-1">
+          {/* Main button to navigate to section for recording attendance & violations */}
+          <button
+            type="button"
+            onClick={() => onSelectSection(section.id)}
+            className="w-full text-right p-2 rounded-lg bg-white border border-[#B9D8D2] hover:bg-[#E8F2F0] hover:border-[#1A4E47] transition-colors cursor-pointer group shadow-2xs"
+            title="انقر لفتح هذا القسم وتسجيل الغيابات والمخالفات مباشرة"
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-sm text-[#1A4E47] group-hover:underline flex items-center gap-1">
+                <span>{section.level} / {section.classNumber}</span>
+                <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />
+              </div>
+              <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold">
+                تسجيل الغياب 📝
+              </span>
+            </div>
+            {(entry?.room || entry?.subject) && (
+              <div className="flex items-center gap-2 mt-1 text-[11px] text-[#7A6B58] flex-wrap">
+                {entry.room && (
+                  <span className="flex items-center gap-0.5">
+                    <MapPin className="w-3 h-3 text-[#7A6B58]" />
+                    <span>ق: {entry.room}</span>
+                  </span>
+                )}
+                {entry.subject && <span>• {entry.subject}</span>}
+              </div>
+            )}
+          </button>
+        </div>
+      ) : (
+        <div className="my-auto py-2 text-center">
+          <button
+            type="button"
+            onClick={onOpenEdit}
+            className="inline-flex items-center gap-1 text-xs font-bold text-[#1A4E47] hover:text-[#133D37] hover:underline cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>إضافة قسم لهذه الحصة</span>
+          </button>
+        </div>
+      )}
+
+      {/* Footer / actions */}
+      <div className="mt-2 pt-1.5 border-t border-[#E5DFD4]/60 flex items-center justify-between text-[10px]">
+        <span className="text-[#7A6B58] font-mono">
+          {slot.period === 'morning' ? 'صباحاً' : 'مساءً'}
+        </span>
+
+        <div className="flex items-center gap-1">
+          {isFilled && (
+            <button
+              type="button"
+              onClick={onOpenEdit}
+              className="p-1 rounded-md text-[#6C6356] hover:bg-white hover:text-[#1A4E47] cursor-pointer"
+              title="تعديل الحصة"
+            >
+              <Edit2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Sub-component: Slot cell for full weekly grid table view
+interface GridCellSlotProps {
+  slot: TimetableSlotConfig;
+  dayOfWeek: TimetableDay;
+  entry?: TeacherTimetableEntry;
+  section?: SectionItem | null;
+  isCurrentSlot?: boolean;
+  onOpenEdit: () => void;
+  onSelectSection: (sectionId: string) => void;
+}
+
+const GridCellSlot: React.FC<GridCellSlotProps> = ({
+  slot,
+  entry,
+  section,
+  isCurrentSlot,
+  onOpenEdit,
+  onSelectSection
+}) => {
+  const isFilled = Boolean(entry && section);
+
+  if (!isFilled || !section) {
+    return (
+      <button
+        type="button"
+        onClick={onOpenEdit}
+        className="w-full h-16 rounded-lg border border-dashed border-[#D5CDC0] bg-white/40 hover:bg-[#FAF8F5] hover:border-[#1A4E47] flex flex-col items-center justify-center text-[#7A6B58] hover:text-[#1A4E47] transition-colors cursor-pointer group p-1"
+        title="انقر لتعيين قسم لهذه الحصة"
+      >
+        <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
+        <span className="text-[10px] mt-0.5 opacity-60 group-hover:opacity-100">فارغ</span>
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className={`rounded-lg p-1.5 border transition-all text-right relative flex flex-col justify-between h-20 ${
+        isCurrentSlot
+          ? 'bg-emerald-50 border-2 border-emerald-500 shadow-sm'
+          : 'bg-[#F4F9F8] border-[#B9D8D2] hover:border-[#1A4E47]'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => onSelectSection(section.id)}
+        className="text-right cursor-pointer group"
+        title="انقر لفتح القسم وتسجيل الغيابات والمخالفات"
+      >
+        <div className="flex items-center justify-between">
+          <span className="font-bold text-xs text-[#1A4E47] group-hover:underline">
+            {section.level}/{section.classNumber}
+          </span>
+          <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />
+        </div>
+        {entry?.room && (
+          <div className="text-[10px] text-[#7A6B58] mt-0.5">
+            قاعة: {entry.room}
+          </div>
+        )}
+      </button>
+
+      <div className="flex items-center justify-between pt-1 border-t border-[#B9D8D2]/40 text-[9px]">
+        {isCurrentSlot ? (
+          <span className="font-bold text-emerald-700">🟢 جارٍ الآن</span>
+        ) : (
+          <span className="text-[#7A6B58] truncate max-w-[50px]">{entry?.subject || 'حصة'}</span>
+        )}
+        <button
+          type="button"
+          onClick={onOpenEdit}
+          className="text-[#6C6356] hover:text-[#1A4E47] p-0.5"
+          title="تعديل الحصة"
+        >
+          <Edit2 className="w-2.5 h-2.5" />
+        </button>
+      </div>
+    </div>
+  );
+};

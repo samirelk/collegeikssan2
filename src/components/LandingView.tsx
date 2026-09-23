@@ -177,54 +177,18 @@ export const LandingView: React.FC<LandingViewProps> = ({
           </div>
         </div>
 
-        {/* Action buttons matching the image */}
+        {/* Action buttons */}
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
           {/* Dedicated Admin Portal Link */}
           <button
             type="button"
             onClick={onNavigateAdmin}
-            className="px-3 sm:px-3.5 py-2 rounded-full text-xs font-bold text-[#1A4E47] bg-[#E8F2F0] hover:bg-[#D5E9E5] border border-[#1A4E47]/30 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+            className="px-3.5 sm:px-4 py-2 rounded-full text-xs font-bold text-[#1A4E47] bg-[#E8F2F0] hover:bg-[#D5E9E5] border border-[#1A4E47]/30 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
             title="بوابة الإدارة والمشرف العام (/admin)"
           >
             <ShieldCheck className="w-3.5 h-3.5 text-[#C98A3C]" />
-            <span>إدارة</span>
+            <span>بوابة الإدارة</span>
           </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setActiveMode('register');
-              setErrorMessage(null);
-            }}
-            className={`px-3.5 sm:px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-              activeMode === 'register'
-                ? 'bg-[#1A4E47] text-white shadow-sm'
-                : 'bg-white text-[#1A4E47] border border-[#D5CDC0] hover:bg-[#F4EFE6]'
-            }`}
-          >
-            + إنشاء حساب جديد
-          </button>
-          
-          <button
-            type="button"
-            onClick={() => {
-              setActiveMode('login');
-              setErrorMessage(null);
-            }}
-            className={`px-4 sm:px-5 py-2 rounded-full text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              activeMode === 'login'
-                ? 'bg-[#1A4E47] text-white shadow-sm hover:bg-[#133D37]'
-                : 'bg-white text-[#1A4E47] border border-[#D5CDC0] hover:bg-[#F4EFE6]'
-            }`}
-          >
-            <span>دخول</span>
-            <ArrowLeft className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <div className="hidden lg:block absolute left-0 top-0 max-w-[250px] text-left text-[10px] leading-4 font-semibold text-[#6C6356]">
-          وزارة التربية الوطنية والتعليم الأولي والرياضة
-          <br />
-          أكاديمية الشرق: المديرية الإقليمية الناضور
         </div>
       </header>
 
@@ -417,6 +381,19 @@ export const LandingView: React.FC<LandingViewProps> = ({
                   </>
                 )}
               </button>
+
+              <div className="pt-2 text-center border-t border-[#E5DFD4]/60">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveMode('register');
+                    setErrorMessage(null);
+                  }}
+                  className="text-xs text-[#1A4E47] font-semibold hover:underline cursor-pointer"
+                >
+                  ليس لديك حساب بعد؟ طلب تسجيل حساب أستاذ جديد
+                </button>
+              </div>
             </form>
           ) : (
             /* Register Form */

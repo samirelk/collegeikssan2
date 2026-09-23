@@ -31,7 +31,7 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
     notes
   } = options;
 
-  const actualViolations = violations || notes || [];
+  const actualViolations = violations || [];
 
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);

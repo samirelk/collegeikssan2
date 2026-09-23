@@ -217,17 +217,7 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
   };
 
   const handlePrint = () => {
-    const violationsList = (seat.violations && seat.violations.length > 0)
-      ? seat.violations
-      : (seat.notes || []).map((n: any) => ({
-          id: n.id,
-          violationType: n.text,
-          recordedDate: n.date,
-          recordedTime: n.time,
-          teacherName: currentUser?.fullName || section.teacher || 'أستاذ المادة',
-          teacherSubject: currentUser?.subject || '—',
-          actionTaken: 'تنبيه شفهي'
-        }));
+    const violationsList = seat.violations || [];
 
     printViolationsReport({
       institution: settings.institution || 'المؤسسة التعليمية',
@@ -246,24 +236,8 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
 
   const studentDisplayName = seat.name ? seat.name : `المقعد #${seat.seat}`;
 
-  // Unified list of violations for this seat
-  const violationsList: StudentViolationRecord[] = (seat.violations && seat.violations.length > 0)
-    ? seat.violations
-    : (seat.notes || []).map((n: any) => ({
-        id: n.id,
-        sectionId: section.id,
-        seatNum: seat.seat,
-        studentName: seat.name,
-        studentNumber: seat.number,
-        massarNumber: seat.massarNumber,
-        violationType: n.text,
-        actionTaken: 'تنبيه شفهي',
-        teacherName: currentUser?.fullName || section.teacher || 'أستاذ المادة',
-        teacherSubject: currentUser?.subject || '',
-        recordedDate: n.date,
-        recordedTime: n.time,
-        createdAt: ''
-      }));
+  // Unified list of violations for this seat - STRICTLY violations only
+  const violationsList: StudentViolationRecord[] = seat.violations || [];
 
   return (
     <div

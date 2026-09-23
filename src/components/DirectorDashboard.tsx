@@ -554,6 +554,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     setPrintModalMode(mode);
   };
 
+  // Clickable Navigation & Action Trigger
+  const navigateToTab = (tab: 'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive') => {
+    setActiveTab(tab);
+    setInspectSectionId(null);
+    setTimeout(() => {
+      const element = document.getElementById('director-main-tabs');
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 50);
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto px-3 sm:px-6 py-6 font-sans text-[#2A2118] space-y-6">
       
@@ -668,202 +680,291 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </div>
       )}
 
-      {/* 2. Top Statistics Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
-        <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-xl p-4 shadow-xs flex flex-col justify-between">
+      {/* 2. Compact Interactive Statistics Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+        {/* هيئة التدريس */}
+        <button
+          type="button"
+          onClick={() => navigateToTab('teachers')}
+          title="انقر لفتح لائحة الأساتذة وإدارتهم وتعديل الحسابات وكلمات المرور"
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 ${
+            activeTab === 'teachers' && !inspectSectionId
+              ? 'bg-[#F2F7F2] border-[#2D5A27] ring-2 ring-[#2D5A27]/20 shadow-xs'
+              : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#2D5A27]'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span>هيئة التدريس</span>
-            <Users className="w-4 h-4 text-[#2D5A27]" />
+            <span className="group-hover:text-[#2D5A27] transition-colors">هيئة التدريس</span>
+            <div className="w-6 h-6 rounded-lg bg-[#2D5A27]/10 flex items-center justify-center text-[#2D5A27]">
+              <Users className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-serif text-[#2A2118]">
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#2A2118] my-0.5">
             {teachers.length}
           </div>
-          <div className="text-xs text-[#7A6B58] mt-1">
-            أستاذ(ة) مسجل(ة)
+          <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
+            <span>أستاذ(ة) مسجل(ة)</span>
+            <span className="text-[10px] font-bold text-[#2D5A27] group-hover:underline">إدارة ↗</span>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-xl p-4 shadow-xs flex flex-col justify-between">
+        {/* إجمالي الأقسام */}
+        <button
+          type="button"
+          onClick={() => navigateToTab('sections')}
+          title="انقر لفتح تدبير الأقسام وتعديل المقاعد والأساتذة المسندين"
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 ${
+            activeTab === 'sections' && !inspectSectionId
+              ? 'bg-[#FAF5EC] border-[#C98A3C] ring-2 ring-[#C98A3C]/20 shadow-xs'
+              : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#C98A3C]'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span>إجمالي الأقسام</span>
-            <Layers className="w-4 h-4 text-[#C98A3C]" />
+            <span className="group-hover:text-[#C98A3C] transition-colors">إجمالي الأقسام</span>
+            <div className="w-6 h-6 rounded-lg bg-[#C98A3C]/15 flex items-center justify-center text-[#C98A3C]">
+              <Layers className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-serif text-[#2A2118]">
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#2A2118] my-0.5">
             {sections.length}
           </div>
-          <div className="text-xs text-[#7A6B58] mt-1">
-            قسم بالمؤسسة
+          <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
+            <span>قسم بالمؤسسة</span>
+            <span className="text-[10px] font-bold text-[#C98A3C] group-hover:underline">تعديل ↗</span>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-xl p-4 shadow-xs flex flex-col justify-between">
+        {/* مجموع التلاميذ */}
+        <button
+          type="button"
+          onClick={() => navigateToTab('students')}
+          title="انقر لفتح لائحة التلاميذ والبحث وتعديل الأسماء والأرقام الترتيبية"
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 ${
+            activeTab === 'students' && !inspectSectionId
+              ? 'bg-[#E8F2F0] border-[#1A4E47] ring-2 ring-[#1A4E47]/20 shadow-xs'
+              : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#1A4E47]'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span>مجموع التلاميذ</span>
-            <GraduationCap className="w-4 h-4 text-[#2A2118]" />
+            <span className="group-hover:text-[#1A4E47] transition-colors">مجموع التلاميذ</span>
+            <div className="w-6 h-6 rounded-lg bg-[#1A4E47]/10 flex items-center justify-center text-[#1A4E47]">
+              <GraduationCap className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-serif text-[#2A2118]">
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#2A2118] my-0.5">
             {isLoading && !analytics ? (
-              <span className="text-sm font-sans text-[#7A6B58]">جاري التحميل...</span>
+              <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
             ) : (
               analytics?.summary?.totalStudents ?? (analytics?.allStudents?.length || 0)
             )}
           </div>
-          <div className="text-xs text-[#7A6B58] mt-1">
-            تلميذ(ة) في اللوائح
+          <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
+            <span>تلميذ(ة) في اللوائح</span>
+            <span className="text-[10px] font-bold text-[#1A4E47] group-hover:underline">عرض ↗</span>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-xl p-4 shadow-xs flex flex-col justify-between">
+        {/* سجل المخالفات */}
+        <button
+          type="button"
+          onClick={() => navigateToTab('violations')}
+          title="انقر لفتح سجل المخالفات ومتابعة السلوك وتدبير أنواع المخالفات"
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 ${
+            activeTab === 'violations' && !inspectSectionId
+              ? 'bg-[#FDF2F2] border-[#A8443A] ring-2 ring-[#A8443A]/20 shadow-xs'
+              : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#A8443A]'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span>سجل المخالفات</span>
-            <AlertTriangle className="w-4 h-4 text-[#A8443A]" />
+            <span className="group-hover:text-[#A8443A] transition-colors">سجل المخالفات</span>
+            <div className="w-6 h-6 rounded-lg bg-[#A8443A]/10 flex items-center justify-center text-[#A8443A]">
+              <AlertTriangle className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-serif text-[#A8443A]">
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#A8443A] my-0.5">
             {isLoading && !analytics ? (
-              <span className="text-sm font-sans text-[#7A6B58]">جاري التحميل...</span>
+              <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
             ) : (
               analytics?.summary?.totalViolations ?? 0
             )}
           </div>
-          <div className="text-xs text-[#7A6B58] mt-1">
-            ملاحظة ومخالفة مسجلة
+          <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
+            <span>ملاحظة ومخالفة مسجلة</span>
+            <span className="text-[10px] font-bold text-[#A8443A] group-hover:underline">إجراءات ↗</span>
           </div>
-        </div>
+        </button>
 
-        <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-xl p-4 shadow-xs flex flex-col justify-between col-span-2 sm:col-span-1">
+        {/* حالات الغياب */}
+        <button
+          type="button"
+          onClick={() => navigateToTab('absences')}
+          title="انقر لفتح تتبع حالات الغياب ورصد التلاميذ الأكثر غياباً والأرشيف"
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 ${
+            activeTab === 'absences' && !inspectSectionId
+              ? 'bg-[#FBF5EC] border-[#8A5A18] ring-2 ring-[#8A5A18]/20 shadow-xs'
+              : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#8A5A18]'
+          }`}
+        >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span>حالات الغياب</span>
-            <UserX className="w-4 h-4 text-[#8A5A18]" />
+            <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب</span>
+            <div className="w-6 h-6 rounded-lg bg-[#8A5A18]/10 flex items-center justify-center text-[#8A5A18]">
+              <UserX className="w-3.5 h-3.5" />
+            </div>
           </div>
-          <div className="text-2xl sm:text-3xl font-bold font-serif text-[#8A5A18]">
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5">
             {isLoading && !analytics ? (
-              <span className="text-sm font-sans text-[#7A6B58]">جاري التحميل...</span>
+              <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
             ) : (
               analytics?.summary?.totalAbsences ?? 0
             )}
           </div>
-          <div className="text-xs text-[#7A6B58] mt-1">
-            تسجيل غياب مرصود
+          <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
+            <span>تسجيل غياب مرصود</span>
+            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">تتبع ↗</span>
           </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <button
-          type="button"
-          onClick={() => { setActiveTab('students'); setInspectSectionId(null); }}
-          className="text-right bg-white border border-[#E4DBC0] rounded-xl p-3.5 hover:border-[#1A4E47] transition-colors cursor-pointer"
-        >
-          <div className="text-[11px] font-bold text-[#7A6B58]">نسبة امتلاء المقاعد</div>
-          <div className="flex items-end justify-between gap-3 mt-1">
-            <strong className="text-xl font-serif text-[#1A4E47]">{directorQuickStats.occupancy}%</strong>
-            <span className="text-[11px] text-[#7A6B58]">{directorQuickStats.registeredStudents} من {sections.length * 40}</span>
-          </div>
-          <div className="h-1.5 bg-[#EFE9D5] rounded-full mt-2 overflow-hidden">
-            <div className="h-full bg-[#1A4E47] rounded-full" style={{ width: `${Math.min(directorQuickStats.occupancy, 100)}%` }} />
-          </div>
-        </button>
-        <button
-          type="button"
-          onClick={() => { setActiveTab('teachers'); setInspectSectionId(null); }}
-          className="text-right bg-white border border-[#E4DBC0] rounded-xl p-3.5 hover:border-[#1A4E47] transition-colors cursor-pointer"
-        >
-          <div className="text-[11px] font-bold text-[#7A6B58]">الحسابات النشطة</div>
-          <div className="mt-1 text-xl font-serif text-[#1A4E47]">{directorQuickStats.activeTeachers} <span className="text-xs font-sans text-[#7A6B58]">من {teachers.length}</span></div>
-          <div className="text-[11px] text-[#7A6B58] mt-1">اضغط لفتح إدارة هيئة التدريس</div>
         </button>
       </div>
 
-      {/* 3. Segmented Navigation Tabs */}
-      <div className="bg-[#EFE9D5] p-1.5 rounded-xl border border-[#D9CEB0] flex flex-wrap gap-1">
+      {/* 2.1 Compact Secondary Indicators */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <button
+          type="button"
+          onClick={() => navigateToTab('students')}
+          title="انقر لفتح لائحة التلاميذ وأماكن الجلوس وتعديل بياناتهم"
+          className="text-right bg-white hover:bg-[#FAF8F5] border border-[#E4DBC0] hover:border-[#1A4E47] rounded-xl px-3 py-2.5 transition-all cursor-pointer shadow-xs group"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#7A6B58] group-hover:text-[#1A4E47]">نسبة امتلاء المقاعد</span>
+            <span className="text-xs text-[#7A6B58]">{directorQuickStats.registeredStudents} من {sections.length * 40}</span>
+          </div>
+          <div className="flex items-center gap-3 mt-1.5">
+            <strong className="text-lg font-serif text-[#1A4E47] shrink-0">{directorQuickStats.occupancy}%</strong>
+            <div className="flex-1 h-2 bg-[#EFE9D5] rounded-full overflow-hidden">
+              <div className="h-full bg-[#1A4E47] rounded-full transition-all duration-500" style={{ width: `${Math.min(directorQuickStats.occupancy, 100)}%` }} />
+            </div>
+            <span className="text-[10px] font-bold text-[#1A4E47] group-hover:underline shrink-0">عرض المقاعد ↗</span>
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigateToTab('teachers')}
+          title="انقر لفتح إدارة هيئة التدريس وتفعيل الحسابات المعلقة"
+          className="text-right bg-white hover:bg-[#FAF8F5] border border-[#E4DBC0] hover:border-[#2D5A27] rounded-xl px-3 py-2.5 transition-all cursor-pointer shadow-xs group flex items-center justify-between"
+        >
+          <div>
+            <div className="text-xs font-bold text-[#7A6B58] group-hover:text-[#2D5A27]">الحسابات النشطة</div>
+            <div className="text-[11px] text-[#7A6B58] mt-0.5">اضغط لفتح إدارة هيئة التدريس</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="text-right">
+              <div className="text-lg font-serif font-bold text-[#2D5A27]">
+                {directorQuickStats.activeTeachers} <span className="text-xs font-sans text-[#7A6B58]">من {teachers.length}</span>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold text-[#2D5A27] bg-[#2D5A27]/10 px-2 py-1 rounded-lg group-hover:bg-[#2D5A27] group-hover:text-white transition-colors">
+              إدارة ↗
+            </span>
+          </div>
+        </button>
+      </div>
+
+      {/* 3. Compact Segmented Navigation Tabs */}
+      <div id="director-main-tabs" className="bg-[#EFE9D5] p-1 rounded-xl border border-[#D9CEB0] flex flex-wrap gap-1 items-center">
         {/* Academic Years Tab */}
         <button
           type="button"
           id="director-tab-academic-years"
-          onClick={() => { setActiveTab('academic-years'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('academic-years')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'academic-years' && !inspectSectionId
               ? 'bg-[#1A4E47] text-white shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <Calendar className="w-4 h-4" />
+          <Calendar className="w-3.5 h-3.5" />
           <span>تدبير المواسم الدراسية</span>
-          <span className="px-1.5 py-0.2 rounded-full text-xs bg-emerald-900/60 text-emerald-200 border border-emerald-400/30 font-mono">
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-900/60 text-emerald-200 border border-emerald-400/30 font-mono">
             {settings.year || '2026/2027'}
           </span>
         </button>
 
         <button
           type="button"
-          onClick={() => { setActiveTab('teachers'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('teachers')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'teachers' && !inspectSectionId
-              ? 'bg-[#2A2118] text-[#F4EFDE] shadow-xs'
+              ? 'bg-[#2D5A27] text-white shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <Users className="w-4 h-4" />
+          <Users className="w-3.5 h-3.5" />
           <span>لائحة الأساتذة وإدارتهم</span>
-          <span className="px-1.5 py-0.2 rounded-full text-xs bg-[rgba(255,255,255,0.2)]">
+          <span className={`px-1.5 py-0.2 rounded-full text-[11px] font-mono font-bold ${
+            activeTab === 'teachers' && !inspectSectionId ? 'bg-white/20 text-white' : 'bg-black/5 text-[#5B5040]'
+          }`}>
             {teachers.length}
           </span>
         </button>
 
         <button
           type="button"
-          onClick={() => { setActiveTab('violations'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('violations')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'violations' && !inspectSectionId
               ? 'bg-[#A8443A] text-white shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <AlertTriangle className="w-4 h-4" />
+          <AlertTriangle className="w-3.5 h-3.5" />
           <span>أكثر 10 تلاميذ مخالفات</span>
         </button>
 
         <button
           type="button"
-          onClick={() => { setActiveTab('absences'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('absences')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'absences' && !inspectSectionId
               ? 'bg-[#8A5A18] text-white shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <UserX className="w-4 h-4" />
+          <UserX className="w-3.5 h-3.5" />
           <span>أكثر 10 تلاميذ غياباً</span>
         </button>
 
         <button
           type="button"
-          onClick={() => { setActiveTab('students'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('students')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'students' && !inspectSectionId
-              ? 'bg-[#2A2118] text-[#F4EFDE] shadow-xs'
+              ? 'bg-[#1A4E47] text-white shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <FileSpreadsheet className="w-4 h-4" />
+          <FileSpreadsheet className="w-3.5 h-3.5" />
           <span>لائحة بأسماء التلاميذ وأرقامهم</span>
-          <span className="px-1.5 py-0.2 rounded-full text-xs bg-[rgba(255,255,255,0.2)] font-mono font-bold">
+          <span className={`px-1.5 py-0.2 rounded-full text-[11px] font-mono font-bold ${
+            activeTab === 'students' && !inspectSectionId ? 'bg-white/20 text-white' : 'bg-black/5 text-[#5B5040]'
+          }`}>
             {analytics?.allStudents ? analytics.allStudents.length : (analytics?.summary?.totalStudents ?? 0)}
           </span>
         </button>
 
         <button
           type="button"
-          onClick={() => { setActiveTab('sections'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('sections')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'sections' && !inspectSectionId
               ? 'bg-[#2A2118] text-[#F4EFDE] shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <Layers className="w-4 h-4" />
+          <Layers className="w-3.5 h-3.5" />
           <span>الأقسام والمستويات</span>
-          <span className="px-1.5 py-0.2 rounded-full text-xs bg-[rgba(255,255,255,0.2)]">
+          <span className={`px-1.5 py-0.2 rounded-full text-[11px] font-mono font-bold ${
+            activeTab === 'sections' && !inspectSectionId ? 'bg-white/20 text-[#F4EFDE]' : 'bg-black/5 text-[#5B5040]'
+          }`}>
             {sections.length}
           </span>
         </button>
@@ -872,14 +973,14 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         <button
           type="button"
           id="director-tab-daily-archive"
-          onClick={() => { setActiveTab('daily-archive'); setInspectSectionId(null); }}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all cursor-pointer ${
+          onClick={() => navigateToTab('daily-archive')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
             activeTab === 'daily-archive' && !inspectSectionId
               ? 'bg-[#B45309] text-white shadow-xs'
               : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
           }`}
         >
-          <Calendar className="w-4 h-4" />
+          <Calendar className="w-3.5 h-3.5" />
           <span>الأرشيف اليومي (غيابات ومخالفات)</span>
         </button>
       </div>

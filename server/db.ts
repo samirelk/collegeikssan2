@@ -17,7 +17,9 @@ import {
   cloudDeleteTeacherSeatOverride,
   cloudSaveSetting,
   cloudSaveAssignment,
-  cloudDeleteAssignment
+  cloudDeleteAssignment,
+  cloudSaveTimetableEntry,
+  cloudDeleteTimetableEntry
 } from './firestoreSync.ts';
 
 // Ensure data directory exists for durable SQLite file persistence
@@ -445,6 +447,27 @@ export function initDatabase() {
     // Column already exists
   }
 
+  // Ensure teacher_timetable table exists (استعمال زمان الأساتذة)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS teacher_timetable (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL,
+      day_of_week TEXT NOT NULL,
+      slot_id TEXT NOT NULL,
+      period_type TEXT NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      room TEXT DEFAULT '',
+      subject TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tt_teacher ON teacher_timetable(teacher_id);
+    CREATE INDEX IF NOT EXISTS idx_tt_day ON teacher_timetable(teacher_id, day_of_week);
+  `);
+
   // Seed default predefined violation types if table is empty
   try {
     const vtCount = (db.prepare('SELECT COUNT(*) as count FROM violation_types').get() as any).count;
@@ -471,55 +494,8 @@ export function initDatabase() {
     console.error('Error seeding violation_types:', err);
   }
 
-  // Auto-sync historical notes into daily_violations if daily_violations is empty and notes has rows
-  try {
-    const violationCount = (db.prepare('SELECT COUNT(*) as count FROM daily_violations').get() as any).count;
-    if (violationCount === 0) {
-      const historicalNotes = db.prepare(`
-        SELECT n.id, n.section_id, n.seat_num, n.note_text, n.note_date, n.note_time, n.created_at,
-               s.student_name, s.student_number, u.full_name as teacher_name, u.subject as teacher_subject
-        FROM notes n
-        LEFT JOIN seats s ON n.section_id = s.section_id AND n.seat_num = s.seat_num
-        LEFT JOIN sections sec ON n.section_id = sec.id
-        LEFT JOIN users u ON sec.assigned_teacher_id = u.id
-      `).all() as any[];
-
-      const insertViolStmt = db.prepare(`
-        INSERT INTO daily_violations (
-          id, section_id, seat_num, student_name, student_number,
-          violation_type, description, action_taken, teacher_name, teacher_subject,
-          recorded_date, recorded_time, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const n of historicalNotes) {
-        let formattedDate = n.note_date;
-        if (n.note_date && n.note_date.includes('/')) {
-          const parts = n.note_date.split('/');
-          if (parts.length === 3) {
-            formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-          }
-        }
-        insertViolStmt.run(
-          n.id,
-          n.section_id,
-          n.seat_num,
-          n.student_name || `تلميذ المقعد #${n.seat_num}`,
-          n.student_number || '',
-          'ملاحظة سلوكية',
-          n.note_text,
-          'تنبيه شفهي',
-          n.teacher_name || '',
-          n.teacher_subject || '',
-          formattedDate || new Date().toISOString().slice(0, 10),
-          n.note_time || '08:30',
-          n.created_at || new Date().toISOString()
-        );
-      }
-    }
-  } catch (err) {
-    console.error('Error syncing historical notes to daily violations:', err);
-  }
+  // Note: Notes and daily_violations are completely independent entities.
+  // Violations log counter tracks ONLY actual violations from daily_violations table.
 
   // Ensure admin, directors, and default teacher have email_verified = 1
   try {
@@ -1019,9 +995,7 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
         statusColor: (override?.status_color ?? found?.status_color ?? 'default') as any,
         attendance: (found?.attendance as any) || null,
         violations: seatViols,
-        notes: seatViols.length > 0
-          ? seatViols.map((v: any) => ({ id: v.id, text: v.violationType, date: v.recordedDate, time: v.recordedTime }))
-          : (notesBySeat[i] || [])
+        notes: notesBySeat[i] || []
       });
     }
 
@@ -1356,50 +1330,7 @@ export function addSeatNote(sectionId: string, seatNum: number, note: { id?: str
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, sectionId, seatNum, note.text, note.date, note.time, now, note.teacherId || '');
 
-  // Sync to daily_violations
-  try {
-    const seat = db.prepare('SELECT student_name, student_number FROM seats WHERE section_id = ? AND seat_num = ?').get(sectionId, seatNum) as any;
-    const secInfo = db.prepare(`
-      SELECT u.full_name as teacher_name, u.subject as teacher_subject
-      FROM sections sec
-      LEFT JOIN users u ON sec.assigned_teacher_id = u.id
-      WHERE sec.id = ?
-    `).get(sectionId) as any;
-
-    let formattedDate = note.date;
-    if (formattedDate && formattedDate.includes('/')) {
-      const parts = formattedDate.split('/');
-      if (parts.length === 3) {
-        formattedDate = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      }
-    }
-
-    db.prepare(`
-      INSERT INTO daily_violations (
-        id, section_id, seat_num, student_name, student_number,
-        violation_type, description, action_taken, teacher_name, teacher_subject,
-        recorded_date, recorded_time, created_at, teacher_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      id,
-      sectionId,
-      seatNum,
-      seat?.student_name || `المقعد #${seatNum}`,
-      seat?.student_number || '',
-      note.violationType || 'ملاحظة سلوكية',
-      note.text,
-      note.actionTaken || 'تنبيه شفهي',
-      secInfo?.teacher_name || '',
-      secInfo?.teacher_subject || '',
-      formattedDate || now.slice(0, 10),
-      note.time || '08:30',
-      now,
-      note.teacherId || ''
-    );
-  } catch (err) {
-    console.error('Error syncing note to daily_violations:', err);
-  }
-
+  // Notes are strictly pedagogical notes, separate from disciplinary violations.
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
     VALUES (?, ?, ?, ?)
@@ -1430,15 +1361,9 @@ export function addSeatNote(sectionId: string, seatNum: number, note: { id?: str
 
 export function deleteSeatNote(sectionId: string, seatNum: number, noteId: string) {
   db.prepare('DELETE FROM notes WHERE id = ? AND section_id = ? AND seat_num = ?').run(noteId, sectionId, seatNum);
-  try {
-    db.prepare('DELETE FROM daily_violations WHERE id = ?').run(noteId);
-  } catch {
-    // Ignore
-  }
 
   try {
     cloudDeleteNote(noteId);
-    cloudDeleteViolation(noteId);
   } catch (err) {
     console.warn('Firestore cloudDeleteNote error:', err);
   }
@@ -2237,7 +2162,7 @@ export function swapSeats(sectionId: string, seatANum: number, seatBNum: number,
 
 // ---------------- Seat Shuffle & Random Distribution ----------------
 
-export function orderSectionSeatsByNumber(sectionId: string) {
+export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, actorRole?: string) {
   db.exec('BEGIN TRANSACTION;');
   try {
     const sec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
@@ -2381,7 +2306,7 @@ export function orderSectionSeatsByNumber(sectionId: string) {
   }
 }
 
-export function shuffleSectionSeats(sectionId: string) {
+export function shuffleSectionSeats(sectionId: string, actorId?: string, actorRole?: string) {
   db.exec('BEGIN TRANSACTION;');
   try {
     const sec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
@@ -4061,15 +3986,6 @@ export function getDirectorAnalytics() {
   const violationRows = db.prepare(`
     WITH AllViolationsCombined AS (
       SELECT 
-        n.section_id, 
-        n.seat_num, 
-        n.id as viol_id, 
-        n.note_text as viol_text, 
-        n.note_date as viol_date, 
-        n.created_at
-      FROM notes n
-      UNION ALL
-      SELECT 
         dv.section_id, 
         dv.seat_num, 
         dv.id as viol_id, 
@@ -4183,11 +4099,7 @@ export function getDirectorAnalytics() {
     LEFT JOIN users u ON sec.assigned_teacher_id = u.id
     LEFT JOIN (
       SELECT section_id, seat_num, COUNT(*) as viols_count
-      FROM (
-        SELECT section_id, seat_num, id FROM notes
-        UNION ALL
-        SELECT section_id, seat_num, id FROM daily_violations
-      )
+      FROM daily_violations
       GROUP BY section_id, seat_num
     ) nc ON nc.section_id = s.section_id AND nc.seat_num = s.seat_num
     LEFT JOIN (
@@ -4203,27 +4115,6 @@ export function getDirectorAnalytics() {
   // 4. All violations detailed list for comprehensive printing & filtering
   const allViolations = db.prepare(`
     SELECT 
-      n.id,
-      n.section_id as sectionId,
-      sec.level as level,
-      sec.class_number as classNumber,
-      sec.level || ' (' || sec.class_number || ')' as sectionName,
-      s.student_name as studentName,
-      s.student_number as studentNumber,
-      s.massar_number as massarNumber,
-      n.note_text as violationType,
-      n.note_date as date,
-      n.note_time as time,
-      COALESCE(u.full_name, sec.teacher, 'أستاذ المادة') as teacherName,
-      COALESCE(u.subject, 'عام') as teacherSubject,
-      'تنبيه شفهي' as actionTaken,
-      n.note_text as notes
-    FROM notes n
-    JOIN seats s ON n.section_id = s.section_id AND n.seat_num = s.seat_num
-    JOIN sections sec ON n.section_id = sec.id
-    LEFT JOIN users u ON sec.assigned_teacher_id = u.id
-    UNION ALL
-    SELECT
       dv.id,
       dv.section_id as sectionId,
       sec.level as level,
@@ -4275,7 +4166,7 @@ export function getDirectorAnalytics() {
   const totalSections = (db.prepare('SELECT COUNT(*) as count FROM sections').get() as any).count;
   const notesCount = (db.prepare('SELECT COUNT(*) as count FROM notes').get() as any).count;
   const dailyViolationsCount = (db.prepare('SELECT COUNT(*) as count FROM daily_violations').get() as any).count;
-  const totalViolations = notesCount + dailyViolationsCount;
+  const totalViolations = dailyViolationsCount;
   
   // Accurately count absences without double counting
   const historyAbsences = (db.prepare("SELECT COUNT(*) as count FROM attendance_history WHERE status = 'absent' AND COALESCE(count_in_stats, 1) = 1").get() as any).count;
@@ -4820,57 +4711,31 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
 
   const absencesRows = db.prepare(absenceQuery).all(...absenceParams) as any[];
 
-  // 2. Violations Query for targetDate (Combines daily_violations and notes)
-  let violWhere1 = `v.recorded_date IN (${datePlaceholders})`;
-  let violWhere2 = `n.note_date IN (${datePlaceholders}) AND NOT EXISTS (SELECT 1 FROM daily_violations dv WHERE dv.id = n.id)`;
+  // 2. Violations Query for targetDate (Only actual violations from daily_violations)
+  let violWhere = `v.recorded_date IN (${datePlaceholders})`;
   const violParams: any[] = [...dateList];
 
   if (teacherId) {
-    violWhere1 += ' AND v.teacher_id = ?';
+    violWhere += ' AND v.teacher_id = ?';
     violParams.push(teacherId);
-    violWhere2 = `n.note_date IN (${datePlaceholders}) AND EXISTS (SELECT 1 FROM daily_violations dv WHERE dv.id = n.id AND dv.teacher_id = ?)`;
   }
 
   if (sectionIds.length > 0) {
-    violWhere1 += ` AND v.section_id IN (${sectionIds.map(() => '?').join(', ')})`;
-    violParams.push(...sectionIds);
-  }
-
-  if (teacherId) {
-    violParams.push(...dateList, teacherId);
-  } else {
-    violParams.push(...dateList);
-  }
-  if (sectionIds.length > 0) {
-    violWhere2 += ` AND n.section_id IN (${sectionIds.map(() => '?').join(', ')})`;
+    violWhere += ` AND v.section_id IN (${sectionIds.map(() => '?').join(', ')})`;
     violParams.push(...sectionIds);
   }
 
   const violQuery = `
-    SELECT * FROM (
-      SELECT v.id, v.section_id, v.seat_num, v.student_name, v.student_number,
-             COALESCE(s.massar_number, v.massar_number, '') as massar_number,
-             v.violation_type, v.description, v.action_taken, v.teacher_name, v.teacher_subject,
-             v.recorded_date, v.recorded_time, v.created_at,
-             sec.level as section_level, sec.class_number as section_class
-      FROM daily_violations v
-      JOIN sections sec ON v.section_id = sec.id
-      LEFT JOIN seats s ON v.section_id = s.section_id AND v.seat_num = s.seat_num
-      WHERE ${violWhere1}
-      UNION ALL
-      SELECT n.id, n.section_id, n.seat_num, s.student_name, s.student_number,
-             COALESCE(s.massar_number, '') as massar_number,
-             n.note_text as violation_type, n.note_text as description, 'تنبيه شفهي' as action_taken,
-             COALESCE(u.full_name, sec.teacher, 'أستاذ المادة') as teacher_name,
-             COALESCE(u.subject, 'عام') as teacher_subject,
-             n.note_date as recorded_date, n.note_time as recorded_time, n.created_at,
-             sec.level as section_level, sec.class_number as section_class
-      FROM notes n
-      JOIN sections sec ON n.section_id = sec.id
-      JOIN seats s ON n.section_id = s.section_id AND n.seat_num = s.seat_num
-      LEFT JOIN users u ON sec.assigned_teacher_id = u.id
-      WHERE ${violWhere2}
-    ) ORDER BY recorded_time DESC, created_at DESC
+    SELECT v.id, v.section_id, v.seat_num, v.student_name, v.student_number,
+           COALESCE(s.massar_number, v.massar_number, '') as massar_number,
+           v.violation_type, v.description, v.action_taken, v.teacher_name, v.teacher_subject,
+           v.recorded_date, v.recorded_time, v.created_at,
+           sec.level as section_level, sec.class_number as section_class
+    FROM daily_violations v
+    JOIN sections sec ON v.section_id = sec.id
+    LEFT JOIN seats s ON v.section_id = s.section_id AND v.seat_num = s.seat_num
+    WHERE ${violWhere}
+    ORDER BY v.recorded_time DESC, v.created_at DESC
   `;
 
   const violationsRows = db.prepare(violQuery).all(...violParams) as any[];
@@ -4880,8 +4745,6 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
     SELECT DISTINCT recorded_date FROM attendance_history
     UNION
     SELECT DISTINCT recorded_date FROM daily_violations
-    UNION
-    SELECT DISTINCT note_date as recorded_date FROM notes
     ORDER BY recorded_date DESC
     LIMIT 120
   `).all() as { recorded_date: string }[];
@@ -4985,17 +4848,8 @@ export function getStudentHistory(sectionId: string, seatNum: number) {
            teacher_subject, recorded_date, recorded_time, created_at
     FROM daily_violations
     WHERE section_id = ? AND seat_num = ?
-    UNION ALL
-    SELECT n.id, n.note_text, n.note_text, 'تنبيه شفهي',
-           COALESCE(u.full_name, sec.teacher, 'أستاذ المادة'),
-           COALESCE(u.subject, 'عام'), n.note_date, n.note_time, n.created_at
-    FROM notes n
-    JOIN sections sec ON n.section_id = sec.id
-    LEFT JOIN users u ON sec.assigned_teacher_id = u.id
-    WHERE n.section_id = ? AND n.seat_num = ?
-      AND NOT EXISTS (SELECT 1 FROM daily_violations dv WHERE dv.id = n.id)
     ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
-  `).all(sectionId, seatNum, sectionId, seatNum) as any[];
+  `).all(sectionId, seatNum) as any[];
 
   const days = Array.from(new Set(
     absences
@@ -5405,5 +5259,273 @@ export function deleteAcademicYear(yearId: string) {
   );
 
   return getAllAcademicYears();
+}
+
+export async function resetAllDataToZero(requesterRole: string = 'admin') {
+  if (requesterRole !== 'admin') {
+    throw new Error('غير مصرح لك بتصفير البيانات، هذه الصلاحية حصراً للمشرف العام على التطبيق.');
+  }
+
+  // 1. Collect IDs for Cloud sync
+  const sectionsToDelete = db.prepare('SELECT id FROM sections').all() as { id: string }[];
+  const usersToDelete = db.prepare("SELECT id FROM users WHERE role != 'admin' AND username != 'admin' AND email NOT LIKE '%samir%'").all() as { id: string }[];
+
+  // 2. Clear transactional/operational tables in SQLite
+  db.prepare('DELETE FROM seats').run();
+  db.prepare('DELETE FROM notes').run();
+  db.prepare('DELETE FROM daily_violations').run();
+  db.prepare('DELETE FROM attendance_history').run();
+  db.prepare('DELETE FROM teacher_seat_overrides').run();
+  db.prepare('DELETE FROM section_assignments').run();
+  db.prepare('DELETE FROM student_change_requests').run();
+  db.prepare('DELETE FROM school_activities').run();
+  db.prepare('DELETE FROM teacher_timetable').run();
+  db.prepare('DELETE FROM sections').run();
+  db.prepare('DELETE FROM change_history').run();
+  db.prepare('DELETE FROM password_resets').run();
+  db.prepare('DELETE FROM email_outbox').run();
+
+  // 3. Remove non-admin users
+  for (const u of usersToDelete) {
+    db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    try {
+      cloudDeleteUser(u.id);
+    } catch {
+      // ignore
+    }
+  }
+
+  for (const s of sectionsToDelete) {
+    try {
+      cloudDeleteSection(s.id);
+    } catch {
+      // ignore
+    }
+  }
+
+  // 4. Mark data reset completed in app_settings
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES ('data_reset_completed', 'true', ?)
+    ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = ?
+  `).run(now, now);
+
+  try {
+    cloudSaveSetting('data_reset_completed', 'true');
+  } catch {
+    // ignore
+  }
+
+  // 5. Cloud Firestore direct cleanup
+  try {
+    const { listDocs, deleteDoc, setDoc } = await import('./firestoreService.ts');
+    const collectionsToClean = [
+      'sections',
+      'seats',
+      'notes',
+      'daily_violations',
+      'teacher_seat_overrides',
+      'attendance_history',
+      'section_assignments',
+      'student_change_requests',
+      'school_activities',
+      'teacher_timetable',
+      'db_snapshots',
+      'db_snapshot_chunks'
+    ];
+    for (const col of collectionsToClean) {
+      try {
+        const docs = await listDocs(col);
+        if (Array.isArray(docs)) {
+          for (const d of docs) {
+            if (d.id) {
+              await deleteDoc(col, d.id);
+            }
+          }
+        }
+      } catch (colErr: any) {
+        console.warn(`[resetAllDataToZero] Note while cleaning collection ${col}:`, colErr?.message);
+      }
+    }
+
+    // Clean non-admin users from Firestore
+    try {
+      const allUsers = await listDocs('users');
+      if (Array.isArray(allUsers)) {
+        for (const u of allUsers) {
+          const isSuperAdmin = u.role === 'admin' || u.username === 'admin' || (u.email && u.email.includes('samir')) || u.id === 'usr_admin_samir';
+          if (!isSuperAdmin && u.id) {
+            await deleteDoc('users', u.id);
+          }
+        }
+      }
+    } catch (usersErr: any) {
+      console.warn('[resetAllDataToZero] Error cleaning non-admin users from Firestore:', usersErr?.message);
+    }
+  } catch (cleanErr: any) {
+    console.warn('[resetAllDataToZero] Cloud cleanup warning:', cleanErr?.message);
+  }
+
+  // 6. Record change log
+  db.prepare(`
+    INSERT INTO change_history (action, summary, details_json, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    'reset_all_data_to_zero',
+    'إرجاع كل معطيات النظام إلى الصفر مع الإبقاء على حساب المشرف العام',
+    JSON.stringify({
+      clearedSections: sectionsToDelete.length,
+      clearedUsers: usersToDelete.length,
+      timestamp: now
+    }),
+    now
+  );
+
+  return {
+    success: true,
+    message: 'تم تصفير جميع البيانات بنجاح مع الحفاظ على حساب المشرف العام',
+    clearedSections: sectionsToDelete.length,
+    clearedUsers: usersToDelete.length
+  };
+}
+
+// ==========================================
+// Teacher Timetable Functions (استعمال زمان الأساتذة)
+// ==========================================
+
+export function getTeacherTimetable(teacherId: string) {
+  const rows = db.prepare(`
+    SELECT tt.*, sec.level, sec.class_number
+    FROM teacher_timetable tt
+    LEFT JOIN sections sec ON tt.section_id = sec.id
+    WHERE tt.teacher_id = ?
+    ORDER BY tt.slot_id ASC
+  `).all(teacherId) as any[];
+
+  return rows.map((r) => ({
+    id: r.id,
+    teacherId: r.teacher_id,
+    dayOfWeek: r.day_of_week,
+    slotId: r.slot_id,
+    periodType: r.period_type,
+    startTime: r.start_time,
+    endTime: r.end_time,
+    sectionId: r.section_id,
+    sectionName: r.level && r.class_number ? `${r.level}/${r.class_number}` : '',
+    room: r.room || '',
+    subject: r.subject || '',
+    notes: r.notes || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
+}
+
+export function upsertTimetableSlot(teacherId: string, data: {
+  dayOfWeek: string;
+  slotId: string;
+  periodType: string;
+  startTime: string;
+  endTime: string;
+  sectionId: string;
+  room?: string;
+  subject?: string;
+  notes?: string;
+}) {
+  const now = new Date().toISOString();
+  // Check if an entry already exists for this teacher on this day and slot
+  const existing = db.prepare(`
+    SELECT id FROM teacher_timetable
+    WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?
+  `).get(teacherId, data.dayOfWeek, data.slotId) as any;
+
+  const id = existing?.id || ('tt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+
+  db.prepare(`
+    INSERT INTO teacher_timetable (
+      id, teacher_id, day_of_week, slot_id, period_type,
+      start_time, end_time, section_id, room, subject, notes,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      period_type = excluded.period_type,
+      start_time = excluded.start_time,
+      end_time = excluded.end_time,
+      section_id = excluded.section_id,
+      room = excluded.room,
+      subject = excluded.subject,
+      notes = excluded.notes,
+      updated_at = excluded.updated_at
+  `).run(
+    id,
+    teacherId,
+    data.dayOfWeek,
+    data.slotId,
+    data.periodType,
+    data.startTime,
+    data.endTime,
+    data.sectionId,
+    data.room || '',
+    data.subject || '',
+    data.notes || '',
+    now,
+    now
+  );
+
+  const savedRecord = {
+    id,
+    teacherId,
+    dayOfWeek: data.dayOfWeek,
+    slotId: data.slotId,
+    periodType: data.periodType,
+    startTime: data.startTime,
+    endTime: data.endTime,
+    sectionId: data.sectionId,
+    room: data.room || '',
+    subject: data.subject || '',
+    notes: data.notes || '',
+    createdAt: now,
+    updatedAt: now
+  };
+
+  try {
+    cloudSaveTimetableEntry(savedRecord);
+  } catch (err) {
+    console.warn('Firestore cloudSaveTimetableEntry error:', err);
+  }
+
+  return savedRecord;
+}
+
+export function deleteTimetableSlot(teacherId: string, slotId: string, dayOfWeek: string) {
+  const existing = db.prepare(`
+    SELECT id FROM teacher_timetable
+    WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?
+  `).get(teacherId, dayOfWeek, slotId) as any;
+
+  if (existing) {
+    db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(existing.id);
+    try {
+      cloudDeleteTimetableEntry(existing.id);
+    } catch (err) {
+      console.warn('Firestore cloudDeleteTimetableEntry error:', err);
+    }
+  }
+
+  return { success: true };
+}
+
+export function deleteTimetableEntryById(id: string, teacherId?: string) {
+  if (teacherId) {
+    db.prepare('DELETE FROM teacher_timetable WHERE id = ? AND teacher_id = ?').run(id, teacherId);
+  } else {
+    db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(id);
+  }
+  try {
+    cloudDeleteTimetableEntry(id);
+  } catch (err) {
+    console.warn('Firestore cloudDeleteTimetableEntry error:', err);
+  }
+  return { success: true };
 }
 

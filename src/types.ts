@@ -469,3 +469,45 @@ export interface DailyArchiveResponse {
   stats: DailyArchiveStats;
   availableDates: string[];
 }
+
+// ==========================================
+// Teacher Timetable Types (استعمال زمن الأساتذة)
+// ==========================================
+
+export type TimetableDay = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday';
+
+export interface TimetableSlotDef {
+  id: string; // e.g. 'm1', 'm2', 'm3', 'm4' (Morning 08:00-12:00), 'e1', 'e2', 'e3', 'e4' (Evening 14:00-18:00)
+  period: 'morning' | 'evening';
+  index: number;
+  label: string; // e.g. '08:00 - 09:00'
+  shortLabel: string; // 'ح1', 'ح2'
+  startMinutes: number; // e.g. 8 * 60 = 480
+  endMinutes: number; // e.g. 9 * 60 = 540
+  startTime: string; // '08:00'
+  endTime: string; // '09:00'
+}
+
+export interface TeacherTimetableEntry {
+  id: string;
+  teacherId: string;
+  dayOfWeek: TimetableDay;
+  slotId: string;
+  periodType: 'morning' | 'evening';
+  startTime: string;
+  endTime: string;
+  sectionId: string;
+  sectionName?: string;
+  room?: string;
+  subject?: string;
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface TeacherTimetableResponse {
+  success: boolean;
+  teacherId: string;
+  entries: TeacherTimetableEntry[];
+  message?: string;
+}

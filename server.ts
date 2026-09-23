@@ -6,6 +6,7 @@ import {
   getAppSettings,
   saveAppSettings,
   getAllSections,
+  resetAllDataToZero,
   createSection,
   updateSectionMeta,
   deleteSection,
@@ -79,6 +80,10 @@ import {
   resetViolationTypes,
   addStudentViolation,
   deleteStudentViolation,
+  getTeacherTimetable,
+  upsertTimetableSlot,
+  deleteTimetableSlot,
+  deleteTimetableEntryById,
   db
 } from './server/db.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
@@ -100,20 +105,22 @@ async function startServer() {
   // Configure the automatic cloud-backup engine (full-snapshot durability layer).
   configureCloudBackup({ exportFullBackup, importFullBackup, db });
 
-  // Durable Cloud Persistence boot sequence.
-  // The local SQLite file is ephemeral (wiped on every container restart/redeploy),
-  // so on boot we (1) pull granular collections from Firestore, then (2) auto-restore
-  // the latest FULL snapshot so seating maps, rosters and settings are never lost.
+  // Durable Cloud Persistence boot sequence:
+  // 1. Restore the most recent authoritative snapshot FIRST so all seating maps, rosters,
+  //    users, attendance, and settings are restored into the ephemeral SQLite database.
   try {
-    await syncDatabaseWithFirestore(db);
-  } catch (err: any) {
-    console.error('Initial Firebase Firestore sync failed:', err?.message || err);
-  }
-  try {
-    // Snapshot restore runs LAST so it is authoritative for sections/seats/settings.
+    console.log('🔄 [CloudBackup] Checking and restoring cloud snapshot on boot...');
     await restoreLatestSnapshotOnBoot();
   } catch (err: any) {
     console.error('Boot snapshot restore failed:', err?.message || err);
+  }
+
+  // 2. Perform bidirectional granular sync with Firestore (respecting timestamps).
+  try {
+    console.log('🔄 [FirestoreSync] Initializing granular Firestore sync...');
+    await syncDatabaseWithFirestore(db);
+  } catch (err: any) {
+    console.error('Initial Firebase Firestore sync failed:', err?.message || err);
   }
   // Begin taking automatic periodic snapshots.
   startAutoBackup();
@@ -609,7 +616,9 @@ async function startServer() {
   app.post('/api/sections/:id/shuffle-seats', (req, res) => {
     try {
       const sectionId = req.params.id;
-      const result = shuffleSectionSeats(sectionId);
+      const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || undefined;
+      const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || undefined;
+      const result = shuffleSectionSeats(sectionId, actorId, actorRole);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -620,7 +629,9 @@ async function startServer() {
   app.post('/api/sections/:id/order-by-number', (req, res) => {
     try {
       const sectionId = req.params.id;
-      const result = orderSectionSeatsByNumber(sectionId);
+      const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || undefined;
+      const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || undefined;
+      const result = orderSectionSeatsByNumber(sectionId, actorId, actorRole);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -1062,6 +1073,17 @@ async function startServer() {
     }
   });
 
+  // Reset all application data back to zero (Strictly Exclusive to General Supervisor / Super-Admin)
+  app.post('/api/admin/reset-to-zero', async (req, res) => {
+    try {
+      if (!requireAdmin(req, res)) return;
+      const result = await resetAllDataToZero('admin');
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // ==========================================
   // Academic Years Endpoints (تدبير المواسم الدراسية)
   // ==========================================
@@ -1326,6 +1348,76 @@ async function startServer() {
         return res.status(400).json({ success: false, error: 'بيانات التلميذ غير صالحة' });
       }
       res.json({ success: true, history: getStudentHistory(req.params.sectionId, seatNum) });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Teacher Timetable API (استعمال زمن الأساتذة)
+  // ==========================================
+
+  app.get('/api/teacher/timetable', (req, res) => {
+    try {
+      const teacherId = (req.query.teacherId as string) || (req.headers['x-user-id'] as string);
+      if (!teacherId) {
+        return res.status(400).json({ success: false, error: 'معرف الأستاذ مطلوب' });
+      }
+      const entries = getTeacherTimetable(teacherId);
+      res.json({ success: true, teacherId, entries });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/teacher/timetable', (req, res) => {
+    try {
+      const teacherId = req.body.teacherId || (req.headers['x-user-id'] as string);
+      if (!teacherId) {
+        return res.status(400).json({ success: false, error: 'معرف الأستاذ مطلوب' });
+      }
+      const { dayOfWeek, slotId, periodType, startTime, endTime, sectionId, room, subject, notes } = req.body;
+      if (!dayOfWeek || !slotId || !sectionId) {
+        return res.status(400).json({ success: false, error: 'بيانات الحصة غير مكتملة' });
+      }
+      const entry = upsertTimetableSlot(teacherId, {
+        dayOfWeek,
+        slotId,
+        periodType: periodType || 'morning',
+        startTime: startTime || '08:00',
+        endTime: endTime || '09:00',
+        sectionId,
+        room,
+        subject,
+        notes
+      });
+      markDirty();
+      res.json({ success: true, entry });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/teacher/timetable/:id', (req, res) => {
+    try {
+      const teacherId = (req.headers['x-user-id'] as string) || undefined;
+      deleteTimetableEntryById(req.params.id, teacherId);
+      markDirty();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/teacher/timetable/slot/:dayOfWeek/:slotId', (req, res) => {
+    try {
+      const teacherId = (req.query.teacherId as string) || (req.headers['x-user-id'] as string);
+      if (!teacherId) {
+        return res.status(400).json({ success: false, error: 'معرف الأستاذ مطلوب' });
+      }
+      deleteTimetableSlot(teacherId, req.params.slotId, req.params.dayOfWeek);
+      markDirty();
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

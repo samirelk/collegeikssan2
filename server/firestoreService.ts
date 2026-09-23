@@ -203,6 +203,31 @@ export async function listDocs(collection: string): Promise<Record<string, any>[
   return results;
 }
 
+// List documents from a direct subcollection path (e.g. 'sections/s1/teachers/t1/seats')
+export async function listSubcollectionDocs(collectionPath: string): Promise<Record<string, any>[]> {
+  const config = getFirebaseConfig();
+  const url = `${getFirestoreBaseUrl()}/${collectionPath}?key=${config.apiKey}`;
+  const results: Record<string, any>[] = [];
+
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      return [];
+    }
+    const data = await res.json();
+    if (Array.isArray(data.documents)) {
+      for (const doc of data.documents) {
+        const decoded = decodeFirestoreDocument(doc);
+        if (decoded) results.push(decoded);
+      }
+    }
+  } catch (err) {
+    console.warn(`Firestore listSubcollectionDocs(${collectionPath}) network warning:`, err);
+  }
+
+  return results;
+}
+
 // Batch write / upsert helper
 export async function batchSetDocs(collection: string, docs: Array<{ id: string; data: Record<string, any> }>): Promise<number> {
   let successCount = 0;
@@ -218,4 +243,52 @@ export async function batchSetDocs(collection: string, docs: Array<{ id: string;
     );
   }
   return successCount;
+}
+
+export async function deleteDocumentByPath(docPath: string): Promise<boolean> {
+  const config = getFirebaseConfig();
+  const cleanPath = docPath.replace(/^\/+/, '');
+  const url = `${getFirestoreBaseUrl()}/${cleanPath}?key=${config.apiKey}`;
+  try {
+    const res = await fetch(url, { method: 'DELETE' });
+    return res.ok || res.status === 404;
+  } catch (err) {
+    console.error(`deleteDocumentByPath(${cleanPath}) error:`, err);
+    return false;
+  }
+}
+
+export async function queryAllDocPaths(collectionId: string): Promise<string[]> {
+  const config = getFirebaseConfig();
+  const dbId = config.firestoreDatabaseId || '(default)';
+  const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${dbId}/documents:runQuery?key=${config.apiKey}`;
+  const paths: string[] = [];
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        structuredQuery: {
+          from: [{ collectionId, allDescendants: true }]
+        }
+      })
+    });
+    if (!res.ok) return [];
+    const items = await res.json();
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        if (item.document?.name) {
+          const prefix = `/documents/`;
+          const idx = item.document.name.indexOf(prefix);
+          if (idx !== -1) {
+            paths.push(item.document.name.substring(idx + prefix.length));
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`queryAllDocPaths(${collectionId}) error:`, err);
+  }
+  return paths;
 }

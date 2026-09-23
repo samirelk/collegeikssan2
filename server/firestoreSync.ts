@@ -44,7 +44,10 @@ export async function syncDatabaseWithFirestore(db: any) {
     // I. Sync Section Assignments
     await syncAssignmentsFromFirestore(db);
 
-    // J. Push any local records that Firestore doesn't have yet
+    // J. Sync Teacher Timetable
+    await syncTimetableFromFirestore(db);
+
+    // K. Push any local records that Firestore doesn't have yet
     await pushMissingLocalDataToFirestore(db);
 
     console.log('✅ [FirestoreSync] Full Cloud Firestore synchronization complete!');
@@ -448,6 +451,46 @@ async function syncAssignmentsFromFirestore(db: any) {
   }
 }
 
+async function syncTimetableFromFirestore(db: any) {
+  try {
+    const list = await listDocs('teacher_timetable');
+    if (!list || list.length === 0) return;
+
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO teacher_timetable (
+        id, teacher_id, day_of_week, slot_id, period_type,
+        start_time, end_time, section_id, room, subject, notes,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const t of list) {
+      if (!t.id || !t.teacherId || !t.sectionId) continue;
+      try {
+        insertStmt.run(
+          t.id,
+          t.teacherId,
+          t.dayOfWeek || 'monday',
+          t.slotId || '',
+          t.periodType || 'morning',
+          t.startTime || '08:00',
+          t.endTime || '09:00',
+          t.sectionId,
+          t.room || '',
+          t.subject || '',
+          t.notes || '',
+          t.createdAt || new Date().toISOString(),
+          t.updatedAt || new Date().toISOString()
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping timetable entry ${t.id}: ${rowErr?.message}`);
+      }
+    }
+  } catch (e: any) {
+    console.error('Error in syncTimetableFromFirestore:', e.message);
+  }
+}
+
 // Push any SQLite records that are missing from Firestore
 async function pushMissingLocalDataToFirestore(db: any) {
   try {
@@ -700,4 +743,26 @@ export function cloudSaveSetting(key: string, value: string) {
   return trackCloudWrite(`cloudSaveSetting(${key})`, () => setDoc('app_settings', key, {
     key, value, updatedAt: new Date().toISOString()
   }));
+}
+
+export function cloudSaveTimetableEntry(entry: any) {
+  return trackCloudWrite(`cloudSaveTimetableEntry(${entry.id})`, () => setDoc('teacher_timetable', entry.id, {
+    id: entry.id,
+    teacherId: entry.teacherId || entry.teacher_id,
+    dayOfWeek: entry.dayOfWeek || entry.day_of_week,
+    slotId: entry.slotId || entry.slot_id,
+    periodType: entry.periodType || entry.period_type || 'morning',
+    startTime: entry.startTime || entry.start_time,
+    endTime: entry.endTime || entry.end_time,
+    sectionId: entry.sectionId || entry.section_id,
+    room: entry.room || '',
+    subject: entry.subject || '',
+    notes: entry.notes || '',
+    createdAt: entry.createdAt || entry.created_at || new Date().toISOString(),
+    updatedAt: entry.updatedAt || entry.updated_at || new Date().toISOString()
+  }));
+}
+
+export function cloudDeleteTimetableEntry(id: string) {
+  return trackCloudWrite(`cloudDeleteTimetableEntry(${id})`, () => deleteDoc('teacher_timetable', id));
 }

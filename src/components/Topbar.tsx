@@ -290,12 +290,6 @@ export const Topbar: React.FC<TopbarProps> = ({
 
       </div>
 
-      <div className="hidden lg:block absolute left-0 top-0 max-w-[280px] text-left text-[11px] leading-5 font-semibold text-[#6C6356]">
-        وزارة التربية الوطنية والتعليم الأولي والرياضة
-        <br />
-        أكاديمية الشرق: المديرية الإقليمية الناضور
-      </div>
-
     </div>
   );
 };
