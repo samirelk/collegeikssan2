@@ -15,9 +15,11 @@ import {
   HeartHandshake,
   Lightbulb,
   BookCheck,
-  Trophy
+  Trophy,
+  Printer
 } from 'lucide-react';
 import { SeatItem, SectionItem, User as UserType, PositiveParticipationItem } from '../types';
+import { printStudentPositiveParticipationsReport } from '../utils/printNotes';
 
 interface PositiveParticipationModalProps {
   section: SectionItem;
@@ -160,12 +162,63 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
               )}
             </div>
 
-            <div className="flex items-center gap-2 bg-amber-400/20 border border-amber-300/40 px-3 py-1 rounded-xl text-amber-200 font-bold">
-              <Trophy className="w-4 h-4 text-amber-300" />
-              <span>مجموع النقاط:</span>
-              <span className="text-white text-base font-black px-1.5 py-0.5 bg-amber-500 rounded-lg shadow-xs">
-                {totalPoints} ⭐
-              </span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2 bg-amber-400/20 border border-amber-300/40 px-3 py-1 rounded-xl text-amber-200 font-bold">
+                <Trophy className="w-4 h-4 text-amber-300" />
+                <span>مجموع النقاط:</span>
+                <span className="text-white text-base font-black px-1.5 py-0.5 bg-amber-500 rounded-lg shadow-xs">
+                  {totalPoints} ⭐
+                </span>
+              </div>
+
+              {/* Print buttons for Teacher & Admin */}
+              <button
+                type="button"
+                onClick={() => {
+                  printStudentPositiveParticipationsReport({
+                    level: section.level,
+                    classNumber: section.classNumber,
+                    studentName: studentDisplayName,
+                    studentNumber: seat.number,
+                    massarNumber: seat.massarNumber,
+                    seatNum: seat.seat,
+                    teacherName: currentUser?.fullName || currentUser?.username,
+                    subject: currentUser?.subject,
+                    participations,
+                    totalPoints,
+                    mode: 'report'
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                title="طباعة بطاقة وسجل المشاركات الإيجابية للتلميذ"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                <span>طباعة السجل</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  printStudentPositiveParticipationsReport({
+                    level: section.level,
+                    classNumber: section.classNumber,
+                    studentName: studentDisplayName,
+                    studentNumber: seat.number,
+                    massarNumber: seat.massarNumber,
+                    seatNum: seat.seat,
+                    teacherName: currentUser?.fullName || currentUser?.username,
+                    subject: currentUser?.subject,
+                    participations,
+                    totalPoints,
+                    mode: 'certificate'
+                  });
+                }}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+                title="طباعة شهادة تقدير وتشجيع تربوي رسمية"
+              >
+                <Award className="w-3.5 h-3.5" />
+                <span>شهادة تقدير</span>
+              </button>
             </div>
           </div>
         </div>

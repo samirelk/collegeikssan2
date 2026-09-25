@@ -5581,14 +5581,14 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   // 1. Absences Query for targetDate
   let absenceQuery = `
     SELECT ah.id, ah.section_id, ah.seat_num, ah.student_name, ah.student_number,
-           COALESCE(s.massar_number, sr.massar_number, '') as massar_number,
+           COALESCE(s.massar_number, '') as massar_number,
            ah.status, ah.recorded_date, ah.session_period, ah.teacher_name, ah.teacher_subject,
            ah.justified, ah.justification_reason, ah.notes, ah.created_at,
-           sec.level as section_level, sec.class_number as section_class
+           sec.level as section_level, sec.class_number as section_class,
+           sec.roster_json
     FROM attendance_history ah
     JOIN sections sec ON ah.section_id = sec.id
     LEFT JOIN seats s ON ah.section_id = s.section_id AND ah.seat_num = s.seat_num
-    LEFT JOIN section_roster sr ON ah.section_id = sr.section_id AND (ah.student_name = sr.name OR ah.student_number = sr.number)
     WHERE ah.recorded_date IN (${datePlaceholders})
   `;
   const absenceParams: any[] = [...dateList];
@@ -5674,25 +5674,43 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
 
   return {
     date: targetDate,
-    absences: absencesRows.map(r => ({
-      id: r.id,
-      sectionId: r.section_id,
-      sectionLevel: r.section_level,
-      sectionClass: r.section_class,
-      seatNum: r.seat_num,
-      studentName: r.student_name,
-      studentNumber: r.student_number || '',
-      massarNumber: r.massar_number || '',
-      status: r.status || 'absent',
-      recordedDate: r.recorded_date,
-      sessionPeriod: r.session_period || 'كامل اليوم',
-      teacherName: r.teacher_name || '',
-      teacherSubject: r.teacher_subject || '',
-      justified: r.justified || 'unjustified',
-      justificationReason: r.justification_reason || '',
-      notes: r.notes || '',
-      createdAt: r.created_at
-    })),
+    absences: absencesRows.map(r => {
+      let massar = r.massar_number || '';
+      if (!massar && r.roster_json) {
+        try {
+          const roster = JSON.parse(r.roster_json);
+          const cleanName = (r.student_name || '').trim().toLowerCase();
+          const cleanNum = String(r.student_number || '').trim();
+          const match = roster.find((item: any) =>
+            (cleanName && item.name && item.name.trim().toLowerCase() === cleanName) ||
+            (cleanNum && item.number && String(item.number).trim() === cleanNum)
+          );
+          if (match?.massarNumber || match?.massar_number) {
+            massar = match.massarNumber || match.massar_number;
+          }
+        } catch {}
+      }
+
+      return {
+        id: r.id,
+        sectionId: r.section_id,
+        sectionLevel: r.section_level,
+        sectionClass: r.section_class,
+        seatNum: r.seat_num,
+        studentName: r.student_name,
+        studentNumber: r.student_number || '',
+        massarNumber: massar,
+        status: r.status || 'absent',
+        recordedDate: r.recorded_date,
+        sessionPeriod: r.session_period || 'كامل اليوم',
+        teacherName: r.teacher_name || '',
+        teacherSubject: r.teacher_subject || '',
+        justified: r.justified || 'unjustified',
+        justificationReason: r.justification_reason || '',
+        notes: r.notes || '',
+        createdAt: r.created_at
+      };
+    }),
     violations: violationsRows.map(r => ({
       id: r.id,
       sectionId: r.section_id,
@@ -5945,9 +5963,22 @@ export function batchImportDailyAbsences(items: Array<{
   let matchedStudentsCount = 0;
 
   // Cache sections, seats, and roster for rapid resolution
-  const sectionsList = db.prepare('SELECT id, level, class_number FROM sections').all() as any[];
+  const sectionsList = db.prepare('SELECT id, level, class_number, roster_json FROM sections').all() as any[];
   const allSeats = db.prepare('SELECT section_id, seat_num, student_name, student_number, massar_number FROM seats WHERE student_name != ""').all() as any[];
-  const allRosters = db.prepare('SELECT section_id, name, number, massar_number FROM section_roster').all() as any[];
+  const allRosters: Array<{ section_id: string; name: string; number: string; massar_number: string }> = [];
+  for (const sec of sectionsList) {
+    try {
+      const list = JSON.parse(sec.roster_json || '[]');
+      for (const r of list) {
+        allRosters.push({
+          section_id: sec.id,
+          name: r.name || '',
+          number: r.number || '',
+          massar_number: r.massarNumber || r.massar_number || ''
+        });
+      }
+    } catch {}
+  }
 
   for (const item of items) {
     let resolvedSectionId = item.sectionId || '';

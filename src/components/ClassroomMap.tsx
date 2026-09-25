@@ -14,7 +14,9 @@ import {
   GripVertical,
   ArrowLeftRight,
   Star,
-  Sparkles
+  Sparkles,
+  Award,
+  Trophy
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SectionItem, SeatItem } from '../types';
@@ -25,6 +27,7 @@ interface ClassroomMapProps {
   onUpdateSeat: (seatNum: number, data: { name?: string; number?: string; massarNumber?: string; rosterId?: string | null }) => void;
   onOpenNotes: (seatNum: number) => void;
   onOpenPositiveParticipation?: (seatNum: number) => void;
+  onOpenPositiveParticipationReport?: () => void;
   onEditSection: () => void;
   onDeleteSection: () => void;
   onImportRoster: (roster: { id: string; name: string; number: string; massarNumber?: string }[]) => Promise<void>;
@@ -40,6 +43,7 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
   onUpdateSeat,
   onOpenNotes,
   onOpenPositiveParticipation,
+  onOpenPositiveParticipationReport,
   onEditSection,
   onDeleteSection,
   onImportRoster,
@@ -486,6 +490,19 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Positive Participations & Honor Roll Print Button */}
+          {onOpenPositiveParticipationReport && (
+            <button
+              type="button"
+              onClick={onOpenPositiveParticipationReport}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold text-amber-200 bg-amber-950/70 hover:bg-amber-900/90 border border-amber-400/60 shadow-md transition-all cursor-pointer"
+              title="سجل ولوحة شرف المشاركات الإيجابية والتعزيز (طباعة للقسم أو التلميذ)"
+            >
+              <Award className="w-3.5 h-3.5 text-amber-400" />
+              <span>المشاركات الإيجابية والتحفيز ⭐</span>
+            </button>
+          )}
+
           {/* Order by Number Button */}
           {onOrderByNumber && (
             <button

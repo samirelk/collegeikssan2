@@ -1,4 +1,4 @@
-import { NoteItem, StudentViolationRecord } from '../types';
+import { NoteItem, StudentViolationRecord, PositiveParticipationItem } from '../types';
 
 export interface PrintViolationsOptions {
   institution: string;
@@ -1623,6 +1623,671 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
       <div class="sig-block">
         <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
         <div style="height: 48px;"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
+}
+
+export interface PrintStudentPositiveParticipationsOptions {
+  institution?: string;
+  academicYear?: string;
+  level: string;
+  classNumber: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  seatNum?: number;
+  teacherName?: string;
+  subject?: string;
+  participations: PositiveParticipationItem[];
+  totalPoints?: number;
+  mode?: 'certificate' | 'report';
+}
+
+export function printStudentPositiveParticipationsReport(options: PrintStudentPositiveParticipationsOptions): boolean {
+  const {
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2025/2026',
+    level,
+    classNumber,
+    studentName,
+    studentNumber,
+    massarNumber,
+    seatNum,
+    teacherName,
+    subject,
+    participations = [],
+    totalPoints,
+    mode = 'report'
+  } = options;
+
+  const points = totalPoints !== undefined
+    ? totalPoints
+    : participations.reduce((sum, p) => sum + (p.points || 1), 0);
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution,
+    academicYear,
+    date: dateStr,
+    time: timeStr,
+    dateLabel: 'تاريخ التحرير',
+    middleIcon: '⭐'
+  });
+
+  const participationsRows = participations.length === 0
+    ? `<tr><td colspan="6" style="text-align:center; padding: 20px; color: #64748b; font-weight: bold; background: #f8fafc;">لا توجد مشاركات إيجابية مسجلة بعد لهذا التلميذ(ة).</td></tr>`
+    : participations.map((p, i) => {
+        return `
+          <tr>
+            <td style="text-align: center; font-weight: bold; width: 35px;">${i + 1}</td>
+            <td style="text-align: center; width: 110px; font-size: 11px;">
+              <b>${escapeHtml(p.recordedDate || '—')}</b><br>
+              <span style="color: #64748b;">${escapeHtml(p.recordedTime || '')}</span>
+            </td>
+            <td style="font-weight: bold; text-align: right; padding: 8px 10px; color: #1e3a8a;">
+              ⭐ ${escapeHtml(p.participationType)}
+            </td>
+            <td style="text-align: center; width: 70px;">
+              <span style="display: inline-block; background: #fef3c7; color: #92400e; font-weight: bold; padding: 3px 8px; border-radius: 12px; border: 1px solid #fde68a;">
+                +${p.points || 1}
+              </span>
+            </td>
+            <td style="text-align: center; width: 120px; font-size: 11px;">
+              <b>${escapeHtml(p.teacherName || teacherName || '—')}</b>
+              ${(p.teacherSubject || subject) ? `<br><span style="color: #475569;">(${escapeHtml(p.teacherSubject || subject || '')})</span>` : ''}
+            </td>
+            <td style="text-align: right; padding: 8px 10px; color: #334155; font-size: 11px;">
+              ${escapeHtml(p.note || 'تعزيز تشجيعي متميز')}
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+  const isCertificate = mode === 'certificate';
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>شهادة تقدير وسجل المشاركات الإيجابية - ${escapeHtml(studentName)}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 14mm 12mm 14mm 12mm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      direction: rtl;
+      background: #fff;
+      color: #0f172a;
+      margin: 0;
+      padding: 0;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .print-card {
+      border: 3px double #d97706;
+      border-radius: 12px;
+      padding: 16px 20px;
+      background: #ffffff;
+      position: relative;
+    }
+    ${OFFICIAL_HEADER_CSS}
+    .cert-title-wrap {
+      text-align: center;
+      margin: 12px 0 16px 0;
+    }
+    .cert-title {
+      display: inline-block;
+      font-size: 22px;
+      font-weight: 800;
+      color: #92400e;
+      background: linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%);
+      border: 2px solid #f59e0b;
+      border-radius: 30px;
+      padding: 6px 36px;
+      letter-spacing: 0.5px;
+      box-shadow: 0 2px 4px rgba(217, 119, 6, 0.15);
+    }
+    .cert-subtitle {
+      font-size: 12px;
+      color: #b45309;
+      margin-top: 4px;
+      font-weight: bold;
+    }
+    .student-badge-grid {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 10px;
+      margin-bottom: 14px;
+    }
+    .student-badge-grid td {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 10px 14px;
+      vertical-align: top;
+    }
+    .badge-label {
+      font-size: 11px;
+      color: #78350f;
+      display: block;
+      margin-bottom: 3px;
+    }
+    .badge-val {
+      font-size: 14px;
+      font-weight: bold;
+      color: #1e293b;
+    }
+    .score-banner {
+      background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+      border: 1.5px dashed #d97706;
+      border-radius: 10px;
+      padding: 10px 18px;
+      text-align: center;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+    }
+    .score-title {
+      font-size: 13px;
+      font-weight: bold;
+      color: #92400e;
+    }
+    .score-number {
+      font-size: 24px;
+      font-weight: 900;
+      color: #b45309;
+    }
+    .table-custom {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      margin-bottom: 16px;
+    }
+    .table-custom th {
+      background: #fef3c7;
+      color: #78350f;
+      border: 1px solid #d97706;
+      padding: 8px 6px;
+      font-size: 11.5px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .table-custom td {
+      border: 1px solid #e2e8f0;
+      padding: 6px 8px;
+      vertical-align: middle;
+    }
+    .table-custom tr:nth-child(even) {
+      background-color: #fafaf9;
+    }
+    .commendation-box {
+      background: #f0fdf4;
+      border: 1.5px solid #86efac;
+      border-radius: 8px;
+      padding: 12px 18px;
+      margin: 16px 0;
+      text-align: center;
+      color: #166534;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+    .signatures-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24px;
+      padding-top: 10px;
+      page-break-inside: avoid;
+    }
+    .signature-col {
+      width: 30%;
+      text-align: center;
+      font-size: 11.5px;
+      color: #1e293b;
+    }
+    .sig-space {
+      height: 55px;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-card">
+    ${headerHtml}
+
+    <div class="cert-title-wrap">
+      <div class="cert-title">⭐ شهادة تشجيع وتنويه - سجل المشاركات الإيجابية ⭐</div>
+      <div class="cert-subtitle">تعزيز التميز والسلوك الإيجابي والمشاركة الصفية الفعالة</div>
+    </div>
+
+    <table class="student-badge-grid">
+      <tr>
+        <td style="width: 35%;">
+          <span class="badge-label">اسم التلميذ(ة) الكامل:</span>
+          <span class="badge-val" style="color: #92400e; font-size: 16px;">${escapeHtml(studentName)}</span>
+        </td>
+        <td style="width: 25%;">
+          <span class="badge-label">القسم والمستوى:</span>
+          <span class="badge-val">${escapeHtml(level)} (${escapeHtml(classNumber)})</span>
+        </td>
+        <td style="width: 20%;">
+          <span class="badge-label">رقم الترتيب / المقعد:</span>
+          <span class="badge-val">${studentNumber || (seatNum ? `#${seatNum}` : '—')}</span>
+        </td>
+        <td style="width: 20%;">
+          <span class="badge-label">رقم مسار:</span>
+          <span class="badge-val" style="font-family: monospace;">${escapeHtml(massarNumber || '—')}</span>
+        </td>
+      </tr>
+      <tr>
+        <td colspan="2">
+          <span class="badge-label">الأستاذ(ة) المؤطر(ة):</span>
+          <span class="badge-val">${escapeHtml(teacherName || 'الإدارة التربوية وهيئة التدريس')}</span>
+        </td>
+        <td colspan="2">
+          <span class="badge-label">المادة الدراسية:</span>
+          <span class="badge-val">${escapeHtml(subject || 'جميع المواد / الحياة المدرسية')}</span>
+        </td>
+      </tr>
+    </table>
+
+    <div class="score-banner">
+      <div>
+        <div class="score-title">🏆 إجمالي رصيد نقاط التميز والتعزيز:</div>
+        <div style="font-size: 11px; color: #78350f;">مجموع النقاط الإيجابية المكتسبة خلال الموسم الدراسي</div>
+      </div>
+      <div>
+        <span class="score-number">${points}</span>
+        <span style="font-size: 14px; font-weight: bold; color: #b45309; margin-right: 4px;">نقطة تميز ⭐</span>
+      </div>
+      <div>
+        <span style="font-size: 12px; font-weight: bold; color: #166534; background: #dcfce7; padding: 4px 10px; border-radius: 12px; border: 1px solid #bbf7d0;">
+          ${points >= 5 ? '🌟 وسام الامتياز والريادة' : points >= 3 ? '🏅 وسام التميز والمواظبة' : '👍 وسام النشاط والاجتهاد'}
+        </span>
+      </div>
+    </div>
+
+    ${!isCertificate ? `
+      <div style="font-weight: bold; font-size: 13px; color: #78350f; margin-bottom: 6px;">
+        📋 السجل التفصيلي للمشاركات الإيجابية والسلوكيات المتميزة:
+      </div>
+      <table class="table-custom">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>التاريخ والساعة</th>
+            <th>نوع المشاركة والتميز</th>
+            <th>النقاط</th>
+            <th>الأستاذ(ة) / المادة</th>
+            <th>ملاحظات الأستاذ وتشجيعه</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${participationsRows}
+        </tbody>
+      </table>
+    ` : ''}
+
+    <div class="commendation-box">
+      <b>تنويه وتشجيع تربوي:</b><br>
+      تشهد إدارة المؤسسة وهيئة التدريس بأن التلميذ(ة) <b>${escapeHtml(studentName)}</b> قد أبان(ت) عن انضباط وحرص واجتهاد ملحوظ ومشاركة صفية فاعلة،
+      وتقدم له(ا) هذه البطاقة اعترافاً بجهوده(ا) وتحفيزاً على الاستمرار في مسار التميز والنجاح.
+    </div>
+
+    <div class="signatures-row">
+      <div class="signature-col">
+        <strong>توقيع الأستاذ(ة) المشرف(ة)</strong>
+        <div class="sig-space"></div>
+      </div>
+      <div class="signature-col">
+        <strong>توقيع الحراسة العامة للخارجية</strong>
+        <div class="sig-space"></div>
+      </div>
+      <div class="signature-col">
+        <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
+        <div class="sig-space"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
+}
+
+export interface PrintSectionPositiveParticipationsOptions {
+  institution?: string;
+  academicYear?: string;
+  level: string;
+  classNumber: string;
+  teacherName?: string;
+  subject?: string;
+  dateStr?: string;
+  students: Array<{
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    seatNum?: number;
+    points: number;
+    participationsCount: number;
+    participations?: PositiveParticipationItem[];
+  }>;
+  allParticipations?: PositiveParticipationItem[];
+}
+
+export function printSectionPositiveParticipationsReport(options: PrintSectionPositiveParticipationsOptions): boolean {
+  const {
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2025/2026',
+    level,
+    classNumber,
+    teacherName,
+    subject,
+    students = [],
+    allParticipations = []
+  } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const dateStr = options.dateStr || `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution,
+    academicYear,
+    date: dateStr,
+    time: timeStr,
+    dateLabel: 'تاريخ الاستخراج',
+    middleIcon: '🏆'
+  });
+
+  // Sort students by points descending
+  const sortedStudents = [...students].sort((a, b) => b.points - a.points);
+  const activeStudents = sortedStudents.filter(s => s.points > 0);
+  const totalPoints = students.reduce((sum, s) => sum + (s.points || 0), 0);
+  const totalParticipationsCount = students.reduce((sum, s) => sum + (s.participationsCount || 0), 0);
+  const topStudent = activeStudents.length > 0 ? activeStudents[0] : null;
+
+  const rankBadges = ['🥇', '🥈', '🥉'];
+
+  const honorRollRows = activeStudents.length === 0
+    ? `<tr><td colspan="7" style="text-align:center; padding: 20px; color: #64748b; font-weight: bold; background: #f8fafc;">لم يتم تسجيل أي مشاركات إيجابية في هذا القسم حتى الآن.</td></tr>`
+    : activeStudents.map((st, i) => {
+        const medal = i < 3 ? rankBadges[i] : `${i + 1}`;
+        const medalBg = i === 0 ? '#fef3c7' : i === 1 ? '#f1f5f9' : i === 2 ? '#ffedd5' : '#ffffff';
+        const medalColor = i === 0 ? '#92400e' : i === 1 ? '#475569' : i === 2 ? '#9a3412' : '#334155';
+        const badge = st.points >= 5 ? '🌟 وسام الامتياز' : st.points >= 3 ? '🏅 وسام التميز' : '👍 وسام الاجتهاد';
+        const badgeColor = st.points >= 5 ? '#b45309' : st.points >= 3 ? '#15803d' : '#0369a1';
+
+        return `
+          <tr style="background: ${medalBg};">
+            <td style="text-align: center; font-weight: 800; font-size: 14px; color: ${medalColor}; width: 45px;">${medal}</td>
+            <td style="font-weight: bold; font-size: 13px; text-align: right; padding: 7px 10px;">${escapeHtml(st.name)}</td>
+            <td style="text-align: center; width: 60px; font-weight: bold;">${escapeHtml(st.number || '')}</td>
+            <td style="text-align: center; width: 105px; font-family: monospace; font-size: 11px;">${escapeHtml(st.massarNumber || '—')}</td>
+            <td style="text-align: center; width: 85px;">
+              <span style="display: inline-block; background: #fde68a; color: #78350f; font-weight: 900; font-size: 13px; padding: 3px 10px; border-radius: 12px; border: 1px solid #f59e0b;">
+                ⭐ ${st.points}
+              </span>
+            </td>
+            <td style="text-align: center; width: 75px; font-weight: bold; color: #475569;">${st.participationsCount}</td>
+            <td style="text-align: center; width: 130px; font-weight: bold; color: ${badgeColor}; font-size: 11.5px;">${badge}</td>
+          </tr>
+        `;
+      }).join('');
+
+  // Detailed participations log if provided
+  const participationsList = allParticipations.length > 0
+    ? allParticipations
+    : students.flatMap(s => s.participations || []);
+
+  const detailedRows = participationsList.length === 0
+    ? `<tr><td colspan="7" style="text-align:center; padding: 14px; color: #64748b;">لا توجد مشاركات إضافية في السجل التفصيلي.</td></tr>`
+    : participationsList.slice(0, 50).map((p, i) => {
+        return `
+          <tr>
+            <td style="text-align: center; font-weight: bold; width: 30px;">${i + 1}</td>
+            <td style="text-align: center; width: 95px; font-size: 11px;">${escapeHtml(p.recordedDate || '—')}</td>
+            <td style="font-weight: bold; text-align: right; padding: 5px 8px;">${escapeHtml(p.studentName || '—')}</td>
+            <td style="text-align: right; padding: 5px 8px; color: #1e3a8a; font-weight: bold;">⭐ ${escapeHtml(p.participationType)}</td>
+            <td style="text-align: center; width: 60px; font-weight: bold; color: #b45309;">+${p.points || 1}</td>
+            <td style="text-align: center; width: 110px; font-size: 11px;">${escapeHtml(p.teacherName || teacherName || '—')}</td>
+            <td style="text-align: right; padding: 5px 8px; color: #475569; font-size: 11px;">${escapeHtml(p.note || '—')}</td>
+          </tr>
+        `;
+      }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <title>لوحة شرف وسجل المشاركات الإيجابية - ${escapeHtml(level)} (${escapeHtml(classNumber)})</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 10mm 12mm 10mm;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      direction: rtl;
+      background: #fff;
+      color: #0f172a;
+      margin: 0;
+      padding: 0;
+      font-size: 11.5px;
+      line-height: 1.5;
+    }
+    .print-card {
+      border: 2.5px solid #d97706;
+      border-radius: 10px;
+      padding: 14px 16px;
+      background: #ffffff;
+    }
+    ${OFFICIAL_HEADER_CSS}
+    .doc-title-box {
+      text-align: center;
+      margin: 10px 0 14px 0;
+    }
+    .doc-title {
+      display: inline-block;
+      font-size: 20px;
+      font-weight: 800;
+      color: #92400e;
+      background: #fef3c7;
+      border: 2px solid #f59e0b;
+      border-radius: 30px;
+      padding: 5px 30px;
+    }
+    .meta-bar {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 8px 14px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      font-size: 12px;
+      color: #78350f;
+    }
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: #fff;
+      border: 1.5px solid #fed7aa;
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+    .stat-card-title {
+      font-size: 11px;
+      color: #9a3412;
+      font-weight: bold;
+      margin-bottom: 3px;
+    }
+    .stat-card-val {
+      font-size: 18px;
+      font-weight: 900;
+      color: #c2410c;
+    }
+    .section-headline {
+      font-size: 13px;
+      font-weight: bold;
+      color: #92400e;
+      margin: 14px 0 6px 0;
+      border-bottom: 1.5px solid #fde68a;
+      padding-bottom: 4px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .table-custom {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 14px;
+    }
+    .table-custom th {
+      background: #fef3c7;
+      color: #78350f;
+      border: 1px solid #d97706;
+      padding: 7px 5px;
+      font-size: 11.5px;
+      font-weight: bold;
+      text-align: center;
+    }
+    .table-custom td {
+      border: 1px solid #e2e8f0;
+      padding: 5px 6px;
+      vertical-align: middle;
+    }
+    .signatures-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 20px;
+      padding-top: 10px;
+      page-break-inside: avoid;
+    }
+    .signature-col {
+      width: 30%;
+      text-align: center;
+      font-size: 11.5px;
+      color: #1e293b;
+    }
+    .sig-space {
+      height: 48px;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-card">
+    ${headerHtml}
+
+    <div class="doc-title-box">
+      <div class="doc-title">🏆 لوحة شرف وسجل المشاركات الإيجابية والتحفيز المدرسي 🏆</div>
+    </div>
+
+    <div class="meta-bar">
+      <div>القسم والمستوى: <b>${escapeHtml(level)} (${escapeHtml(classNumber)})</b></div>
+      <div>الأستاذ(ة) المشرف(ة): <b>${escapeHtml(teacherName || 'الإدارة وهيئة التدريس')}</b></div>
+      <div>الموسم الدراسي: <b>${escapeHtml(academicYear)}</b></div>
+      <div>تاريخ الاستخراج: <b>${escapeHtml(dateStr)}</b></div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-title">إجمالي نقاط القسم</div>
+        <div class="stat-card-val">⭐ ${totalPoints}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-title">المشاركات المسجلة</div>
+        <div class="stat-card-val">${totalParticipationsCount}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-title">التلاميذ المتميزون</div>
+        <div class="stat-card-val">${activeStudents.length} / ${students.length}</div>
+      </div>
+      <div class="stat-card" style="background: #fffbeb; border-color: #f59e0b;">
+        <div class="stat-card-title">متصدر القسم 🥇</div>
+        <div class="stat-card-val" style="font-size: 13px; color: #92400e;">
+          ${topStudent ? escapeHtml(topStudent.name) : '—'}
+          ${topStudent ? `<br><span style="font-size: 11px; font-weight: normal;">(${topStudent.points} نقطة)</span>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="section-headline">
+      <span>🏅 أولاً: لوحة الشرف وتصنيف التلاميذ حسب نقاط التميز والمشاركة:</span>
+      <span style="font-size: 11px; font-weight: normal; color: #78350f;">مرتبة تنازلياً حسب رصيد النقاط</span>
+    </div>
+
+    <table class="table-custom">
+      <thead>
+        <tr>
+          <th>الرتبة</th>
+          <th>الاسم الكامل للتلميذ(ة)</th>
+          <th>الرقم</th>
+          <th>رقم مسار</th>
+          <th>رصيد النقاط</th>
+          <th>المشاركات</th>
+          <th>وسام التقدير</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${honorRollRows}
+      </tbody>
+    </table>
+
+    ${participationsList.length > 0 ? `
+      <div class="section-headline">
+        <span>📋 ثانياً: السجل التفصيلي لآخر المشاركات الإيجابية المسجلة:</span>
+        <span style="font-size: 11px; font-weight: normal; color: #78350f;">تفاصيل السلوكيات الإيجابية والتعزيز</span>
+      </div>
+
+      <table class="table-custom">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>التاريخ</th>
+            <th>التلميذ(ة)</th>
+            <th>نوع المشاركة والتميز</th>
+            <th>النقاط</th>
+            <th>الأستاذ(ة) / المادة</th>
+            <th>الملاحظات</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${detailedRows}
+        </tbody>
+      </table>
+    ` : ''}
+
+    <div class="signatures-row">
+      <div class="signature-col">
+        <strong>توقيع أستاذ(ة) القسم</strong>
+        <div class="sig-space"></div>
+      </div>
+      <div class="signature-col">
+        <strong>توقيع الحراسة العامة للخارجية</strong>
+        <div class="sig-space"></div>
+      </div>
+      <div class="signature-col">
+        <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
+        <div class="sig-space"></div>
       </div>
     </div>
   </div>

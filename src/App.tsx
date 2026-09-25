@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2 } from 'lucide-react';
+import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award } from 'lucide-react';
 import { printNotesReport, printViolationsReport, printClassroomSeatingPlan } from './utils/printNotes';
 import {
   AppSettings,
@@ -26,6 +26,7 @@ import { AdminApprovalsModal } from './components/AdminApprovalsModal';
 import { DirectorDashboard } from './components/DirectorDashboard';
 import { ViolationsModal } from './components/ViolationsModal';
 import { PositiveParticipationModal } from './components/PositiveParticipationModal';
+import { PositiveParticipationsReportModal } from './components/PositiveParticipationsReportModal';
 import { LandingView } from './components/LandingView';
 import { AdminPortalView } from './components/AdminPortalView';
 import { AppFooter } from './components/AppFooter';
@@ -134,6 +135,10 @@ export default function App() {
 
   // Daily Archive Modal (غيابات ومخالفات يومية)
   const [showDailyArchiveModal, setShowDailyArchiveModal] = useState(false);
+
+  // Positive Participations & Honor Roll Modal state (المشاركات الإيجابية والتحفيز)
+  const [showPositiveReportModal, setShowPositiveReportModal] = useState(false);
+  const [positiveReportInitialStudent, setPositiveReportInitialStudent] = useState<string | undefined>(undefined);
 
   const teacherOverview = React.useMemo(() => {
     if (currentUser?.role !== 'teacher') return null;
@@ -1468,6 +1473,10 @@ export default function App() {
         onOpenDbModal={handleOpenDbInfo}
         onOpenHistoryModal={handleOpenDbInfo}
         onOpenDailyArchiveModal={() => setShowDailyArchiveModal(true)}
+        onOpenPositiveReportModal={() => {
+          setPositiveReportInitialStudent(undefined);
+          setShowPositiveReportModal(true);
+        }}
         dbStats={dbStats}
         saveStatusText={settingsSavedToast ? 'تم الحفظ في قاعدة البيانات' : null}
         currentUser={currentUser}
@@ -1828,6 +1837,19 @@ export default function App() {
                   >
                     <Printer className="w-3.5 h-3.5 text-sky-300" />
                     <span>طباعة مخطط المقاعد</span>
+                  </button>
+
+                  <button
+                    id="print-positive-participations-btn"
+                    className="btn btn-ghost btn-sm text-amber-200 border-amber-500/40 hover:bg-amber-500/15 flex items-center gap-1.5 font-bold shadow-xs cursor-pointer"
+                    onClick={() => {
+                      setPositiveReportInitialStudent(undefined);
+                      setShowPositiveReportModal(true);
+                    }}
+                    title="سجل ولوحة شرف المشاركات الإيجابية والتعزيز (طباعة للقسم أو التلميذ)"
+                  >
+                    <Award className="w-3.5 h-3.5 text-amber-400" />
+                    <span>سجل المشاركات الإيجابية ⭐</span>
                   </button>
 
                   {currentUser?.role === 'admin' && (
@@ -2731,6 +2753,19 @@ export default function App() {
           />
         );
       })()}
+
+      {/* Modal: Positive Participations Report & Honor Roll (لوحة شرف وسجل المشاركات الإيجابية والتعزيز) */}
+      <PositiveParticipationsReportModal
+        isOpen={showPositiveReportModal}
+        onClose={() => {
+          setShowPositiveReportModal(false);
+          setPositiveReportInitialStudent(undefined);
+        }}
+        currentUser={currentUser}
+        sections={sections}
+        initialSectionId={activeSectionId || undefined}
+        initialStudentName={positiveReportInitialStudent}
+      />
 
       {/* Modal: Database Stats & Change History */}
       <DbInfoModal

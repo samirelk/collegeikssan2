@@ -24,6 +24,7 @@ interface TopbarProps {
   onOpenDbModal: () => void;
   onOpenHistoryModal: () => void;
   onOpenDailyArchiveModal?: () => void;
+  onOpenPositiveReportModal?: () => void;
   dbStats: DbStats | null;
   saveStatusText: string | null;
   currentUser: UserType | null;
@@ -44,6 +45,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   onOpenDbModal,
   onOpenHistoryModal,
   onOpenDailyArchiveModal,
+  onOpenPositiveReportModal,
   dbStats,
   saveStatusText,
   currentUser,
@@ -150,6 +152,20 @@ export const Topbar: React.FC<TopbarProps> = ({
           >
             <Calendar className="w-4 h-4 text-[#D97706]" />
             <span>الأرشيف اليومي</span>
+          </button>
+        )}
+
+        {/* Positive Participations & Honor Roll Print Button (Accessible for everyone) */}
+        {onOpenPositiveReportModal && (
+          <button
+            type="button"
+            id="btn-nav-positive-participations"
+            onClick={onOpenPositiveReportModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-xs active:scale-[0.98] bg-[#FEF3C7] hover:bg-[#FDE68A] text-[#92400E] border-[#F59E0B]/40"
+            title="سجل ولوحة شرف المشاركات الإيجابية والتعزيز (طباعة للقسم أو التلميذ)"
+          >
+            <Sparkles className="w-4 h-4 text-[#D97706]" />
+            <span>المشاركات الإيجابية ⭐</span>
           </button>
         )}
         
