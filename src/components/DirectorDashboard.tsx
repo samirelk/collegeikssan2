@@ -109,6 +109,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [showDeleteAllModal, setShowDeleteAllModal] = useState(false);
   const [isDeletingAll, setIsDeletingAll] = useState(false);
 
+  // Delete All Teachers State
+  const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
+  const [isDeletingAllTeachers, setIsDeletingAllTeachers] = useState(false);
+
   // Selected Section to inspect roster without desks
   const [inspectSectionId, setInspectSectionId] = useState<string | null>(null);
 
@@ -422,6 +426,27 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       setErrorMessage(err.message);
     } finally {
       setActionTeacherId(null);
+    }
+  };
+
+  // Delete all teachers handler
+  const handleDeleteAllTeachersConfirm = async () => {
+    try {
+      setIsDeletingAllTeachers(true);
+      const res = await fetch('/api/auth/teachers', {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'تعذر مسح جميع الأساتذة');
+      setSuccessMessage(data.message || `تم مسح جميع الأساتذة بنجاح (${data.count || teachers.length} أستاذ)`);
+      setShowDeleteAllTeachersModal(false);
+      await fetchDirectorData();
+      await onRefreshSections();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'حدث خطأ أثناء مسح الأساتذة');
+    } finally {
+      setIsDeletingAllTeachers(false);
     }
   };
 
@@ -1072,6 +1097,19 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                 <UserPlus className="w-4 h-4 text-[#2D5A27]" />
                 <span>＋ إنشاء حساب فردي</span>
               </button>
+
+              {teachers.length > 0 && (
+                <button
+                  type="button"
+                  id="director-delete-all-teachers-btn"
+                  onClick={() => setShowDeleteAllTeachersModal(true)}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-700 border border-rose-300 font-bold text-xs shadow-xs cursor-pointer transition-all"
+                  title="مسح وحذف جميع حسابات الأساتذة من المؤسسة"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  <span>مسح جميع الأساتذة ({teachers.length})</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -2487,6 +2525,75 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               >
                 <Trash2 className="w-4 h-4" />
                 <span>{isDeletingAll ? 'جاري حذف جميع الأقسام...' : 'تأكيد حذف الكل'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirm Delete All Teachers */}
+      {showDeleteAllTeachersModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setShowDeleteAllTeachersModal(false)}
+        >
+          <div
+            className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-100/70">
+              <div className="flex items-center gap-2 text-rose-800">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+                <h3 className="text-base font-bold font-serif text-rose-950">
+                  تأكيد مسح جميع حسابات الأساتذة
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllTeachersModal(false)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-rose-800 hover:bg-rose-200/60 cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-sm font-bold text-rose-950 leading-relaxed">
+                هل أنت متأكد من رغبتك في مسح وحذف جميع حسابات هيئة التدريس نهائياً؟ هذا الإجراء فوري ولا يمكن التراجع عنه.
+              </p>
+              <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 leading-relaxed space-y-1.5">
+                <div>• إجمالي حسابات الأساتذة التي سيتم حذفها: <strong>{teachers.length} أستاذ(ة)</strong>.</div>
+                <div>• سيتم مسح حسابات تسجيل الدخول، كلمات المرور، وإلغاء إسناد الأقسام التابع لهم.</div>
+                <div>• بيانات الأقسام، التلاميذ، مخططات المقاعد، والأرشيف ستبقى محفوظة وسليمة في النظام.</div>
+                <div>• حسابات الإدارة والمشرف العام ستبقى كما هي ومحمية تماماً.</div>
+              </div>
+
+              {teachers.length > 0 && (
+                <div className="mt-2 text-[11px] text-[#7A6B58] bg-[#EFE9D5]/60 p-2.5 rounded-xl border border-[#E4DBC0] max-h-24 overflow-y-auto">
+                  <span className="font-bold text-[#2A2118]">معاينة الأساتذة المعنيين ({teachers.length}): </span>
+                  {teachers.map((t) => t.fullName).join(' • ')}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[#E4DBC0] bg-[#F4EFDE]">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllTeachersModal(false)}
+                disabled={isDeletingAllTeachers}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-100 text-[#5B5040] font-bold text-xs border border-[#D9CEB0] cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                id="director-confirm-delete-all-teachers-btn"
+                disabled={isDeletingAllTeachers}
+                onClick={handleDeleteAllTeachersConfirm}
+                className="px-5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingAllTeachers ? 'جاري مسح جميع الأساتذة...' : 'تأكيد المسح النهائي'}</span>
               </button>
             </div>
           </div>

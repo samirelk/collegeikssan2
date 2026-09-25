@@ -22,8 +22,10 @@ import {
   Building,
   UserCheck,
   Stethoscope,
-  Info
+  Info,
+  FileSpreadsheet
 } from 'lucide-react';
+import { MassarAbsenceModal } from './MassarAbsenceModal';
 import {
   DailyAbsenceItem,
   DailyViolationItem,
@@ -151,6 +153,9 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
   // Print Mode
   const [isPrintPreview, setIsPrintPreview] = useState(false);
+
+  // Massar Export & Import Modal
+  const [showMassarModal, setShowMassarModal] = useState(false);
 
   const visibleSections = useMemo(() => {
     if (currentUser?.role !== 'teacher') return sections;
@@ -588,10 +593,20 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           </div>
 
           {/* Quick Action Buttons */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowMassarModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-800 hover:to-teal-900 text-white shadow-xs transition-all cursor-pointer"
+              title="تصدير واستيراد الغيابات وفق منظومة مسار (Massar Excel / CSV)"
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
+              <span>منظومة مسار (استيراد / تصدير)</span>
+            </button>
+
             <button
               onClick={() => setIsAddAbsenceOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>تسجيل غياب / تأخر</span>
@@ -792,6 +807,16 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                     </button>
                   );
                 })}
+
+                <button
+                  type="button"
+                  onClick={() => setShowMassarModal(true)}
+                  className="mr-2 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                  title="استيراد وتصدير الغيابات وفق منظومة مسار (Excel / CSV)"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
+                  <span>تصدير / استيراد مسار</span>
+                </button>
               </div>
             </div>
 
@@ -1488,6 +1513,22 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Massar Absences Import & Export Modal */}
+      <MassarAbsenceModal
+        isOpen={showMassarModal}
+        onClose={() => setShowMassarModal(false)}
+        absences={absences}
+        sections={sections}
+        selectedDate={selectedDate}
+        onImportSuccess={() => {
+          fetchArchiveData(selectedDate);
+        }}
+        onToast={(msg) => {
+          setSuccessMsg(msg);
+          setTimeout(() => setSuccessMsg(null), 5000);
+        }}
+      />
 
       {/* PRINT-ONLY OFFICIAL SURVEILLANCE SHEET (تظهر فقط عند الطباعة عبر CSS) */}
       <div className="hidden print:block font-serif text-black p-6 space-y-4 text-xs">

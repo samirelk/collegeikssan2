@@ -3586,6 +3586,59 @@ export function deleteTeacher(id: string, requesterRole?: string) {
   return { success: true, message: `تم حذف حساب الأستاذ (${user.fullName}) بنجاح` };
 }
 
+export function deleteAllTeachers(requesterRole?: string) {
+  if (requesterRole && requesterRole !== 'admin' && requesterRole !== 'director') {
+    throw new Error('غير مصرح لك بحذف حسابات الأساتذة');
+  }
+
+  // Get all users with role 'teacher'
+  const teachers = db.prepare("SELECT id, full_name, email FROM users WHERE role = 'teacher'").all() as Array<{
+    id: string;
+    full_name: string;
+    email: string;
+  }>;
+
+  if (teachers.length === 0) {
+    return { success: true, count: 0, message: 'لا يوجد أي أساتذة مسجلين حالياً لحذفهم' };
+  }
+
+  const now = new Date().toISOString();
+
+  // Clean up teacher specific records
+  db.prepare("DELETE FROM section_assignments WHERE teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run();
+  db.prepare("DELETE FROM teacher_seat_overrides WHERE teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run();
+  db.prepare("DELETE FROM teacher_timetable WHERE teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run();
+  db.prepare("DELETE FROM notes WHERE teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run();
+  db.prepare("DELETE FROM student_change_requests WHERE teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run();
+
+  // Reset assigned_teacher_id on sections
+  db.prepare("UPDATE sections SET assigned_teacher_id = NULL, updated_at = ? WHERE assigned_teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run(now);
+
+  // Delete all teachers from users table
+  db.prepare("DELETE FROM users WHERE role = 'teacher'").run();
+
+  // Sync deletion with Cloud Firestore for each teacher
+  for (const t of teachers) {
+    try {
+      cloudDeleteUser(t.id);
+    } catch (err: any) {
+      console.warn(`[deleteAllTeachers] cloudDeleteUser warning for ${t.id}:`, err?.message || err);
+    }
+  }
+
+  db.prepare(`
+    INSERT INTO change_history (action, summary, details_json, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    'delete_all_teachers',
+    `مسح جميع حسابات الأساتذة (${teachers.length} أستاذ)`,
+    JSON.stringify({ count: teachers.length, teacherNames: teachers.map((t) => t.full_name) }),
+    now
+  );
+
+  return { success: true, count: teachers.length, message: `تم مسح وحذف جميع حسابات الأساتذة (${teachers.length} أستاذ) بنجاح` };
+}
+
 // ---------------- Batch Import Teachers from Excel ----------------
 
 export function normalizeTeacherSubject(rawSubject: string): string {
@@ -5292,13 +5345,14 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   // 1. Absences Query for targetDate
   let absenceQuery = `
     SELECT ah.id, ah.section_id, ah.seat_num, ah.student_name, ah.student_number,
-           s.massar_number,
+           COALESCE(s.massar_number, sr.massar_number, '') as massar_number,
            ah.status, ah.recorded_date, ah.session_period, ah.teacher_name, ah.teacher_subject,
            ah.justified, ah.justification_reason, ah.notes, ah.created_at,
            sec.level as section_level, sec.class_number as section_class
     FROM attendance_history ah
     JOIN sections sec ON ah.section_id = sec.id
     LEFT JOIN seats s ON ah.section_id = s.section_id AND ah.seat_num = s.seat_num
+    LEFT JOIN section_roster sr ON ah.section_id = sr.section_id AND (ah.student_name = sr.name OR ah.student_number = sr.number)
     WHERE ah.recorded_date IN (${datePlaceholders})
   `;
   const absenceParams: any[] = [...dateList];
@@ -5630,6 +5684,138 @@ export function updateDailyAbsence(id: number, data: {
 export function deleteDailyAbsence(id: number) {
   db.prepare('DELETE FROM attendance_history WHERE id = ?').run(id);
   return { success: true };
+}
+
+export function batchImportDailyAbsences(items: Array<{
+  massarNumber?: string;
+  studentName?: string;
+  studentNumber?: string;
+  sectionLevel?: string;
+  sectionClass?: string;
+  sectionId?: string;
+  seatNum?: number;
+  status?: 'absent' | 'late';
+  recordedDate?: string;
+  sessionPeriod?: string;
+  teacherName?: string;
+  teacherSubject?: string;
+  justified?: string;
+  justificationReason?: string;
+  notes?: string;
+}>) {
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  let importedCount = 0;
+  let matchedStudentsCount = 0;
+
+  // Cache sections, seats, and roster for rapid resolution
+  const sectionsList = db.prepare('SELECT id, level, class_number FROM sections').all() as any[];
+  const allSeats = db.prepare('SELECT section_id, seat_num, student_name, student_number, massar_number FROM seats WHERE student_name != ""').all() as any[];
+  const allRosters = db.prepare('SELECT section_id, name, number, massar_number FROM section_roster').all() as any[];
+
+  for (const item of items) {
+    let resolvedSectionId = item.sectionId || '';
+    let resolvedSeatNum = item.seatNum || 0;
+    let resolvedStudentName = (item.studentName || '').trim();
+    let resolvedStudentNumber = (item.studentNumber || '').trim();
+    const massarClean = (item.massarNumber || '').trim();
+
+    // 1. Match by massar_number
+    if (massarClean) {
+      const seatMatch = allSeats.find((s) => s.massar_number && s.massar_number.trim().toLowerCase() === massarClean.toLowerCase());
+      if (seatMatch) {
+        resolvedSectionId = seatMatch.section_id;
+        resolvedSeatNum = seatMatch.seat_num;
+        if (!resolvedStudentName) resolvedStudentName = seatMatch.student_name;
+        if (!resolvedStudentNumber) resolvedStudentNumber = seatMatch.student_number;
+        matchedStudentsCount++;
+      } else {
+        const rosterMatch = allRosters.find((r) => r.massar_number && r.massar_number.trim().toLowerCase() === massarClean.toLowerCase());
+        if (rosterMatch) {
+          resolvedSectionId = rosterMatch.section_id;
+          if (!resolvedStudentName) resolvedStudentName = rosterMatch.name;
+          if (!resolvedStudentNumber) resolvedStudentNumber = rosterMatch.number;
+          const stSeat = allSeats.find((s) => s.section_id === resolvedSectionId && (s.student_name === resolvedStudentName || s.student_number === resolvedStudentNumber));
+          if (stSeat) resolvedSeatNum = stSeat.seat_num;
+          matchedStudentsCount++;
+        }
+      }
+    }
+
+    // 2. Match by section + studentName
+    if (!resolvedSectionId && item.sectionLevel && item.sectionClass) {
+      const secMatch = sectionsList.find((sec) =>
+        sec.level.trim().toLowerCase() === item.sectionLevel!.trim().toLowerCase() &&
+        String(sec.class_number).trim() === String(item.sectionClass).trim()
+      );
+      if (secMatch) {
+        resolvedSectionId = secMatch.id;
+        if (resolvedStudentName) {
+          const stSeat = allSeats.find((s) => s.section_id === resolvedSectionId && s.student_name.toLowerCase().includes(resolvedStudentName.toLowerCase()));
+          if (stSeat) {
+            resolvedSeatNum = stSeat.seat_num;
+            resolvedStudentName = stSeat.student_name;
+            resolvedStudentNumber = stSeat.student_number;
+            matchedStudentsCount++;
+          }
+        }
+      }
+    }
+
+    // Fallback: assign to first section if unknown
+    if (!resolvedSectionId) {
+      if (sectionsList.length > 0) {
+        resolvedSectionId = sectionsList[0].id;
+      } else {
+        continue;
+      }
+    }
+
+    if (!resolvedStudentName && !massarClean) continue;
+    if (!resolvedStudentName) resolvedStudentName = massarClean;
+
+    const date = item.recordedDate && item.recordedDate.trim() ? item.recordedDate.trim() : today;
+    const status = item.status === 'late' ? 'late' : 'absent';
+    const period = item.sessionPeriod || 'كامل اليوم';
+
+    db.prepare(`
+      INSERT INTO attendance_history (
+        section_id, seat_num, student_name, student_number,
+        status, recorded_date, session_period, teacher_name, teacher_subject,
+        justified, justification_reason, notes, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      resolvedSectionId,
+      resolvedSeatNum,
+      resolvedStudentName,
+      resolvedStudentNumber,
+      status,
+      date,
+      period,
+      item.teacherName || '',
+      item.teacherSubject || '',
+      item.justified || 'unjustified',
+      item.justificationReason || '',
+      item.notes || 'مستورد من مسار',
+      now
+    );
+
+    // Update real-time seat attendance if absence is for today
+    if (date === today && resolvedSeatNum > 0) {
+      try {
+        db.prepare(`
+          UPDATE seats SET attendance = ?, updated_at = ?
+          WHERE section_id = ? AND seat_num = ?
+        `).run(status, now, resolvedSectionId, resolvedSeatNum);
+      } catch {
+        // Ignored
+      }
+    }
+
+    importedCount++;
+  }
+
+  return { success: true, importedCount, matchedStudentsCount };
 }
 
 export function addDailyViolation(data: {

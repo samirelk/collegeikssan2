@@ -31,6 +31,7 @@ import {
   getAllTeachers,
   batchCreateTeachers,
   deleteTeacher,
+  deleteAllTeachers,
   createAssignmentRequest,
   getAssignmentRequests,
   reviewAssignmentRequest,
@@ -62,6 +63,7 @@ import {
   addDailyAbsence,
   updateDailyAbsence,
   deleteDailyAbsence,
+  batchImportDailyAbsences,
   addDailyViolation,
   updateDailyViolation,
   deleteDailyViolation,
@@ -1010,6 +1012,19 @@ async function startServer() {
     }
   });
 
+  app.delete('/api/auth/teachers', (req, res) => {
+    try {
+      const auth = requireAdminOrDirector(req, res);
+      if (!auth.authorized) return;
+
+      const result = deleteAllTeachers(auth.role);
+      markDirty();
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   app.delete('/api/auth/teachers/:id', (req, res) => {
     try {
       const auth = requireAdminOrDirector(req, res);
@@ -1525,6 +1540,24 @@ async function startServer() {
       res.json({ success: true, id: result.id, message: 'تم تسجيل الغياب اليومي بنجاح' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Batch import absences (e.g. from Massar Excel / CSV)
+  app.post('/api/daily-archive/absences/batch-import', (req, res) => {
+    try {
+      const items = req.body.absences;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, error: 'قائمة الغيابات فارغة أو غير صحيحة' });
+      }
+      const result = batchImportDailyAbsences(items);
+      markDirty();
+      res.json({
+        ...result,
+        message: `تم استيراد ${result.importedCount} حالة غياب بنجاح ومطابقة ${result.matchedStudentsCount} تلميذاً`
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
