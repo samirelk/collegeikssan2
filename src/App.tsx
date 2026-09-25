@@ -492,11 +492,24 @@ export default function App() {
       })
     );
 
-    // Persist to backend
+    const currentSec = sections.find((sec) => sec.id === sectionId);
+    const targetSeat = currentSec?.seats.find((st) => st.seat === seatNum);
+
+    // Persist to backend with student identity
     fetch(`/api/sections/${sectionId}/seats/${seatNum}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: value, actorId: currentUser?.id || '', actorRole: currentUser?.role || 'teacher' })
+      body: JSON.stringify({
+        [field]: value,
+        name: field === 'name' ? value : targetSeat?.name,
+        number: field === 'number' ? value : targetSeat?.number,
+        massarNumber: field === 'massarNumber' ? value : targetSeat?.massarNumber,
+        rosterId: field === 'rosterId' ? value : targetSeat?.rosterId,
+        statusColor: field === 'statusColor' ? value : targetSeat?.statusColor,
+        attendance: field === 'attendance' ? value : targetSeat?.attendance,
+        actorId: currentUser?.id || '',
+        actorRole: currentUser?.role || 'teacher'
+      })
     }).catch((err) => console.error('Failed to sync seat change:', err));
   };
 
@@ -619,7 +632,16 @@ export default function App() {
       fetch(`/api/sections/${activeSectionId}/seats/${st.seat}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ attendance: 'present' })
+        body: JSON.stringify({
+          attendance: 'present',
+          name: st.name,
+          number: st.number,
+          massarNumber: st.massarNumber,
+          rosterId: st.rosterId,
+          statusColor: st.statusColor,
+          actorId: currentUser?.id || '',
+          actorRole: currentUser?.role || 'teacher'
+        })
       }).catch((err) => console.error(err));
     });
 
@@ -650,7 +672,16 @@ export default function App() {
         fetch(`/api/sections/${activeSectionId}/seats/${st.seat}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ attendance: null, actorId: currentUser?.id || '', actorRole: currentUser?.role || 'teacher' })
+          body: JSON.stringify({
+            attendance: null,
+            name: st.name,
+            number: st.number,
+            massarNumber: st.massarNumber,
+            rosterId: st.rosterId,
+            statusColor: st.statusColor,
+            actorId: currentUser?.id || '',
+            actorRole: currentUser?.role || 'teacher'
+          })
         }).catch((err) => console.error(err));
       }
     });
