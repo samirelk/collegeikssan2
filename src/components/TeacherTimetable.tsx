@@ -21,6 +21,7 @@ import {
   Info
 } from 'lucide-react';
 import { SectionItem, User as UserType, AppSettings, TimetableDay, TeacherTimetableEntry } from '../types';
+import { buildOfficialMoroccanHeaderHtml, printReportHtml, escapeHtml } from '../utils/printNotes';
 
 export interface TimetableSlotConfig {
   id: string;
@@ -83,9 +84,9 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   // View modes: 'grid' (full week table) or 'day' (tabbed daily cards, best on mobile)
   const [viewMode, setViewMode] = useState<'day' | 'grid'>('day');
 
-  // Currently selected day for day view
+  // Currently selected day for day view (enforcing GMT / UTC)
   const [selectedDay, setSelectedDay] = useState<TimetableDay>(() => {
-    const todayNum = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+    const todayNum = new Date().getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat (GMT)
     const found = DAYS_OF_WEEK.find((d) => d.jsDay === todayNum);
     return found ? found.key : 'monday';
   });
@@ -102,23 +103,24 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   const [formSubject, setFormSubject] = useState(currentUser.subject || '');
   const [formNotes, setFormNotes] = useState('');
 
-  // Clock state for highlighting the current slot
+  // Clock state for highlighting the current slot (in GMT)
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentTime(new Date());
-    }, 30000);
+    }, 15000);
     return () => clearInterval(interval);
   }, []);
 
-  // Determine current active slot based on real time
+  // Determine current active slot based on GMT real time
   const currentSlotInfo = useMemo(() => {
-    const jsDay = currentTime.getDay();
+    const jsDay = currentTime.getUTCDay(); // GMT day
     const currentDayConfig = DAYS_OF_WEEK.find((d) => d.jsDay === jsDay);
     if (!currentDayConfig) return null;
 
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    // Use getUTCHours and getUTCMinutes to strictly adhere to GMT
+    const currentMinutes = currentTime.getUTCHours() * 60 + currentTime.getUTCMinutes();
     const activeSlot = ALL_SLOTS.find(
       (s) => currentMinutes >= s.startMinutes && currentMinutes < s.endMinutes
     );
@@ -138,11 +140,11 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
     };
   }, [currentTime, entries, sections]);
 
-  // Check if current real-time is within midday break (12:00 - 14:00) on school days
+  // Check if current real-time is within midday break (12:00 - 14:00) on school days in GMT
   const isBreakTime = useMemo(() => {
-    const jsDay = currentTime.getDay();
+    const jsDay = currentTime.getUTCDay();
     if (jsDay === 0) return false; // Sunday
-    const currentMinutes = currentTime.getHours() * 60 + currentTime.getMinutes();
+    const currentMinutes = currentTime.getUTCHours() * 60 + currentTime.getUTCMinutes();
     return currentMinutes >= 12 * 60 && currentMinutes < 14 * 60;
   }, [currentTime]);
 
@@ -279,13 +281,15 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
 
   // Print Timetable
   const handlePrintTimetable = () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
     const teacherName = currentUser.fullName || 'أستاذ المادة';
-    const institution = settings.institution || 'المؤسسة التعليمية';
-    const academicYear = currentUser.academicYear || settings.year || '2025/2026';
-    const subject = currentUser.subject || 'عام';
+    const institution = settings.institution || 'الثانوية الإعدادية ايكسان';
+    const academicYear = currentUser.academicYear || settings.year || '2026/2027';
+    const subject = currentUser.subject || '';
+
+    const now = new Date();
+    const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+    const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+    const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
     const renderSlotCell = (dayKey: TimetableDay, slotId: string) => {
       const entry = entries.find((e) => e.dayOfWeek === dayKey && e.slotId === slotId);
@@ -294,9 +298,9 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
       const secName = sec ? `${sec.level}/${sec.classNumber}` : entry.sectionName || 'قسم';
       return `
         <div class="filled-slot">
-          <div class="sec-name">${secName}</div>
-          ${entry.room ? `<div class="room-tag">قاعة: ${entry.room}</div>` : ''}
-          ${entry.subject ? `<div class="subj-tag">${entry.subject}</div>` : ''}
+          <div class="sec-name">${escapeHtml(secName)}</div>
+          ${entry.room ? `<div class="room-tag">قاعة: ${escapeHtml(entry.room)}</div>` : ''}
+          ${entry.subject ? `<div class="subj-tag">${escapeHtml(entry.subject)}</div>` : ''}
         </div>
       `;
     };
@@ -306,50 +310,52 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
       <html dir="rtl" lang="ar">
       <head>
         <meta charset="utf-8">
-        <title>استعمال الزمان - ${teacherName}</title>
+        <title>استعمال الزمان - ${escapeHtml(teacherName)}</title>
         <style>
           @page { size: landscape; margin: 10mm; }
-          body { font-family: 'Amiri', 'Traditional Arabic', serif, Arial; direction: rtl; padding: 10px; color: #1f2926; background: #fff; }
-          .header { text-align: center; border-bottom: 2px solid #1a4e47; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
-          .title { font-size: 22px; font-weight: bold; color: #1a4e47; }
-          .meta { font-size: 13px; color: #555; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-          th, td { border: 1px solid #c8d3d0; text-align: center; padding: 6px 4px; }
-          th { background: #e8f2f0; color: #1a4e47; font-weight: bold; }
-          .period-header { background: #d0e4e0; font-weight: bold; font-size: 13px; }
-          .day-col { font-weight: bold; background: #faf8f5; width: 85px; }
+          * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          body { font-family: 'Tajawal', 'Traditional Arabic', serif, Arial; direction: rtl; padding: 10px; color: #1f2926; background: #fff; }
+          .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #854d0e; padding-bottom: 12px; margin-bottom: 14px; }
+          .header-table td { vertical-align: middle; border: none; }
+          .official-head { font-size: 12px; line-height: 1.6; color: #333; }
+          .official-head b { font-size: 13px; color: #854d0e; }
+          .doc-title-box { text-align: center; margin: 10px 0 14px 0; }
+          .doc-title { display: inline-block; font-size: 20px; font-weight: bold; color: #1a4e47; background: #f0fdf4; border: 1.5px solid #16a34a; border-radius: 30px; padding: 5px 32px; margin: 0 0 4px 0; }
+          .doc-sub { font-size: 12.5px; color: #555; }
+          table.main-table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 11.5px; }
+          table.main-table th, table.main-table td { border: 1px solid #94a3b8; text-align: center; padding: 6px 4px; }
+          table.main-table th { background: #e8f2f0; color: #1a4e47; font-weight: bold; }
+          .period-header { background: #d0e4e0; font-weight: bold; font-size: 12px; }
+          .day-col { font-weight: bold; background: #faf8f5; width: 85px; font-size: 12px; }
           .filled-slot { background: #f0fdf4; border: 1px solid #86efac; border-radius: 4px; padding: 4px; }
           .sec-name { font-weight: bold; font-size: 13px; color: #166534; }
           .room-tag { font-size: 10px; color: #475569; }
           .subj-tag { font-size: 10px; color: #64748b; }
           .empty-slot { color: #ccc; }
-          .footer { margin-top: 24px; display: flex; justify-content: space-between; font-size: 12px; }
-          .sign-box { text-align: center; width: 200px; padding-top: 30px; border-top: 1px dashed #999; }
+          .footer { margin-top: 24px; display: flex; justify-content: space-between; font-size: 12px; page-break-inside: avoid; }
+          .sign-box { text-align: center; width: 220px; padding-top: 35px; border-top: 1px dashed #64748b; font-weight: bold; }
         </style>
       </head>
       <body>
-        <div class="header">
-          <div>
-            <div style="font-weight: bold; font-size: 14px;">المملكة المغربية</div>
-            <div>وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
-            <div>${institution}</div>
-          </div>
-          <div>
-            <div class="title">استعمال زمان الأستاذ(ة)</div>
-            <div class="meta">الأستاذ: <b>${teacherName}</b> | المادة: <b>${subject}</b></div>
-          </div>
-          <div>
-            <div>الموسم الدراسي: <b>${academicYear}</b></div>
-            <div>تاريخ الإصدار: ${new Date().toLocaleDateString('fr-CA')}</div>
-          </div>
+        ${buildOfficialMoroccanHeaderHtml({
+          institution,
+          academicYear,
+          date: printDate,
+          time: printTime,
+          dateLabel: 'تاريخ الاستخراج'
+        })}
+
+        <div class="doc-title-box">
+          <div class="doc-title">استعمال زمان الأستاذ(ة)</div>
+          <div class="doc-sub">الأستاذ(ة): <b>${escapeHtml(teacherName)}</b> ${subject ? `• المادة: <b>${escapeHtml(subject)}</b>` : ''}</div>
         </div>
 
-        <table>
+        <table class="main-table">
           <thead>
             <tr>
               <th rowspan="2" class="day-col">اليوم / الحصة</th>
               <th colspan="4" class="period-header">الفترة الصباحية (08:00 - 12:00)</th>
-              <th rowspan="2" class="period-header" style="background:#fef3c7;color:#92400e;width:65px;border:1px solid #000;">فترة راحة للجميع<br/>(12:00 - 14:00)</th>
+              <th rowspan="2" class="period-header" style="background:#fef3c7;color:#92400e;width:65px;border:1px solid #cbd5e1;">فترة راحة للجميع<br/>(12:00 - 14:00)</th>
               <th colspan="4" class="period-header">الفترة المسائية (14:00 - 18:00)</th>
             </tr>
             <tr>
@@ -362,7 +368,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
               <tr>
                 <td class="day-col">${d.label}</td>
                 ${MORNING_SLOTS.map((s) => `<td>${renderSlotCell(d.key, s.id)}</td>`).join('')}
-                <td style="background:#fffbeb;font-size:10px;font-weight:bold;color:#b45309;text-align:center;border:1px solid #000;">استراحة</td>
+                <td style="background:#fffbeb;font-size:10px;font-weight:bold;color:#b45309;text-align:center;border:1px solid #cbd5e1;">استراحة</td>
                 ${EVENING_SLOTS.map((s) => `<td>${renderSlotCell(d.key, s.id)}</td>`).join('')}
               </tr>
             `).join('')}
@@ -373,16 +379,23 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
           <div class="sign-box">توقيع وتأشيرة الأستاذ(ة)</div>
           <div class="sign-box">تأشيرة رئيس المؤسسة (المدير)</div>
         </div>
+
+        <script>
+          window.onload = function() {
+            setTimeout(function() {
+              window.focus();
+              window.print();
+            }, 300);
+          };
+        </script>
       </body>
       </html>
     `;
 
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.print();
-    }, 500);
+    const printed = printReportHtml(html);
+    if (!printed) {
+      window.print();
+    }
   };
 
   // Sections assigned to this teacher
@@ -417,9 +430,17 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
                   {currentUser.subject}
                 </span>
               )}
+              <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-300 flex items-center gap-1.5 shadow-2xs" title="نظام استعمال الزمان يعتمد توقيت غرينتش القانوني (GMT) دون زيادة ساعة">
+                <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                <span>التوقيت القانوني:</span>
+                <span className="font-mono font-bold text-emerald-900">
+                  {String(currentTime.getUTCHours()).padStart(2, '0')}:{String(currentTime.getUTCMinutes()).padStart(2, '0')}
+                </span>
+                <span className="text-[10px] px-1 py-0.2 bg-emerald-200 text-emerald-900 rounded font-black">GMT</span>
+              </span>
             </div>
             <p className="text-xs text-[#6C6356] mt-0.5">
-              جدول الحصص الأسبوعي • الفترة الصباحية (8:00 - 14:00) والمسائية (14:00 - 18:00). اضغط على أي قسم للانتقال فوراً لتسجيل الغيابات والمخالفات.
+              جدول الحصص الأسبوعي بالتوقيت القانوني (GMT) • الفترة الصباحية (8:00 - 14:00) والمسائية (14:00 - 18:00). اضغط على أي قسم للانتقال فوراً لتسجيل الغيابات والمخالفات.
             </p>
           </div>
         </div>

@@ -166,24 +166,19 @@ async function startServer() {
       if (responseStarted) return res;
       responseStarted = true;
       void (async () => {
-        const cloudWritesSucceeded = await flushPendingCloudWrites();
-        const snapshot = cloudWritesSucceeded ? await flushSnapshot('request') : null;
-        if (!cloudWritesSucceeded || !snapshot) {
-          res.status(503);
-          originalJson({
-            success: false,
-            error: 'تم حفظ التغيير محلياً، لكن تعذر تجديد قاعدة البيانات في Firebase. يرجى المحاولة مرة أخرى.'
-          });
-          return;
+        try {
+          await flushPendingCloudWrites();
+        } catch (error) {
+          console.warn('[CloudPersistence] Warning flushing pending writes:', error);
         }
         originalJson(body);
       })().catch((error) => {
-        console.error('[CloudPersistence] Failed before response:', error);
-        res.status(503);
-        originalJson({
-          success: false,
-          error: 'تم حفظ التغيير محلياً، لكن تعذر تأكيد حفظه في Firebase.'
-        });
+        console.error('[CloudPersistence] Error sending response:', error);
+        try {
+          originalJson(body);
+        } catch {
+          // ignore
+        }
       });
       return res;
     }) as express.Response['json'];

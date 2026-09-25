@@ -450,6 +450,7 @@ export const SchoolActivitiesWall: React.FC<SchoolActivitiesWallProps> = ({
                       <span className="flex items-center gap-1">
                         <Calendar className="w-3.5 h-3.5" />
                         {new Date(activity.createdAt).toLocaleDateString('ar-MA', {
+                          timeZone: 'UTC',
                           year: 'numeric',
                           month: 'short',
                           day: 'numeric'
@@ -792,6 +793,7 @@ export const SchoolActivitiesWall: React.FC<SchoolActivitiesWallProps> = ({
                 </span>
                 <span className="text-xs text-[#6C6356]">
                   {new Date(selectedPhotoForPreview.createdAt).toLocaleDateString('ar-MA', {
+                    timeZone: 'UTC',
                     year: 'numeric',
                     month: 'long',
                     day: 'numeric'

@@ -222,10 +222,11 @@ export const DbInfoModal: React.FC<DbInfoModalProps> = ({
                       </td>
                       <td className="p-2 text-[#8C8275] whitespace-nowrap text-[10px] font-mono">
                         {new Date(log.created_at).toLocaleTimeString('ar-MA', {
+                          timeZone: 'UTC',
                           hour: '2-digit',
                           minute: '2-digit',
                           second: '2-digit'
-                        })}
+                        })} <span className="text-[9px] text-[#A89F91]">GMT</span>
                       </td>
                     </tr>
                   ))}

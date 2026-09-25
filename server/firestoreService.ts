@@ -229,6 +229,21 @@ export async function listSubcollectionDocs(collectionPath: string): Promise<Rec
 }
 
 // Batch write / upsert helper
+export async function batchDeleteDocs(collection: string, docIds: string[]): Promise<number> {
+  let count = 0;
+  const CHUNK_SIZE = 20;
+  for (let i = 0; i < docIds.length; i += CHUNK_SIZE) {
+    const chunk = docIds.slice(i, i + CHUNK_SIZE);
+    await Promise.all(
+      chunk.map(async (id) => {
+        const ok = await deleteDoc(collection, id);
+        if (ok) count++;
+      })
+    );
+  }
+  return count;
+}
+
 export async function batchSetDocs(collection: string, docs: Array<{ id: string; data: Record<string, any> }>): Promise<number> {
   let successCount = 0;
   // Process in small batches of 5 concurrent requests

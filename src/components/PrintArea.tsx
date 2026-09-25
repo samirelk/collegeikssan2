@@ -13,8 +13,8 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
   const sectionTitle = `${section.level || 'بدون مستوى'} - ${section.classNumber ? `القسم ${section.classNumber}` : 'بدون قسم'}`;
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
   return (
     <div id="print-area">
@@ -25,7 +25,7 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
       <div className="print-sheet-sub">
         {settings.institution && 'تقرير متابعة وملاحظات التلميذ'}
         {settings.year && ` · الموسم الدراسي: ${settings.year}`}
-        {` · طُبع بتاريخ ${printDate} — ${printTime}`}
+        {` · طُبع بتاريخ ${printDate} — ${printTime} (GMT)`}
       </div>
 
       <div className="print-info-grid">

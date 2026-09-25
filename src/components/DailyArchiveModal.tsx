@@ -43,6 +43,8 @@ interface DailyArchiveModalProps {
   currentUser: User | null;
   sections: SectionItem[];
   embedded?: boolean; // When rendered inline in Director Dashboard
+  institutionName?: string;
+  academicYear?: string;
 }
 
 const VIOLATION_CATEGORIES: ViolationCategory[] = [
@@ -85,7 +87,9 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   onClose,
   currentUser,
   sections,
-  embedded = false
+  embedded = false,
+  institutionName,
+  academicYear
 }) => {
   // Current selected date (YYYY-MM-DD)
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
@@ -448,8 +452,8 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     const secName = secObj ? `${secObj.level} - فوج ${secObj.classNumber}` : 'كافة الأقسام والمستويات';
 
     const printed = printDailyArchiveReport({
-      institution: 'الثانوية الإعدادية ايكسان',
-      academicYear: '2025/2026',
+      institution: institutionName || 'الثانوية الإعدادية ايكسان',
+      academicYear: academicYear || currentUser?.academicYear || '2026/2027',
       dateStr: selectedDate,
       formattedArabicDate: formattedArabicDate,
       sectionFilterName: secName,
@@ -1487,15 +1491,30 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
       {/* PRINT-ONLY OFFICIAL SURVEILLANCE SHEET (تظهر فقط عند الطباعة عبر CSS) */}
       <div className="hidden print:block font-serif text-black p-6 space-y-4 text-xs">
-        <div className="text-center border-b-2 border-black pb-3">
-          <p className="font-bold text-sm">المملكة المغربية</p>
-          <p className="font-bold text-sm">وزارة التربية الوطنية والتعليم الأولي والرياضة</p>
-          <p className="font-bold text-sm">الأكاديمية الجهوية للتربية والتكوين - المديرية الإقليمية بالناظور</p>
-          <h1 className="text-lg font-black mt-2">الثانوية الإعدادية ايكسان</h1>
-          <h2 className="text-base font-bold underline mt-1">
+        <table className="w-full border-collapse border-b-2 border-[#854d0e] pb-3 mb-3">
+          <tbody>
+            <tr>
+              <td className="w-[40%] text-right text-xs leading-relaxed text-black">
+                المملكة المغربية<br />
+                وزارة التربية الوطنية والتعليم الأولي والرياضة<br />
+                <b className="text-sm text-[#854d0e]">{institutionName || 'الثانوية الإعدادية ايكسان'}</b>
+              </td>
+              <td className="w-[20%] text-center">
+                <div className="text-2xl text-[#854d0e]">🏛️</div>
+              </td>
+              <td className="w-[40%] text-left text-xs leading-relaxed text-black">
+                الموسم الدراسي: <b>{academicYear || currentUser?.academicYear || '2026/2027'}</b><br />
+                تاريخ الاستخراج: <b>{formattedArabicDate} ({selectedDate})</b><br />
+                الساعة: <b>{new Date().toLocaleTimeString('ar-MA', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' })} (GMT)</b>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div className="text-center my-3">
+          <div className="inline-block text-base font-bold text-red-800 bg-red-50 border border-red-600 rounded-full px-6 py-1">
             ورقة المراقبة اليومية للغيابات والمخالفات السلوكية
-          </h2>
-          <p className="text-xs mt-1">تاريخ اليوم: {formattedArabicDate} ({selectedDate})</p>
+          </div>
         </div>
 
         {/* Print Absences */}

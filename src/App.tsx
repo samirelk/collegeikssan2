@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2 } from 'lucide-react';
-import { printNotesReport, printViolationsReport } from './utils/printNotes';
+import { printNotesReport, printViolationsReport, printClassroomSeatingPlan } from './utils/printNotes';
 import {
   AppSettings,
   SectionItem,
@@ -841,8 +841,9 @@ export default function App() {
     if (!activeSectionId || !activeSeatModal || !newNoteText.trim()) return;
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString('ar-SA');
-    const timeStr = now.toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit' });
+    const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+    const dateStr = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+    const timeStr = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
     try {
       const res = await fetch(
@@ -1212,6 +1213,29 @@ export default function App() {
     } else {
       window.print();
     }
+  };
+
+  const handlePrintClassroomPlan = () => {
+    if (!activeSection) return;
+    printClassroomSeatingPlan({
+      institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+      academicYear: currentUser?.academicYear || settings.year || '2026/2027',
+      section: {
+        id: activeSection.id,
+        level: activeSection.level,
+        classNumber: activeSection.classNumber,
+        teacher: activeSection.teacher || settings.teacher
+      },
+      teacherName: currentUser?.fullName || activeSection.teacher || settings.teacher,
+      subject: currentUser?.subject || '',
+      seats: activeSection.seats.map((s) => ({
+        seat: s.seat,
+        name: s.name,
+        number: s.number,
+        massarNumber: s.massarNumber,
+        statusColor: s.statusColor
+      }))
+    });
   };
 
   // Dedicated Admin Route (/admin) - exclusively for App Super-Admin (مشرف التطبيق)
@@ -1646,6 +1670,16 @@ export default function App() {
                   >
                     <Shuffle className="w-3.5 h-3.5 text-amber-400" />
                     <span>{isShuffling ? 'جاري التوزيع...' : 'تقسيم عشوائي على المقاعد'}</span>
+                  </button>
+
+                  <button
+                    id="print-seating-chart-btn"
+                    className="btn btn-ghost btn-sm text-sky-200 border-sky-500/40 hover:bg-sky-500/10 flex items-center gap-1.5"
+                    onClick={handlePrintClassroomPlan}
+                    title="طباعة خريطة ومخطط جلوس التلاميذ للقسم الرسمية (A4)"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-sky-300" />
+                    <span>طباعة مخطط المقاعد</span>
                   </button>
 
                   {currentUser?.role === 'admin' && (
@@ -2644,7 +2678,7 @@ export default function App() {
           </table>
 
           <div className="print-footer">
-            تم استخراج هذه الوثيقة من نظام خرائط الأقسام بتاريخ {new Date().toLocaleDateString('ar-SA')}
+            تم استخراج هذه الوثيقة من نظام خرائط الأقسام بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
           </div>
         </div>
       )}

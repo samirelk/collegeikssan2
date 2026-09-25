@@ -735,6 +735,114 @@ export function initDatabase() {
     console.error('Failed to seed school activities:', err);
   }
   }
+
+  try {
+    syncAssignedSectionsWithTimetableAndBackfill();
+  } catch (syncErr) {
+    console.error('Failed to syncAssignedSectionsWithTimetableAndBackfill:', syncErr);
+  }
+}
+
+export function syncAssignedSectionsWithTimetableAndBackfill() {
+  const now = new Date().toISOString();
+  try {
+    // 1. From teacher_timetable: Ensure each teacher who has a class in their timetable has an approved assignment
+    const ttRows = db.prepare(`
+      SELECT DISTINCT tt.teacher_id, tt.section_id, COALESCE(tt.subject, u.subject, 'عام') as subject, u.academic_year
+      FROM teacher_timetable tt
+      JOIN users u ON tt.teacher_id = u.id
+      JOIN sections s ON tt.section_id = s.id
+    `).all() as any[];
+
+    for (const row of ttRows) {
+      const existing = db.prepare(`
+        SELECT id FROM section_assignments
+        WHERE teacher_id = ? AND section_id = ?
+      `).get(row.teacher_id, row.section_id) as any;
+
+      const asgnId = existing ? existing.id : ('asgn_tt_' + row.teacher_id.replace(/^usr_/, '') + '_' + row.section_id.replace(/^sec_/, ''));
+
+      if (existing) {
+        db.prepare(`
+          UPDATE section_assignments
+          SET status = 'approved', reviewed_by = 'system', reviewed_at = COALESCE(reviewed_at, ?), subject = ?
+          WHERE id = ?
+        `).run(now, row.subject, existing.id);
+      } else {
+        db.prepare(`
+          INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
+          VALUES (?, ?, ?, 'approved', 'إسناد معتمد من استعمال الزمان', ?, ?, 'system', ?, ?)
+        `).run(asgnId, row.teacher_id, row.section_id, now, now, row.academic_year || '2026/2027', row.subject);
+      }
+
+      // Update section primary teacher if not set
+      db.prepare(`
+        UPDATE sections
+        SET assigned_teacher_id = COALESCE(assigned_teacher_id, ?), updated_at = ?
+        WHERE id = ?
+      `).run(row.teacher_id, now, row.section_id);
+
+      try {
+        cloudSaveAssignment({
+          id: asgnId,
+          teacherId: row.teacher_id,
+          sectionId: row.section_id,
+          status: 'approved',
+          requestNote: 'إسناد معتمد من استعمال الزمان',
+          requestedAt: now,
+          reviewedAt: now,
+          reviewedBy: 'system',
+          academicYear: row.academic_year || '2026/2027',
+          subject: row.subject
+        });
+        syncSectionToCloud(row.section_id);
+      } catch {
+        // Ignore
+      }
+    }
+
+    // 2. From sections with assigned_teacher_id: Ensure section_assignments has an approved record
+    const secRows = db.prepare(`
+      SELECT s.id as section_id, s.assigned_teacher_id, u.subject, u.academic_year
+      FROM sections s
+      JOIN users u ON s.assigned_teacher_id = u.id
+      WHERE s.assigned_teacher_id IS NOT NULL AND s.assigned_teacher_id != ''
+    `).all() as any[];
+
+    for (const sec of secRows) {
+      const existing = db.prepare(`
+        SELECT id FROM section_assignments
+        WHERE teacher_id = ? AND section_id = ?
+      `).get(sec.assigned_teacher_id, sec.section_id) as any;
+
+      if (!existing) {
+        const asgnId = 'asgn_sec_' + sec.assigned_teacher_id.replace(/^usr_/, '') + '_' + sec.section_id.replace(/^sec_/, '');
+        db.prepare(`
+          INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
+          VALUES (?, ?, ?, 'approved', 'إسناد مباشر للقسم', ?, ?, 'admin', ?, ?)
+        `).run(asgnId, sec.assigned_teacher_id, sec.section_id, now, now, sec.academic_year || '2026/2027', sec.subject || 'عام');
+
+        try {
+          cloudSaveAssignment({
+            id: asgnId,
+            teacherId: sec.assigned_teacher_id,
+            sectionId: sec.section_id,
+            status: 'approved',
+            requestNote: 'إسناد مباشر للقسم',
+            requestedAt: now,
+            reviewedAt: now,
+            reviewedBy: 'admin',
+            academicYear: sec.academic_year || '2026/2027',
+            subject: sec.subject || 'عام'
+          });
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  } catch (err: any) {
+    console.warn('syncAssignedSectionsWithTimetableAndBackfill error:', err?.message || err);
+  }
 }
 
 function seedInitialData() {
@@ -1007,8 +1115,12 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       FROM section_assignments sa
       JOIN users u ON sa.teacher_id = u.id
       WHERE sa.section_id = ? AND sa.status = 'approved'
-      ORDER BY sa.reviewed_at ASC
-    `).all(sec.id) as any[];
+      UNION
+      SELECT tt.teacher_id, tt.subject, u.full_name as teacher_name, u.academic_year
+      FROM teacher_timetable tt
+      JOIN users u ON tt.teacher_id = u.id
+      WHERE tt.section_id = ?
+    `).all(sec.id, sec.id) as any[];
 
     const assignedTeachers = assignedTeachersRows.map((r) => ({
       teacherId: r.teacher_id,
@@ -1016,6 +1128,18 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       subject: r.subject || 'عام',
       academicYear: r.academic_year
     }));
+
+    if (sec.assigned_teacher_id && !assignedTeachers.some(t => t.teacherId === sec.assigned_teacher_id)) {
+      const u = db.prepare('SELECT id, full_name, subject, academic_year FROM users WHERE id = ?').get(sec.assigned_teacher_id) as any;
+      if (u) {
+        assignedTeachers.push({
+          teacherId: u.id,
+          teacherName: u.full_name,
+          subject: u.subject || 'عام',
+          academicYear: u.academic_year
+        });
+      }
+    }
 
     // Check if the filtered teacher or any teacher is approved
     const isApprovedForTeacher = teacherFilterId
@@ -1487,11 +1611,11 @@ export function resetViolationTypes() {
 
 export function formatDateTimeFrench(d: Date = new Date()) {
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const day = pad(d.getDate());
-  const month = pad(d.getMonth() + 1);
-  const year = d.getFullYear();
-  const hour = pad(d.getHours());
-  const minute = pad(d.getMinutes());
+  const day = pad(d.getUTCDate());
+  const month = pad(d.getUTCMonth() + 1);
+  const year = d.getUTCFullYear();
+  const hour = pad(d.getUTCHours());
+  const minute = pad(d.getUTCMinutes());
   return {
     date: `${day}/${month}/${year}`,
     time: `${hour}:${minute}`,
@@ -1885,6 +2009,7 @@ export function exportFullBackup() {
   const sections = getAllSections();
   const history = getChangeLogs(200);
   const schoolActivities = db.prepare('SELECT * FROM school_activities ORDER BY created_at DESC').all();
+  const users = db.prepare('SELECT * FROM users').all();
 
   return {
     version: '2.1.0',
@@ -1893,7 +2018,8 @@ export function exportFullBackup() {
     settings,
     sections,
     history,
-    schoolActivities
+    schoolActivities,
+    users
   };
 }
 
@@ -1907,7 +2033,49 @@ export function importFullBackup(backupData: any) {
     // 1. Settings
     saveAppSettings(backupData.settings);
 
-    // 2. Sections
+    // 2. Users (if present in backup, restore/upsert preserving credentials)
+    if (Array.isArray(backupData.users) && backupData.users.length > 0) {
+      const upsertUser = db.prepare(`
+        INSERT INTO users (
+          id, username, email, password, full_name, role, academic_year, status,
+          subject, email_verified, must_change_profile, must_change_password, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          username = excluded.username,
+          email = excluded.email,
+          password = excluded.password,
+          full_name = excluded.full_name,
+          role = excluded.role,
+          academic_year = excluded.academic_year,
+          status = excluded.status,
+          subject = excluded.subject,
+          email_verified = excluded.email_verified,
+          must_change_profile = excluded.must_change_profile,
+          must_change_password = excluded.must_change_password,
+          updated_at = excluded.updated_at
+      `);
+      for (const u of backupData.users) {
+        if (!u.id || !u.username) continue;
+        upsertUser.run(
+          u.id,
+          u.username,
+          u.email,
+          u.password,
+          u.full_name || u.fullName,
+          u.role,
+          u.academic_year || u.academicYear || '2026/2027',
+          u.status || 'active',
+          u.subject || 'الرياضيات',
+          u.email_verified ? 1 : 0,
+          u.must_change_profile ? 1 : 0,
+          u.must_change_password ? 1 : 0,
+          u.created_at || new Date().toISOString(),
+          u.updated_at || new Date().toISOString()
+        );
+      }
+    }
+
+    // 3. Sections
     db.prepare('DELETE FROM notes').run();
     db.prepare('DELETE FROM seats').run();
     db.prepare('DELETE FROM sections').run();
@@ -2675,6 +2843,52 @@ export function findUserById(id: string) {
   };
 }
 
+export function syncUserToCloud(userId: string) {
+  try {
+    const raw = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as any;
+    if (raw) {
+      cloudSaveUser({
+        id: raw.id,
+        username: raw.username,
+        email: raw.email,
+        password: raw.password,
+        fullName: raw.full_name,
+        role: raw.role,
+        status: raw.status,
+        subject: raw.subject,
+        academicYear: raw.academic_year || '2026/2027',
+        emailVerified: Boolean(raw.email_verified),
+        mustChangeProfile: Boolean(raw.must_change_profile),
+        mustChangePassword: Boolean(raw.must_change_password),
+        createdAt: raw.created_at,
+        updatedAt: raw.updated_at
+      });
+    }
+  } catch (err: any) {
+    console.warn('[syncUserToCloud] error:', err?.message);
+  }
+}
+
+export function syncSectionToCloud(sectionId: string) {
+  try {
+    const raw = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+    if (raw) {
+      cloudSaveSection({
+        id: raw.id,
+        level: raw.level,
+        classNumber: raw.class_number,
+        teacher: raw.teacher || '',
+        assignedTeacherId: raw.assigned_teacher_id || null,
+        academicYear: raw.academic_year || '2026/2027',
+        createdAt: raw.created_at,
+        updatedAt: raw.updated_at
+      });
+    }
+  } catch (err: any) {
+    console.warn('[syncSectionToCloud] error:', err?.message);
+  }
+}
+
 export function createUser(data: {
   username: string;
   email: string;
@@ -2736,10 +2950,7 @@ export function createUser(data: {
   );
 
   // Cloud Firestore Persistence Hook
-  cloudSaveUser({
-    id, username, email, fullName, role: 'teacher', academicYear, status, subject,
-    emailVerified: isPreVerified, createdAt: now, updatedAt: now
-  });
+  syncUserToCloud(id);
 
   // If not pre-verified, record in email_outbox
   if (!isPreVerified && verificationCode) {
@@ -2854,6 +3065,8 @@ export function verifyEmailCode(identifier: string, code: string) {
     WHERE id = ?
   `).run(now, user.id);
 
+  syncUserToCloud(user.id);
+
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
     VALUES (?, ?, ?, ?)
@@ -2881,6 +3094,8 @@ export function manualVerifyEmail(userId: string) {
     SET email_verified = 1, verification_code = NULL, verification_expires_at = NULL, updated_at = ?
     WHERE id = ?
   `).run(now, userId);
+
+  syncUserToCloud(userId);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -3002,15 +3217,24 @@ export function updateUserProfile(
     }
   }
 
+  syncUserToCloud(id);
+
   return findUserById(id);
 }
 
 export function getAllTeachers() {
   const rows = db.prepare(`
     SELECT u.id, u.username, u.email, u.full_name, u.role, u.academic_year, u.status, u.subject, u.email_verified, u.created_at,
-           COUNT(s.id) as assigned_sections_count
+           (
+             SELECT COUNT(DISTINCT sec_id) FROM (
+               SELECT s.id as sec_id FROM sections s WHERE s.assigned_teacher_id = u.id
+               UNION
+               SELECT sa.section_id as sec_id FROM section_assignments sa WHERE sa.teacher_id = u.id AND sa.status = 'approved'
+               UNION
+               SELECT tt.section_id as sec_id FROM teacher_timetable tt WHERE tt.teacher_id = u.id
+             )
+           ) as assigned_sections_count
     FROM users u
-    LEFT JOIN sections s ON s.assigned_teacher_id = u.id
     WHERE u.role = 'teacher'
     GROUP BY u.id
     ORDER BY u.created_at DESC
@@ -3067,6 +3291,7 @@ export function deleteTeacher(id: string, requesterRole?: string) {
 
   // Delete user
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
+  cloudDeleteUser(id);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -3255,6 +3480,8 @@ export function batchCreateTeachers(
         id, candidateUsername, candidateEmail, password, rawFullName, academicYear, normalizedSubject,
         now, now
       );
+
+      syncUserToCloud(id);
 
       createdCount++;
       results.push({
@@ -3495,8 +3722,40 @@ export function reviewAssignmentRequest(requestId: string, decision: 'approved' 
       WHERE id = ?
     `).run(req.teacher_id, now, req.section_id);
 
-    // NOTE: Multi-teacher support: We deliberately DO NOT reject other teachers' pending requests for this section!
-    // Multiple teachers teaching different subjects can all be assigned simultaneously.
+    try {
+      cloudSaveAssignment({
+        id: req.id,
+        teacherId: req.teacher_id,
+        sectionId: req.section_id,
+        status: 'approved',
+        requestNote: req.request_note || '',
+        requestedAt: req.requested_at,
+        reviewedAt: now,
+        reviewedBy: reviewerId,
+        academicYear: req.academic_year || '2026/2027',
+        subject: req.teacher_subject || 'عام'
+      });
+      syncSectionToCloud(req.section_id);
+    } catch {
+      // Ignore
+    }
+  } else {
+    try {
+      cloudSaveAssignment({
+        id: req.id,
+        teacherId: req.teacher_id,
+        sectionId: req.section_id,
+        status: 'rejected',
+        requestNote: req.request_note || '',
+        requestedAt: req.requested_at,
+        reviewedAt: now,
+        reviewedBy: reviewerId,
+        academicYear: req.academic_year || '2026/2027',
+        subject: req.teacher_subject || 'عام'
+      });
+    } catch {
+      // Ignore
+    }
   }
 
   // Send simulated notification email to teacher
@@ -3574,18 +3833,38 @@ export function assignSectionDirectly(teacherId: string, sectionId: string) {
     SELECT id FROM section_assignments WHERE teacher_id = ? AND section_id = ?
   `).get(teacherId, sectionId) as any;
 
+  let assignedRecordId = '';
   if (existing) {
+    assignedRecordId = existing.id;
     db.prepare(`
       UPDATE section_assignments 
       SET status = 'approved', reviewed_at = ?, reviewed_by = 'admin', subject = ?
       WHERE id = ?
     `).run(now, teacher.subject || 'عام', existing.id);
   } else {
-    const reqId = 'req_direct_' + Date.now().toString(36);
+    assignedRecordId = 'req_direct_' + Date.now().toString(36);
     db.prepare(`
       INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
       VALUES (?, ?, ?, 'approved', 'إسناد مباشر من طرف المشرف/المدير', ?, ?, 'admin', ?, ?)
-    `).run(reqId, teacherId, sectionId, now, now, teacher.academicYear, teacher.subject || 'عام');
+    `).run(assignedRecordId, teacherId, sectionId, now, now, teacher.academicYear || '2026/2027', teacher.subject || 'عام');
+  }
+
+  try {
+    cloudSaveAssignment({
+      id: assignedRecordId,
+      teacherId,
+      sectionId,
+      status: 'approved',
+      requestNote: 'إسناد مباشر من طرف المشرف/المدير',
+      requestedAt: now,
+      reviewedAt: now,
+      reviewedBy: 'admin',
+      academicYear: teacher.academicYear || '2026/2027',
+      subject: teacher.subject || 'عام'
+    });
+    syncSectionToCloud(sectionId);
+  } catch {
+    // Ignore
   }
 
   // NOTE: Multi-teacher support: We do NOT reject other teachers assigned to this section!
@@ -3596,11 +3875,24 @@ export function unassignSection(sectionId: string, teacherId?: string) {
   const now = new Date().toISOString();
 
   if (teacherId) {
+    // Find the assignment record ID for cloud deletion
+    const existingAsgn = db.prepare(`
+      SELECT id FROM section_assignments WHERE section_id = ? AND teacher_id = ?
+    `).get(sectionId, teacherId) as any;
+
     // Unassign only this specific teacher from the section
     db.prepare(`
       DELETE FROM section_assignments
       WHERE section_id = ? AND teacher_id = ?
     `).run(sectionId, teacherId);
+
+    if (existingAsgn) {
+      try {
+        cloudDeleteAssignment(existingAsgn.id);
+      } catch {
+        // Ignore
+      }
+    }
 
     // If this teacher was the primary assigned_teacher_id, replace with another approved teacher if exists
     const nextApproved = db.prepare(`
@@ -3614,18 +3906,42 @@ export function unassignSection(sectionId: string, teacherId?: string) {
       SET assigned_teacher_id = ?, updated_at = ?
       WHERE id = ?
     `).run(nextApproved ? nextApproved.teacher_id : null, now, sectionId);
+
+    try {
+      syncSectionToCloud(sectionId);
+    } catch {
+      // Ignore
+    }
   } else {
     // Unassign all teachers from this section
+    const allAsgns = db.prepare(`
+      SELECT id FROM section_assignments WHERE section_id = ?
+    `).all(sectionId) as any[];
+
     db.prepare(`
       DELETE FROM section_assignments
       WHERE section_id = ?
     `).run(sectionId);
+
+    for (const a of allAsgns) {
+      try {
+        cloudDeleteAssignment(a.id);
+      } catch {
+        // Ignore
+      }
+    }
 
     db.prepare(`
       UPDATE sections
       SET assigned_teacher_id = NULL, updated_at = ?
       WHERE id = ?
     `).run(now, sectionId);
+
+    try {
+      syncSectionToCloud(sectionId);
+    } catch {
+      // Ignore
+    }
   }
 
   return { success: true };
@@ -3749,6 +4065,8 @@ export function requestPasswordReset(identifier: string) {
     WHERE id = ?
   `).run(tempPassword, now, user.id);
 
+  syncUserToCloud(user.id);
+
   // Record reset record
   db.prepare(`
     INSERT INTO password_resets (id, user_id, email, token, temp_password, status, created_at)
@@ -3865,6 +4183,8 @@ export function updateTeacherStatus(teacherId: string, status: 'active' | 'pendi
     );
   }
 
+  syncUserToCloud(teacherId);
+
   return findUserById(teacherId);
 }
 
@@ -3890,6 +4210,7 @@ export function adminResetTeacherPassword(teacherId: string, newPass: string, re
   }
   const now = new Date().toISOString();
   db.prepare('UPDATE users SET password = ?, updated_at = ? WHERE id = ?').run(newPass.trim(), now, teacherId);
+  syncUserToCloud(teacherId);
   return { success: true, message: `تم تحديث كلمة المرور للأستاذ (${user.fullName}) بنجاح` };
 }
 
@@ -3978,6 +4299,8 @@ export function updateTeacherData(
     now
   );
 
+  syncUserToCloud(teacherId);
+
   return findUserById(teacherId);
 }
 
@@ -4029,8 +4352,9 @@ export function getDirectorAnalytics() {
   `).all() as any[];
 
   // 2. Top 10 Absences (Accurate calculation without double counting)
-  const todayIso = new Date().toISOString().split('T')[0];
-  const todayFr = `${String(new Date().getDate()).padStart(2, '0')}/${String(new Date().getMonth() + 1).padStart(2, '0')}/${new Date().getFullYear()}`;
+  const nowUtc = new Date();
+  const todayIso = nowUtc.toISOString().split('T')[0];
+  const todayFr = `${String(nowUtc.getUTCDate()).padStart(2, '0')}/${String(nowUtc.getUTCMonth() + 1).padStart(2, '0')}/${nowUtc.getUTCFullYear()}`;
 
   const absenceRows = db.prepare(`
     WITH CombinedAbsences AS (
@@ -4482,18 +4806,7 @@ export function createDirector(data: {
   );
 
   // Cloud Firestore Persistence Hook
-  cloudSaveUser({
-    id,
-    username: data.username.trim(),
-    email: data.email.trim().toLowerCase(),
-    fullName: data.fullName.trim(),
-    role: 'director',
-    academicYear: data.academicYear || '2026/2027',
-    status,
-    emailVerified: true,
-    createdAt: now,
-    updatedAt: now
-  });
+  syncUserToCloud(id);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -4574,6 +4887,8 @@ export function updateDirectorData(directorId: string, data: {
     now
   );
 
+  syncUserToCloud(directorId);
+
   return findUserById(directorId);
 }
 
@@ -4588,6 +4903,8 @@ export function updateDirectorStatus(directorId: string, status: 'active' | 'ina
   }
   const now = new Date().toISOString();
   db.prepare('UPDATE users SET status = ?, updated_at = ? WHERE id = ?').run(status, now, directorId);
+
+  syncUserToCloud(directorId);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -4616,6 +4933,8 @@ export function adminResetDirectorPassword(directorId: string, newPass: string, 
   }
   const now = new Date().toISOString();
   db.prepare('UPDATE users SET password = ?, updated_at = ? WHERE id = ?').run(newPass.trim(), now, directorId);
+
+  syncUserToCloud(directorId);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -4648,6 +4967,7 @@ export function deleteDirector(directorId: string, requesterRole?: string) {
 
   const now = new Date().toISOString();
   db.prepare('DELETE FROM users WHERE id = ?').run(directorId);
+  cloudDeleteUser(directorId);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -4997,7 +5317,7 @@ export function addDailyViolation(data: {
   const id = 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const now = new Date().toISOString();
   const date = data.recordedDate && data.recordedDate.trim() ? data.recordedDate.trim() : now.slice(0, 10);
-  const time = data.recordedTime || new Date().toLocaleTimeString('ar-MA', { hour12: false, hour: '2-digit', minute: '2-digit' }) || '08:30';
+  const time = data.recordedTime || new Date().toLocaleTimeString('ar-MA', { timeZone: 'UTC', hour12: false, hour: '2-digit', minute: '2-digit' }) || '08:30';
 
   let teacherName = data.teacherName || '';
   let teacherSubject = data.teacherSubject || '';
@@ -5319,7 +5639,8 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
 
   // 5. Cloud Firestore direct cleanup
   try {
-    const { listDocs, deleteDoc, setDoc } = await import('./firestoreService.ts');
+    const { listDocs, deleteDoc, setDoc, batchDeleteDocs } = await import('./firestoreService.ts');
+    const { writeSnapshot } = await import('./cloudBackup.ts');
     const collectionsToClean = [
       'sections',
       'seats',
@@ -5337,11 +5658,10 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
     for (const col of collectionsToClean) {
       try {
         const docs = await listDocs(col);
-        if (Array.isArray(docs)) {
-          for (const d of docs) {
-            if (d.id) {
-              await deleteDoc(col, d.id);
-            }
+        if (Array.isArray(docs) && docs.length > 0) {
+          const ids = docs.map((d) => d.id).filter(Boolean);
+          if (ids.length > 0) {
+            await batchDeleteDocs(col, ids);
           }
         }
       } catch (colErr: any) {
@@ -5353,15 +5673,43 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
     try {
       const allUsers = await listDocs('users');
       if (Array.isArray(allUsers)) {
+        const toDelete: string[] = [];
         for (const u of allUsers) {
           const isSuperAdmin = u.role === 'admin' || u.username === 'admin' || (u.email && u.email.includes('samir')) || u.id === 'usr_admin_samir';
           if (!isSuperAdmin && u.id) {
-            await deleteDoc('users', u.id);
+            toDelete.push(u.id);
           }
         }
+        if (toDelete.length > 0) {
+          await batchDeleteDocs('users', toDelete);
+        }
+      }
+
+      // Re-save / guarantee super admin in Firestore
+      const adminInDb = db.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1").get() as any;
+      if (adminInDb) {
+        await setDoc('users', adminInDb.id, {
+          id: adminInDb.id,
+          username: adminInDb.username,
+          email: adminInDb.email,
+          fullName: adminInDb.full_name,
+          role: 'admin',
+          status: 'active',
+          academicYear: adminInDb.academic_year || '2026/2027',
+          emailVerified: true,
+          createdAt: adminInDb.created_at,
+          updatedAt: new Date().toISOString()
+        });
       }
     } catch (usersErr: any) {
       console.warn('[resetAllDataToZero] Error cleaning non-admin users from Firestore:', usersErr?.message);
+    }
+
+    // Save a clean cloud snapshot with 0 sections
+    try {
+      await writeSnapshot('reset');
+    } catch (snapErr: any) {
+      console.warn('[resetAllDataToZero] Error writing clean snapshot:', snapErr?.message);
     }
   } catch (cleanErr: any) {
     console.warn('[resetAllDataToZero] Cloud cleanup warning:', cleanErr?.message);
@@ -5492,6 +5840,53 @@ export function upsertTimetableSlot(teacherId: string, data: {
     cloudSaveTimetableEntry(savedRecord);
   } catch (err) {
     console.warn('Firestore cloudSaveTimetableEntry error:', err);
+  }
+
+  // Ensure the section assignment is also preserved and approved for this teacher and section
+  if (data.sectionId) {
+    try {
+      const teacher = findUserById(teacherId);
+      const subject = (data.subject || teacher?.subject || 'عام').trim();
+      const existingAsgn = db.prepare(`
+        SELECT id FROM section_assignments WHERE teacher_id = ? AND section_id = ?
+      `).get(teacherId, data.sectionId) as any;
+
+      const asgnId = existingAsgn?.id || ('asgn_tt_' + teacherId.replace(/^usr_/, '') + '_' + data.sectionId.replace(/^sec_/, ''));
+      if (existingAsgn) {
+        db.prepare(`
+          UPDATE section_assignments
+          SET status = 'approved', reviewed_by = 'system', reviewed_at = ?, subject = ?
+          WHERE id = ?
+        `).run(now, subject, existingAsgn.id);
+      } else {
+        db.prepare(`
+          INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
+          VALUES (?, ?, ?, 'approved', 'إسناد معتمد من استعمال الزمان', ?, ?, 'system', ?, ?)
+        `).run(asgnId, teacherId, data.sectionId, now, now, teacher?.academicYear || '2026/2027', subject);
+      }
+
+      db.prepare(`
+        UPDATE sections
+        SET assigned_teacher_id = COALESCE(assigned_teacher_id, ?), updated_at = ?
+        WHERE id = ?
+      `).run(teacherId, now, data.sectionId);
+
+      cloudSaveAssignment({
+        id: asgnId,
+        teacherId,
+        sectionId: data.sectionId,
+        status: 'approved',
+        requestNote: 'إسناد معتمد من استعمال الزمان',
+        requestedAt: now,
+        reviewedAt: now,
+        reviewedBy: 'system',
+        academicYear: teacher?.academicYear || '2026/2027',
+        subject
+      });
+      syncSectionToCloud(data.sectionId);
+    } catch (asgnErr) {
+      console.warn('Error linking timetable to section_assignment:', asgnErr);
+    }
   }
 
   return savedRecord;

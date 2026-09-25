@@ -59,10 +59,10 @@ export function configureCloudBackup(opts: { exportFullBackup: ExportFn; importF
 }
 
 function dayKey(d: Date = new Date()): string {
-  // Local calendar day. Snapshots for the same day overwrite each other.
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  // Calendar day in GMT (UTC). Snapshots for the same day overwrite each other.
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
@@ -234,10 +234,13 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
 
   try {
     let localSections = 0;
+    let localOccupiedSeats = 0;
     try {
       localSections = (dbRef.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
+      localOccupiedSeats = (dbRef.prepare("SELECT COUNT(*) as c FROM seats WHERE student_name != ''").get() as any)?.c || 0;
     } catch {
       localSections = 0;
+      localOccupiedSeats = 0;
     }
 
     const all = await listSnapshots();
@@ -249,13 +252,13 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
     // Always use the most recent daily snapshot
     const targetSnapshot = all[0];
 
-    // Only skip if the local database already has multiple sections matching or exceeding the snapshot
-    if (localSections > 0 && localSections >= (targetSnapshot.sectionsCount || 0)) {
-      console.log(`✅ [CloudBackup] Skipping snapshot restore; ${localSections} local section(s) already loaded.`);
+    // Only skip if the local database already has populated sections matching or exceeding the snapshot
+    if (localSections > 0 && localOccupiedSeats > 0 && localSections >= (targetSnapshot.sectionsCount || 0)) {
+      console.log(`✅ [CloudBackup] Skipping snapshot restore; ${localSections} local section(s) with ${localOccupiedSeats} seated students already loaded.`);
       return;
     }
 
-    console.log(`♻️  [CloudBackup] Auto-restoring cloud snapshot "${targetSnapshot.id}" (${targetSnapshot.sectionsCount} section[s], local was ${localSections})...`);
+    console.log(`♻️  [CloudBackup] Auto-restoring cloud snapshot "${targetSnapshot.id}" (${targetSnapshot.sectionsCount} section[s], local was ${localSections} sections / ${localOccupiedSeats} seated students)...`);
     const res = await restoreSnapshot(targetSnapshot.id);
     if (res?.success) {
       console.log(`✅ [CloudBackup] Auto-restored ${res.count} section(s) from snapshot "${targetSnapshot.id}".`);

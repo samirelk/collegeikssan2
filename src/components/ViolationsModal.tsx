@@ -105,15 +105,15 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
     }
   };
 
-  // Format date & time with French numerals (e.g. 18/09/2026, 14:30)
+  // Format date & time with French numerals in GMT (e.g. 18/09/2026, 14:30 GMT)
   const getFrenchDateTime = () => {
     const d = new Date();
     const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-    const day = pad(d.getDate());
-    const month = pad(d.getMonth() + 1);
-    const year = d.getFullYear();
-    const hours = pad(d.getHours());
-    const minutes = pad(d.getMinutes());
+    const day = pad(d.getUTCDate());
+    const month = pad(d.getUTCMonth() + 1);
+    const year = d.getUTCFullYear();
+    const hours = pad(d.getUTCHours());
+    const minutes = pad(d.getUTCMinutes());
     return {
       date: `${day}/${month}/${year}`,
       time: `${hours}:${minutes}`

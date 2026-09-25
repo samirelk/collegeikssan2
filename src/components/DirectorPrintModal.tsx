@@ -99,7 +99,7 @@ export const DirectorPrintModal: React.FC<DirectorPrintModalProps> = ({
   const todayStr = useMemo(() => {
     const d = new Date();
     const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`;
+    return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`;
   }, []);
 
   // Filter violations

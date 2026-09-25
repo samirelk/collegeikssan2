@@ -515,11 +515,11 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                             )}
 
                             <div className="text-[11px] text-[rgba(242,239,227,0.4)] mt-1.5 flex items-center gap-2">
-                              <span>تاريخ الطلب: {new Date(req.requestedAt).toLocaleString('ar-MA')}</span>
+                              <span>تاريخ الطلب: {new Date(req.requestedAt).toLocaleString('ar-MA', { timeZone: 'UTC' })} (GMT)</span>
                               {req.reviewedAt && (
                                 <>
                                   <span>•</span>
-                                  <span>تاريخ المراجعة: {new Date(req.reviewedAt).toLocaleString('ar-MA')}</span>
+                                  <span>تاريخ المراجعة: {new Date(req.reviewedAt).toLocaleString('ar-MA', { timeZone: 'UTC' })} (GMT)</span>
                                 </>
                               )}
                             </div>
@@ -949,7 +949,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                       </div>
 
                       <div className="text-[10px] text-[rgba(242,239,227,0.4)] mt-2 pt-2 border-t border-[rgba(242,239,227,0.06)]">
-                        تاريخ التسجيل: {new Date(t.createdAt).toLocaleDateString('ar-MA')}
+                        تاريخ التسجيل: {new Date(t.createdAt).toLocaleDateString('ar-MA', { timeZone: 'UTC' })}
                       </div>
                     </div>
                   ))}
@@ -982,7 +982,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                           <span className="font-bold text-[#F2EFE3]">{em.subject}</span>
                         </div>
                         <div className="text-[10px] text-[rgba(242,239,227,0.45)]">
-                          {new Date(em.sentAt).toLocaleString('ar-MA')}
+                          {new Date(em.sentAt).toLocaleString('ar-MA', { timeZone: 'UTC' })} (GMT)
                         </div>
                       </div>
 

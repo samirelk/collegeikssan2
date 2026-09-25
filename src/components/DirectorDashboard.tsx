@@ -38,6 +38,7 @@ import {
   TEACHER_SUBJECTS,
   TeacherSubject
 } from '../types';
+import { printStudentRosterReport, printSectionRosterReport } from '../utils/printNotes';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
 import { DailyArchiveModal } from './DailyArchiveModal';
 import { AcademicYearsManagement } from './AcademicYearsManagement';
@@ -552,6 +553,47 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   // Print view handler
   const handlePrint = (mode: 'violations' | 'absences' = 'violations') => {
     setPrintModalMode(mode);
+  };
+
+  const handlePrintStudentsRoster = () => {
+    printStudentRosterReport({
+      institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+      academicYear: settings.year || '2026/2027',
+      title: 'لائحة التلاميذ الرسمية الشاملة بالمؤسسة',
+      filterLabel: selectedSectionFilter !== 'all'
+        ? `القسم: ${sections.find(s => s.id === selectedSectionFilter)?.level || ''} (${sections.find(s => s.id === selectedSectionFilter)?.classNumber || ''})`
+        : (selectedLevelFilter !== 'all' ? `المستوى: ${selectedLevelFilter}` : 'كافة الأقسام والمستويات'),
+      students: filteredStudents.map(st => ({
+        name: st.studentName,
+        number: st.studentNumber,
+        massarNumber: st.massarNumber,
+        level: st.sectionLevel,
+        classNumber: st.sectionClass,
+        sectionName: `${st.sectionLevel} (${st.sectionClass})`,
+        seatNum: st.seatNum
+      }))
+    });
+  };
+
+  const handlePrintInspectSectionRoster = () => {
+    if (!activeInspectSection) return;
+    const filledSeats = activeInspectSection.seats.filter(s => s.name && s.name.trim());
+    printSectionRosterReport({
+      institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+      academicYear: settings.year || '2026/2027',
+      section: {
+        level: activeInspectSection.level,
+        classNumber: activeInspectSection.classNumber,
+        teacher: activeInspectSection.teacher || activeInspectSection.assignedTeacherName || ''
+      },
+      students: filledSeats.map(s => ({
+        name: s.name,
+        number: s.number,
+        massarNumber: s.massarNumber,
+        seat: s.seat,
+        statusColor: s.statusColor
+      }))
+    });
   };
 
   // Clickable Navigation & Action Trigger
@@ -1437,8 +1479,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => handlePrint('absences')}
+                onClick={handlePrintStudentsRoster}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[rgba(42,33,24,0.06)] hover:bg-[rgba(42,33,24,0.12)] text-[#2A2118] font-bold text-xs border border-[#D9CEB0] transition-colors cursor-pointer"
+                title="طباعة اللائحة الرسمية لجميع التلاميذ أو القسم المختار"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>طباعة اللائحة الرسمية</span>
@@ -1778,8 +1821,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               </button>
               <button
                 type="button"
-                onClick={() => handlePrint('violations')}
+                onClick={handlePrintInspectSectionRoster}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[rgba(42,33,24,0.06)] hover:bg-[rgba(42,33,24,0.12)] text-[#2A2118] font-bold text-xs border border-[#D9CEB0] cursor-pointer"
+                title="طباعة اللائحة الاسمية الرسمية لتلاميذ هذا القسم"
               >
                 <Printer className="w-3.5 h-3.5" />
                 <span>طباعة لائحة القسم</span>
@@ -1903,6 +1947,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             currentUser={currentUser}
             sections={sections}
             embedded={true}
+            institutionName={settings.institution}
+            academicYear={settings.year}
           />
         </div>
       )}

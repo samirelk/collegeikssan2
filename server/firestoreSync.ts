@@ -64,10 +64,10 @@ async function syncUsersFromFirestore(db: any) {
 
     console.log(`📥 [FirestoreSync] Found ${firestoreUsers.length} users in Firestore. Syncing to local SQLite...`);
 
-    const selectStmt = db.prepare('SELECT id, password FROM users WHERE id = ?');
+    const selectStmt = db.prepare('SELECT id, password, email_verified, status FROM users WHERE id = ?');
     const updateStmt = db.prepare(`
       UPDATE users 
-      SET username = ?, email = ?, full_name = ?, role = ?, academic_year = ?, 
+      SET username = ?, email = ?, password = ?, full_name = ?, role = ?, academic_year = ?, 
           status = ?, subject = ?, email_verified = ?, updated_at = ?
       WHERE id = ?
     `);
@@ -81,19 +81,24 @@ async function syncUsersFromFirestore(db: any) {
     for (const u of firestoreUsers) {
       if (!u.id || !u.username) continue;
       const existing = selectStmt.get(u.id) as any;
-      const pwd = existing?.password || u.password || u.passwordHash || 'password123';
+      const pwd = (existing?.password && existing.password !== 'password123')
+        ? existing.password
+        : (u.password || existing?.password || u.passwordHash || 'password123');
       const now = new Date().toISOString();
+      const isEmailVerified = Boolean(u.emailVerified || u.email_verified || existing?.email_verified);
+      const userStatus = (existing?.status === 'active' || u.status === 'active') ? 'active' : (u.status || existing?.status || 'active');
 
       if (existing) {
         updateStmt.run(
           u.username,
           u.email || `${u.username}@school.local`,
+          pwd,
           u.fullName || u.full_name || u.username,
           u.role || 'teacher',
-          u.academicYear || u.academic_year || '2025/2026',
-          u.status || 'active',
+          u.academicYear || u.academic_year || '2026/2027',
+          userStatus,
           u.subject || 'الرياضيات',
-          u.emailVerified ? 1 : (u.email_verified ? 1 : 0),
+          isEmailVerified ? 1 : 0,
           u.updatedAt || now,
           u.id
         );
@@ -105,13 +110,33 @@ async function syncUsersFromFirestore(db: any) {
           pwd,
           u.fullName || u.full_name || u.username,
           u.role || 'teacher',
-          u.academicYear || u.academic_year || '2025/2026',
-          u.status || 'active',
+          u.academicYear || u.academic_year || '2026/2027',
+          userStatus,
           u.subject || 'الرياضيات',
-          u.emailVerified ? 1 : 0,
+          isEmailVerified ? 1 : 0,
           u.createdAt || now,
           u.updatedAt || now
         );
+      }
+
+      // If local state has updated verification or password that Firestore lacked, sync back to Firestore
+      if ((isEmailVerified && !u.emailVerified) || (pwd && pwd !== u.password) || (userStatus === 'active' && u.status !== 'active')) {
+        setDoc('users', u.id, {
+          id: u.id,
+          username: u.username,
+          email: u.email || `${u.username}@school.local`,
+          password: pwd,
+          fullName: u.fullName || u.full_name || u.username,
+          role: u.role || 'teacher',
+          status: userStatus,
+          subject: u.subject || 'الرياضيات',
+          academicYear: u.academicYear || u.academic_year || '2026/2027',
+          emailVerified: isEmailVerified,
+          mustChangeProfile: Boolean(u.mustChangeProfile ?? u.must_change_profile),
+          mustChangePassword: Boolean(u.mustChangePassword ?? u.must_change_password),
+          createdAt: u.createdAt || now,
+          updatedAt: now
+        }).catch(err => console.warn('[syncUsersFromFirestore] cloud back-sync warning:', err.message));
       }
     }
   } catch (e: any) {
@@ -174,12 +199,26 @@ async function syncSectionsFromFirestore(db: any) {
     console.log(`📥 [FirestoreSync] Found ${sections.length} sections in Firestore. Syncing to local SQLite...`);
 
     const insertSec = db.prepare(`
-      INSERT OR REPLACE INTO sections (id, level, class_number, teacher, assigned_teacher_id, created_at, updated_at, roster_json)
+      INSERT INTO sections (id, level, class_number, teacher, assigned_teacher_id, created_at, updated_at, roster_json)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        level = excluded.level,
+        class_number = excluded.class_number,
+        teacher = excluded.teacher,
+        assigned_teacher_id = excluded.assigned_teacher_id,
+        updated_at = excluded.updated_at,
+        roster_json = excluded.roster_json
+    `);
+
+    const checkSeatsCountStmt = db.prepare('SELECT COUNT(*) as c FROM seats WHERE section_id = ?');
+    const insertInitialSeat = db.prepare(`
+      INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'default', NULL, ?)
     `);
 
     for (const s of sections) {
       if (!s.id) continue;
+      const rosterJson = typeof s.roster === 'string' ? s.roster : JSON.stringify(s.roster || []);
       insertSec.run(
         s.id,
         s.level || '',
@@ -188,8 +227,32 @@ async function syncSectionsFromFirestore(db: any) {
         s.assignedTeacherId || s.assigned_teacher_id || null,
         s.createdAt || new Date().toISOString(),
         s.updatedAt || new Date().toISOString(),
-        typeof s.roster === 'string' ? s.roster : JSON.stringify(s.roster || [])
+        rosterJson
       );
+
+      // If seats table has 0 seats for this section, populate 100 seats using the roster
+      const seatsCount = (checkSeatsCountStmt.get(s.id) as any)?.c || 0;
+      if (seatsCount === 0) {
+        let roster: any[] = [];
+        try {
+          roster = typeof s.roster === 'string' ? JSON.parse(s.roster) : (s.roster || []);
+        } catch {
+          roster = [];
+        }
+        const now = new Date().toISOString();
+        for (let i = 1; i <= 100; i++) {
+          const student = roster[i - 1];
+          insertInitialSeat.run(
+            s.id,
+            i,
+            student?.name || '',
+            student?.number || '',
+            student?.massarNumber || '',
+            student?.id || null,
+            now
+          );
+        }
+      }
     }
 
     // Also sync seats if any
@@ -415,8 +478,8 @@ async function syncAssignmentsFromFirestore(db: any) {
 
     const insertStmt = db.prepare(`
       INSERT OR REPLACE INTO section_assignments (
-        id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const checkUserStmt = db.prepare('SELECT 1 FROM users WHERE id = ?');
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
@@ -440,11 +503,27 @@ async function syncAssignmentsFromFirestore(db: any) {
           a.requestedAt || new Date().toISOString(),
           a.reviewedAt || null,
           a.reviewedBy || null,
-          a.academicYear || '2025/2026'
+          a.academicYear || '2026/2027',
+          a.subject || 'عام'
         );
       } catch (rowErr: any) {
         console.warn(`[FirestoreSync] Skipping assignment ${a.id}: ${rowErr?.message}`);
       }
+    }
+
+    // Auto-update section primary teacher for approved assignments if empty
+    try {
+      db.prepare(`
+        UPDATE sections
+        SET assigned_teacher_id = (
+          SELECT teacher_id FROM section_assignments
+          WHERE section_assignments.section_id = sections.id AND section_assignments.status = 'approved'
+          LIMIT 1
+        )
+        WHERE assigned_teacher_id IS NULL OR assigned_teacher_id = ''
+      `).run();
+    } catch {
+      // Ignore
     }
   } catch (e: any) {
     console.error('Error in syncAssignmentsFromFirestore:', e.message);
@@ -501,12 +580,15 @@ async function pushMissingLocalDataToFirestore(db: any) {
         id: u.id,
         username: u.username,
         email: u.email,
+        password: u.password,
         fullName: u.full_name,
         role: u.role,
         status: u.status,
         subject: u.subject || '',
-        academicYear: u.academic_year || '2025/2026',
+        academicYear: u.academic_year || '2026/2027',
         emailVerified: Boolean(u.email_verified),
+        mustChangeProfile: Boolean(u.must_change_profile),
+        mustChangePassword: Boolean(u.must_change_password),
         createdAt: u.created_at || new Date().toISOString(),
         updatedAt: u.updated_at || new Date().toISOString()
       });
@@ -592,6 +674,43 @@ async function pushMissingLocalDataToFirestore(db: any) {
         updatedAt: o.updated_at || new Date().toISOString()
       });
     }
+
+    // 7. Section Assignments
+    const localAssignments = db.prepare('SELECT * FROM section_assignments').all() as any[];
+    for (const asgn of localAssignments) {
+      await setDoc('section_assignments', asgn.id, {
+        id: asgn.id,
+        teacherId: asgn.teacher_id,
+        sectionId: asgn.section_id,
+        status: asgn.status || 'approved',
+        requestNote: asgn.request_note || '',
+        requestedAt: asgn.requested_at || new Date().toISOString(),
+        reviewedAt: asgn.reviewed_at || new Date().toISOString(),
+        reviewedBy: asgn.reviewed_by || 'admin',
+        academicYear: asgn.academic_year || '2026/2027',
+        subject: asgn.subject || 'عام'
+      });
+    }
+
+    // 8. Teacher Timetable
+    const localTimetable = db.prepare('SELECT * FROM teacher_timetable').all() as any[];
+    for (const t of localTimetable) {
+      await setDoc('teacher_timetable', t.id, {
+        id: t.id,
+        teacherId: t.teacher_id,
+        dayOfWeek: t.day_of_week,
+        slotId: t.slot_id,
+        periodType: t.period_type || 'morning',
+        startTime: t.start_time || '08:00',
+        endTime: t.end_time || '09:00',
+        sectionId: t.section_id,
+        room: t.room || '',
+        subject: t.subject || '',
+        notes: t.notes || '',
+        createdAt: t.created_at || new Date().toISOString(),
+        updatedAt: t.updated_at || new Date().toISOString()
+      });
+    }
   } catch (e: any) {
     console.warn('pushMissingLocalDataToFirestore warning:', e.message);
   }
@@ -624,13 +743,20 @@ export async function flushPendingCloudWrites(): Promise<boolean> {
 
 export function cloudSaveUser(user: any) {
   return trackCloudWrite(`cloudSaveUser(${user.id})`, () => setDoc('users', user.id, {
-    id: user.id, username: user.username, email: user.email,
-    fullName: user.fullName || user.full_name, role: user.role,
-    status: user.status || 'active', subject: user.subject || '',
-    academicYear: user.academicYear || user.academic_year || '2025/2026',
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    password: user.password,
+    fullName: user.fullName || user.full_name,
+    role: user.role,
+    status: user.status || 'active',
+    subject: user.subject || '',
+    academicYear: user.academicYear || user.academic_year || '2026/2027',
     emailVerified: Boolean(user.emailVerified ?? user.email_verified),
+    mustChangeProfile: Boolean(user.mustChangeProfile ?? user.must_change_profile),
+    mustChangePassword: Boolean(user.mustChangePassword ?? user.must_change_password),
     createdAt: user.createdAt || user.created_at || new Date().toISOString(),
-    updatedAt: new Date().toISOString()
+    updatedAt: user.updatedAt || user.updated_at || new Date().toISOString()
   }));
 }
 
@@ -731,7 +857,8 @@ export function cloudSaveAssignment(asgn: any) {
     status: asgn.status, requestNote: asgn.requestNote || asgn.request_note || '',
     requestedAt: asgn.requestedAt || asgn.requested_at || new Date().toISOString(),
     reviewedAt: asgn.reviewedAt || asgn.reviewed_at || null, reviewedBy: asgn.reviewedBy || asgn.reviewed_by || null,
-    academicYear: asgn.academicYear || asgn.academic_year || '2025/2026'
+    academicYear: asgn.academicYear || asgn.academic_year || '2026/2027',
+    subject: asgn.subject || ''
   }));
 }
 

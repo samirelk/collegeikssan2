@@ -29,8 +29,8 @@ export const NotesModal: React.FC<NotesModalProps> = ({
   const getStamp = () => {
     const d = new Date();
     return {
-      date: `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`,
-      time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      date: `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`,
+      time: `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`,
     };
   };
 

@@ -15,6 +15,89 @@ export interface PrintViolationsOptions {
   notes?: NoteItem[];
 }
 
+/**
+ * Standard Official Moroccan Header for all printable documents across the system.
+ */
+export function buildOfficialMoroccanHeaderHtml(options: {
+  institution?: string;
+  academicYear?: string;
+  date?: string;
+  time?: string;
+  dateLabel?: string;
+  middleIcon?: string;
+}): string {
+  const inst = options.institution || 'الثانوية الإعدادية ايكسان';
+  const year = options.academicYear || '2026/2027';
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const dStr = options.date || `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const tStr = options.time || `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+  const dLabel = options.dateLabel || 'تاريخ الاستخراج';
+  const icon = options.middleIcon || '🏛️';
+
+  return `
+    <table class="header-table">
+      <tr>
+        <td style="width: 40%; text-align: right;" class="official-head">
+          المملكة المغربية<br>
+          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
+          <b>${escapeHtml(inst)}</b>
+        </td>
+        <td style="width: 20%; text-align: center;">
+          <div style="font-size: 26px; color: #854d0e;">${icon}</div>
+        </td>
+        <td style="width: 40%; text-align: left;" class="official-head">
+          الموسم الدراسي: <b>${escapeHtml(year)}</b><br>
+          ${escapeHtml(dLabel)}: <b>${escapeHtml(dStr)}</b><br>
+          الساعة: <b>${escapeHtml(tStr)} (GMT)</b>
+        </td>
+      </tr>
+    </table>
+  `;
+}
+
+export const OFFICIAL_HEADER_CSS = `
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-bottom: 2px solid #854d0e;
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+    }
+    .header-table td {
+      vertical-align: middle;
+      border: none;
+    }
+    .official-head {
+      font-size: 12px;
+      line-height: 1.6;
+      color: #333;
+    }
+    .official-head b {
+      font-size: 13px;
+      color: #854d0e;
+    }
+    .doc-title-box {
+      text-align: center;
+      margin: 15px 0 20px 0;
+    }
+    .doc-title {
+      display: inline-block;
+      font-size: 20px;
+      font-weight: bold;
+      color: #991b1b;
+      background: #fef2f2;
+      border: 1.5px solid #dc2626;
+      border-radius: 30px;
+      padding: 6px 32px;
+      margin: 0 0 6px 0;
+    }
+    .doc-sub {
+      font-size: 12px;
+      color: #666;
+    }
+`;
+
 export function printViolationsReport(options: PrintViolationsOptions): boolean {
   const {
     institution,
@@ -31,12 +114,12 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
     notes
   } = options;
 
-  const actualViolations = violations || [];
+  const actualViolations = (violations && violations.length > 0) ? violations : (notes || []);
 
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
   const violationsHtml =
     actualViolations.length === 0
@@ -227,23 +310,13 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
 </head>
 <body>
   <div class="print-container">
-    <table class="header-table">
-      <tr>
-        <td style="width: 40%; text-align: right;" class="official-head">
-          المملكة المغربية<br>
-          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
-          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
-        </td>
-        <td style="width: 20%; text-align: center;">
-          <div style="font-size: 26px; color: #854d0e;">🏛️</div>
-        </td>
-        <td style="width: 40%; text-align: left;" class="official-head">
-          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
-          تاريخ الاستخراج: <b>${printDate}</b><br>
-          الساعة: <b>${printTime}</b>
-        </td>
-      </tr>
-    </table>
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ الاستخراج'
+    })}
 
     <div class="doc-title-box">
       <div class="doc-title">بطاقة تتبع المخالفات والانضباط المدرسي</div>
@@ -324,46 +397,7 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
 </body>
 </html>`;
 
-  // Method 1: Try using a hidden iframe to trigger printing seamlessly
-  try {
-    let printIframe = document.getElementById('notes-print-iframe') as HTMLIFrameElement | null;
-    if (!printIframe) {
-      printIframe = document.createElement('iframe');
-      printIframe.id = 'notes-print-iframe';
-      printIframe.style.position = 'fixed';
-      printIframe.style.right = '0';
-      printIframe.style.bottom = '0';
-      printIframe.style.width = '0';
-      printIframe.style.height = '0';
-      printIframe.style.border = '0';
-      document.body.appendChild(printIframe);
-    }
-
-    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(html);
-      doc.close();
-      return true;
-    }
-  } catch (e) {
-    console.warn('Iframe print failed, falling back to popup window', e);
-  }
-
-  // Method 2: Fallback to window.open
-  try {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
-      return true;
-    }
-  } catch (e) {
-    console.error('Window.open failed for print', e);
-  }
-
-  return false;
+  return printReportHtml(html);
 }
 
 // Keep printNotesReport as alias for backwards compatibility
@@ -399,8 +433,8 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
 
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
   const rowsHtml = violations.length === 0
     ? `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا توجد أي مخالفات مسجلة مطابقة لمعايير البحث المحددة (السجل سليم تماماً).</td></tr>`
@@ -460,23 +494,13 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
 </head>
 <body>
   <div class="print-container">
-    <table class="header-table">
-      <tr>
-        <td style="width: 40%; text-align: right;" class="official-head">
-          المملكة المغربية<br>
-          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
-          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
-        </td>
-        <td style="width: 20%; text-align: center;">
-          <div style="font-size: 26px; color: #854d0e;">🏛️</div>
-        </td>
-        <td style="width: 40%; text-align: left;" class="official-head">
-          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
-          تاريخ الاستخراج: <b>${printDate}</b><br>
-          الساعة: <b>${printTime}</b>
-        </td>
-      </tr>
-    </table>
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ الاستخراج'
+    })}
 
     <div class="doc-title-box">
       <div class="doc-title">سجل ولائحة المخالفات السلوكية الرسمية</div>
@@ -572,8 +596,8 @@ export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
 
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const printDate = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const printTime = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
   const rowsHtml = absences.length === 0
     ? `<tr><td colspan="8" style="text-align:center; padding: 24px; color: #15803d; font-weight: bold; background: #f0fdf4;">✓ لا توجد أي حالات غياب مسجلة مطابقة لمعايير البحث المحددة (المواظبة تامة والحضور كامل).</td></tr>`
@@ -645,23 +669,13 @@ export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
 </head>
 <body>
   <div class="print-container">
-    <table class="header-table">
-      <tr>
-        <td style="width: 40%; text-align: right;" class="official-head">
-          المملكة المغربية<br>
-          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
-          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
-        </td>
-        <td style="width: 20%; text-align: center;">
-          <div style="font-size: 26px; color: #854d0e;">🏛️</div>
-        </td>
-        <td style="width: 40%; text-align: left;" class="official-head">
-          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
-          تاريخ الاستخراج: <b>${printDate}</b><br>
-          الساعة: <b>${printTime}</b>
-        </td>
-      </tr>
-    </table>
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ الاستخراج'
+    })}
 
     <div class="doc-title-box">
       <div class="doc-title">سجل ولائحة تتبع الغياب والمواظبة اليومية</div>
@@ -770,8 +784,8 @@ export function printSingleViolationNotice(options: PrintSingleViolationOptions)
 
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const printDate = date || `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const printTime = time || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const printDate = date || `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = time || `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
   const html = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -796,24 +810,20 @@ export function printSingleViolationNotice(options: PrintSingleViolationOptions)
     .signatures-table { width: 100%; margin-top: 40px; border-collapse: collapse; }
     .signatures-table td { width: 33.3%; text-align: center; vertical-align: top; }
     .sig-title { font-weight: bold; font-size: 13px; margin-bottom: 60px; }
+    .official-head { font-size: 12px; line-height: 1.6; color: #333; }
+    .official-head b { font-size: 13px; color: #854d0e; }
   </style>
 </head>
 <body>
   <div class="print-container">
-    <table class="header-table">
-      <tr>
-        <td style="width: 40%; text-align: right;">
-          المملكة المغربية<br>
-          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
-          <b>${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</b>
-        </td>
-        <td style="width: 20%; text-align: center; font-size: 28px;">⚠️</td>
-        <td style="width: 40%; text-align: left;">
-          الموسم الدراسي: <b>${escapeHtml(academicYear || '2026/2027')}</b><br>
-          تاريخ التحرير: <b>${printDate}</b> (${printTime})
-        </td>
-      </tr>
-    </table>
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ التحرير',
+      middleIcon: '🏛️'
+    })}
 
     <div class="doc-title-box">
       <div class="doc-title">إشعار بارتكاب مخالفة انضباطية واستدعاء ولي الأمر</div>
@@ -918,8 +928,8 @@ export function shareViolationViaWhatsApp(data: {
 
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
-  const dStr = date || `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const tStr = time || `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+  const dStr = date || `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const tStr = time || `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
 
   const message = `*المملكة المغربية — وزارة التربية الوطنية*
 🏛️ *المؤسسة:* ${institution || 'الثانوية الإعدادية ايكسان'}
@@ -945,46 +955,354 @@ ${massarNumber ? `🔢 *رقم مسار:* ${massarNumber}\n` : ''}📌 *نوع �
   window.open(waUrl, '_blank');
 }
 
-// Deliver HTML to printer via hidden iframe or popup
+// Deliver HTML to printer via unified print runner
 function deliverPrintHtml(html: string): boolean {
-  try {
-    let printIframe = document.getElementById('report-print-iframe') as HTMLIFrameElement | null;
-    if (!printIframe) {
-      printIframe = document.createElement('iframe');
-      printIframe.id = 'report-print-iframe';
-      printIframe.style.position = 'fixed';
-      printIframe.style.right = '0';
-      printIframe.style.bottom = '0';
-      printIframe.style.width = '0';
-      printIframe.style.height = '0';
-      printIframe.style.border = '0';
-      document.body.appendChild(printIframe);
+  return printReportHtml(html);
+}
+
+export interface PrintStudentRosterOptions {
+  institution?: string;
+  academicYear?: string;
+  title?: string;
+  filterLabel?: string;
+  students: Array<{
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    level?: string;
+    classNumber?: string;
+    sectionName?: string;
+    seatNum?: number;
+    statusColor?: string;
+  }>;
+}
+
+export function printStudentRosterReport(options: PrintStudentRosterOptions): boolean {
+  const {
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2026/2027',
+    title = 'لائحة التلاميذ الرسمية الشاملة',
+    filterLabel = 'كافة الأقسام والمستويات',
+    students = []
+  } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+
+  const rowsHtml = students.length === 0
+    ? `<tr><td colspan="6" style="text-align:center; padding: 24px; color: #64748b; font-weight: bold;">لا يوجد أي تلميذ مسجل في هذه اللائحة.</td></tr>`
+    : students.map((s, idx) => {
+        const sec = s.sectionName || (s.level && s.classNumber ? `${s.level} (${s.classNumber})` : '—');
+        return `
+          <tr>
+            <td style="text-align: center; font-weight: bold; width: 40px; font-family: monospace;">${idx + 1}</td>
+            <td style="padding: 7px 10px; font-size: 13px; font-weight: bold; color: #111; text-align: right;">${escapeHtml(s.name)}</td>
+            <td style="text-align: center; width: 115px; font-family: monospace; font-size: 12.5px; font-weight: bold; color: #1e3a8a;">${escapeHtml(s.massarNumber || '—')}</td>
+            <td style="text-align: center; width: 60px; font-family: monospace; font-size: 13px; font-weight: bold;">${escapeHtml(s.number || '—')}</td>
+            <td style="text-align: center; width: 130px; font-size: 12px; font-weight: 600; color: #047857;">${escapeHtml(sec)}</td>
+            <td style="text-align: center; width: 70px; font-size: 12px;">${s.seatNum ? `مقعد #${s.seatNum}` : '—'}</td>
+          </tr>
+        `;
+      }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #1a1a1a; background: #fff; margin: 0; padding: 0; direction: rtl; font-size: 12.5px; }
+    .print-container { max-width: 100%; margin: 0 auto; padding: 8px; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #854d0e; padding-bottom: 12px; margin-bottom: 16px; }
+    .header-table td { vertical-align: middle; border: none !important; }
+    .official-head { font-size: 12px; line-height: 1.6; color: #333; }
+    .official-head b { font-size: 13px; color: #854d0e; }
+    .doc-title-box { text-align: center; margin: 10px 0 16px 0; }
+    .doc-title { display: inline-block; font-size: 19px; font-weight: bold; color: #1e3a8a; background: #eff6ff; border: 1.5px solid #2563eb; border-radius: 25px; padding: 5px 30px; margin: 0 0 4px 0; }
+    .doc-sub { font-size: 12px; color: #555; }
+    .table-main { width: 100%; border-collapse: collapse; margin-top: 8px; margin-bottom: 25px; }
+    .table-main th { background: #1e3a8a; color: #fff; padding: 8px; font-size: 12px; border: 1px solid #1e3a8a; text-align: center; }
+    .table-main td { border: 1px solid #D5CDC0; padding: 6px 8px; vertical-align: middle; }
+    .table-main tr:nth-child(even) td { background: #FAF8F5; }
+    .signatures-table { width: 100%; margin-top: 30px; border-collapse: collapse; page-break-inside: avoid; }
+    .signatures-table td { width: 50%; text-align: center; vertical-align: top; padding: 8px; }
+    .sig-title { font-weight: bold; font-size: 12.5px; color: #1f2937; margin-bottom: 50px; }
+    .footer-bar { margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10.5px; color: #777; }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ الاستخراج'
+    })}
+
+    <div class="doc-title-box">
+      <div class="doc-title">${escapeHtml(title)}</div>
+      <div class="doc-sub">نطاق اللائحة: <strong>${escapeHtml(filterLabel)}</strong> • العدد الإجمالي: <strong>${students.length} تلميذ(ة)</strong></div>
+    </div>
+
+    <table class="table-main">
+      <thead>
+        <tr>
+          <th style="width: 40px;">#</th>
+          <th>الاسم الكامل للتلميذ(ة)</th>
+          <th style="width: 115px;">رقم مسار</th>
+          <th style="width: 60px;">الرقم</th>
+          <th style="width: 130px;">المستوى والقسم</th>
+          <th style="width: 70px;">المقعد</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+
+    <table class="signatures-table">
+      <tr>
+        <td>
+          <div class="sig-title">توقيع الحراسة العامة للخارجية</div>
+        </td>
+        <td>
+          <div class="sig-title">تأشيرة وخاتم السيد مدير المؤسسة</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="footer-bar">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution)}</span>
+      <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
+}
+
+export function printSectionRosterReport(options: {
+  institution?: string;
+  academicYear?: string;
+  section: {
+    level: string;
+    classNumber: string;
+    teacher?: string;
+  };
+  students: Array<{
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    seat?: number;
+    statusColor?: string;
+  }>;
+}): boolean {
+  const { institution, academicYear, section, students } = options;
+  return printStudentRosterReport({
+    institution,
+    academicYear,
+    title: `لائحة تلاميذ القسم: ${section.level} (${section.classNumber})`,
+    filterLabel: `${section.level} - القسم ${section.classNumber} • الأستاذ: ${section.teacher || 'أستاذ المادة'}`,
+    students: students.map(s => ({
+      name: s.name,
+      number: s.number,
+      massarNumber: s.massarNumber,
+      level: section.level,
+      classNumber: section.classNumber,
+      seatNum: s.seat
+    }))
+  });
+}
+
+export interface PrintClassroomSeatingPlanOptions {
+  institution?: string;
+  academicYear?: string;
+  section: {
+    id: string;
+    level: string;
+    classNumber: string;
+    teacher?: string;
+  };
+  teacherName?: string;
+  subject?: string;
+  seats: Array<{
+    seat: number;
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    statusColor?: string;
+  }>;
+}
+
+export function printClassroomSeatingPlan(options: PrintClassroomSeatingPlanOptions): boolean {
+  const {
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2026/2027',
+    section,
+    teacherName,
+    subject,
+    seats = []
+  } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+
+  const teacherDisplay = teacherName || section.teacher || 'أستاذ المادة';
+  const registeredCount = seats.filter(s => s.name && s.name.trim()).length;
+
+  // Build rows (4 rows, each has 5 double desks = 10 seats)
+  const rowsHtml = [1, 2, 3, 4].map(rowNum => {
+    const startSeat = (rowNum - 1) * 10 + 1;
+    const desksHtml = [0, 1, 2, 3, 4].map(deskIdx => {
+      const s1Num = startSeat + deskIdx * 2;
+      const s2Num = s1Num + 1;
+      const s1 = seats.find(s => s.seat === s1Num) || { seat: s1Num, name: '', number: '', massarNumber: '' };
+      const s2 = seats.find(s => s.seat === s2Num) || { seat: s2Num, name: '', number: '', massarNumber: '' };
+
+      const renderSeat = (s: any) => {
+        const isFilled = s.name && s.name.trim();
+        return `
+          <div class="seat-box ${isFilled ? 'seat-filled' : 'seat-empty'}">
+            <div class="seat-head">
+              <span class="seat-num">#${s.seat}</span>
+              ${s.number ? `<span class="student-num">رقم: ${escapeHtml(s.number)}</span>` : ''}
+            </div>
+            <div class="student-name">${isFilled ? escapeHtml(s.name) : '<span class="empty-txt">— شاغر —</span>'}</div>
+            ${s.massarNumber ? `<div class="massar-tag">${escapeHtml(s.massarNumber)}</div>` : ''}
+          </div>
+        `;
+      };
+
+      return `
+        <div class="double-desk">
+          <div class="desk-label">طاولة ${deskIdx + 1}</div>
+          <div class="seats-row">
+            ${renderSeat(s1)}
+            ${renderSeat(s2)}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <div class="plan-row">
+        <div class="row-badge">الصف ${rowNum}</div>
+        <div class="row-desks">
+          ${desksHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>مخطط مقاعد القسم — ${escapeHtml(section.level)} (${escapeHtml(section.classNumber)})</title>
+  <style>
+    @page { size: A4 landscape; margin: 8mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #1a1a1a; background: #fff; margin: 0; padding: 0; direction: rtl; font-size: 11px; }
+    .print-container { width: 100%; margin: 0 auto; }
+    .header-table { width: 100%; border-collapse: collapse; border-bottom: 2px solid #854d0e; padding-bottom: 8px; margin-bottom: 10px; }
+    .header-table td { vertical-align: middle; border: none !important; }
+    .official-head { font-size: 11px; line-height: 1.5; color: #333; }
+    .official-head b { font-size: 12px; color: #854d0e; }
+    .doc-title-box { text-align: center; margin: 4px 0 10px 0; }
+    .doc-title { display: inline-block; font-size: 17px; font-weight: bold; color: #166534; background: #f0fdf4; border: 1.5px solid #16a34a; border-radius: 20px; padding: 3px 25px; }
+    .doc-sub { font-size: 11px; color: #475569; margin-top: 3px; }
+    
+    .board-indicator {
+      text-align: center;
+      background: #1e293b;
+      color: #fff;
+      font-weight: bold;
+      padding: 3px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      font-size: 11px;
+      letter-spacing: 1px;
     }
 
-    const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
-    if (doc) {
-      doc.open();
-      doc.write(html);
-      doc.close();
-      return true;
-    }
-  } catch (e) {
-    console.warn('Iframe print failed, falling back to popup window', e);
-  }
+    .plan-grid { display: flex; flex-direction: column; gap: 6px; }
+    .plan-row { display: flex; align-items: stretch; border: 1px solid #cbd5e1; border-radius: 6px; background: #f8fafc; padding: 4px; gap: 6px; }
+    .row-badge { writing-mode: vertical-rl; transform: rotate(180deg); background: #0f172a; color: #fff; font-weight: bold; font-size: 11px; padding: 6px 3px; border-radius: 4px; text-align: center; }
+    .row-desks { display: flex; flex: 1; gap: 6px; justify-content: space-between; }
+    .double-desk { flex: 1; background: #fff; border: 1px solid #94a3b8; border-radius: 6px; padding: 3px; }
+    .desk-label { font-size: 9px; color: #64748b; font-weight: bold; text-align: center; border-bottom: 1px dashed #e2e8f0; padding-bottom: 2px; margin-bottom: 2px; }
+    .seats-row { display: flex; gap: 3px; }
+    .seat-box { flex: 1; border-radius: 4px; padding: 3px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; justify-content: space-between; min-height: 48px; }
+    .seat-filled { background: #f0fdf4; border-color: #86efac; }
+    .seat-empty { background: #f8fafc; border-color: #e2e8f0; opacity: 0.7; }
+    .seat-head { display: flex; justify-content: space-between; font-size: 9px; color: #475569; font-weight: bold; }
+    .seat-num { background: #dcfce7; color: #166534; padding: 1px 4px; border-radius: 3px; font-size: 9px; }
+    .student-num { color: #0369a1; font-family: monospace; font-size: 9px; }
+    .student-name { font-weight: bold; font-size: 10px; color: #0f172a; text-align: center; line-height: 1.2; margin: 2px 0; }
+    .empty-txt { color: #94a3b8; font-weight: normal; font-size: 9px; }
+    .massar-tag { font-family: monospace; font-size: 8px; color: #64748b; text-align: center; }
 
-  try {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
-      return true;
-    }
-  } catch (e) {
-    console.error('Window.open failed for print', e);
-  }
+    .signatures-table { width: 100%; margin-top: 10px; border-collapse: collapse; page-break-inside: avoid; }
+    .signatures-table td { width: 50%; text-align: center; vertical-align: top; padding: 4px; }
+    .sig-title { font-weight: bold; font-size: 11px; color: #1f2937; margin-bottom: 28px; }
+    .footer-bar { margin-top: 8px; padding-top: 4px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 9px; color: #64748b; }
+  </style>
+</head>
+<body>
+  <div class="print-container">
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ الاستخراج'
+    })}
 
-  return false;
+    <div class="doc-title-box">
+      <div class="doc-title">مخطط مقاعد القسم وخريطة جلوس التلاميذ</div>
+      <div class="doc-sub">
+        المستوى والقسم: <strong>${escapeHtml(section.level)} (${escapeHtml(section.classNumber)})</strong> • 
+        الأستاذ(ة): <strong>${escapeHtml(teacherDisplay)}</strong> 
+        ${subject ? `• المادة: <strong>${escapeHtml(subject)}</strong>` : ''} • 
+        عدد التلاميذ المسجلين: <strong>${registeredCount} / 40</strong>
+      </div>
+    </div>
+
+    <div class="board-indicator">▲ اتجاه السبورة والمنصة ▲</div>
+
+    <div class="plan-grid">
+      ${rowsHtml}
+    </div>
+
+    <table class="signatures-table">
+      <tr>
+        <td>
+          <div class="sig-title">توقيع وتأشيرة الأستاذ(ة) المشرف(ة)</div>
+          <div style="font-size: 10px; color: #64748b;">${escapeHtml(teacherDisplay)}</div>
+        </td>
+        <td>
+          <div class="sig-title">تأشيرة وخاتم السيد رئيس المؤسسة (المدير)</div>
+          <div style="font-size: 10px; color: #64748b;">الحراسة العامة / إدارة المؤسسة</div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="footer-bar">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution)}</span>
+      <span>مخطط هندسي رسمي لتنظيم وتوزيع المقاعد داخل الحجرة الدراسية</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
 }
 
 export interface PrintDailyArchiveOptions {
@@ -1098,6 +1416,11 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
           })
           .join('');
 
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+
   const html = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
@@ -1127,11 +1450,44 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
       width: 100%;
       margin: 0 auto;
     }
-    .header-box {
-      border-bottom: 2px solid #0f172a;
-      padding-bottom: 10px;
-      margin-bottom: 12px;
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-bottom: 2px solid #854d0e;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+    .header-table td {
+      vertical-align: middle;
+      border: none;
+    }
+    .official-head {
+      font-size: 12px;
+      line-height: 1.6;
+      color: #333;
+    }
+    .official-head b {
+      font-size: 13px;
+      color: #854d0e;
+    }
+    .doc-title-box {
       text-align: center;
+      margin: 12px 0 16px 0;
+    }
+    .doc-title {
+      display: inline-block;
+      font-size: 19px;
+      font-weight: bold;
+      color: #991b1b;
+      background: #fef2f2;
+      border: 1.5px solid #dc2626;
+      border-radius: 30px;
+      padding: 5px 30px;
+      margin: 0 0 4px 0;
+    }
+    .doc-sub {
+      font-size: 12px;
+      color: #555;
     }
     .stats-bar {
       display: flex;
@@ -1193,18 +1549,19 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
 </head>
 <body>
   <div class="print-container">
-    <div class="header-box">
-      <div style="font-size: 13px; font-weight: bold; color: #334155;">المملكة المغربية</div>
-      <div style="font-size: 13px; font-weight: bold; color: #334155;">وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
-      <div style="font-size: 12px; color: #475569;">الأكاديمية الجهوية للتربية والتكوين - المديرية الإقليمية بالناظور</div>
-      <div style="font-size: 16px; font-weight: 900; margin: 4px 0; color: #0f172a;">${escapeHtml(institution)}</div>
-      <div style="font-size: 14px; font-weight: bold; text-decoration: underline; margin-top: 2px;">
-        ورقة المراقبة اليومية للغيابات والمخالفات السلوكية
-      </div>
-      <div style="font-size: 11.5px; margin-top: 4px; color: #1e293b;">
+    ${buildOfficialMoroccanHeaderHtml({
+      institution,
+      academicYear,
+      date: printDate,
+      time: printTime,
+      dateLabel: 'تاريخ الاستخراج'
+    })}
+
+    <div class="doc-title-box">
+      <div class="doc-title">ورقة المراقبة اليومية للغيابات والمخالفات السلوكية</div>
+      <div class="doc-sub">
         <strong>تاريخ اليوم:</strong> ${escapeHtml(formattedArabicDate)} (${escapeHtml(dateStr)}) | 
-        <strong>نطاق التقرير:</strong> ${escapeHtml(sectionFilterName)} | 
-        <strong>الموسم الدراسي:</strong> ${escapeHtml(academicYear)}
+        <strong>نطاق التقرير:</strong> ${escapeHtml(sectionFilterName)}
       </div>
     </div>
 
@@ -1279,23 +1636,36 @@ export function printReportHtml(html: string): boolean {
   // Method 1: Try using a hidden iframe to trigger printing seamlessly
   try {
     let printIframe = document.getElementById('notes-print-iframe') as HTMLIFrameElement | null;
-    if (!printIframe) {
-      printIframe = document.createElement('iframe');
-      printIframe.id = 'notes-print-iframe';
-      printIframe.style.position = 'fixed';
-      printIframe.style.right = '0';
-      printIframe.style.bottom = '0';
-      printIframe.style.width = '0';
-      printIframe.style.height = '0';
-      printIframe.style.border = '0';
-      document.body.appendChild(printIframe);
+    if (printIframe && printIframe.parentNode) {
+      printIframe.parentNode.removeChild(printIframe);
     }
+    printIframe = document.createElement('iframe');
+    printIframe.id = 'notes-print-iframe';
+    printIframe.style.position = 'fixed';
+    printIframe.style.right = '0';
+    printIframe.style.bottom = '0';
+    printIframe.style.width = '0';
+    printIframe.style.height = '0';
+    printIframe.style.border = '0';
+    printIframe.style.opacity = '0';
+    printIframe.style.pointerEvents = 'none';
+    document.body.appendChild(printIframe);
 
     const doc = printIframe.contentDocument || printIframe.contentWindow?.document;
     if (doc) {
       doc.open();
       doc.write(html);
       doc.close();
+
+      setTimeout(() => {
+        try {
+          printIframe?.contentWindow?.focus();
+          printIframe?.contentWindow?.print();
+        } catch (e) {
+          console.warn('Iframe print execution notice:', e);
+        }
+      }, 400);
+
       return true;
     }
   } catch (e) {
@@ -1309,6 +1679,12 @@ export function printReportHtml(html: string): boolean {
       printWindow.document.open();
       printWindow.document.write(html);
       printWindow.document.close();
+      setTimeout(() => {
+        try {
+          printWindow.focus();
+          printWindow.print();
+        } catch (e) {}
+      }, 500);
       return true;
     }
   } catch (e) {
@@ -1318,7 +1694,7 @@ export function printReportHtml(html: string): boolean {
   return false;
 }
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   if (!str) return '';
   return String(str)
     .replace(/&/g, '&amp;')

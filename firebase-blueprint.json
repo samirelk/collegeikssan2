@@ -152,6 +152,45 @@
         "teacher": { "type": "string" }
       },
       "required": ["id"]
+    },
+    "SectionAssignment": {
+      "title": "SectionAssignment",
+      "description": "Assignment linking a teacher to a section for a specific subject and academic year",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "requestNote": { "type": "string" },
+        "requestedAt": { "type": "string" },
+        "reviewedAt": { "type": "string" },
+        "reviewedBy": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "subject": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "sectionId", "status"]
+    },
+    "TeacherTimetableEntry": {
+      "title": "TeacherTimetableEntry",
+      "description": "Teacher timetable weekly slot assignment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "dayOfWeek": { "type": "string" },
+        "slotId": { "type": "string" },
+        "periodType": { "type": "string" },
+        "startTime": { "type": "string" },
+        "endTime": { "type": "string" },
+        "sectionId": { "type": "string" },
+        "room": { "type": "string" },
+        "subject": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "teacherId", "dayOfWeek", "slotId", "sectionId"]
     }
   },
   "firestore": {
@@ -190,6 +229,14 @@
     "/app_settings/{settingId}": {
       "schema": "AppSetting",
       "description": "Global application configuration and institutional info"
+    },
+    "/section_assignments/{assignmentId}": {
+      "schema": "SectionAssignment",
+      "description": "Teacher-to-section subject assignments and approval requests"
+    },
+    "/teacher_timetable/{slotId}": {
+      "schema": "TeacherTimetableEntry",
+      "description": "Teacher weekly timetable schedule slots"
     }
   }
 }

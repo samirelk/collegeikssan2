@@ -118,7 +118,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
   const formatWhen = (iso: string | null) => {
     if (!iso) return '—';
     try {
-      return new Date(iso).toLocaleString('ar-MA', { dateStyle: 'medium', timeStyle: 'short' });
+      return `${new Date(iso).toLocaleString('ar-MA', { timeZone: 'UTC', dateStyle: 'medium', timeStyle: 'short' })} (GMT)`;
     } catch {
       return iso;
     }
@@ -423,7 +423,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
                   >
                     <div className="flex items-center justify-between text-[11px] text-[#5B5040]">
                       <span className="font-bold text-[#A96E28]">#{log.id} • {log.action}</span>
-                      <span className="font-mono">{new Date(log.created_at).toLocaleString('ar-SA')}</span>
+                      <span className="font-mono">{new Date(log.created_at).toLocaleString('ar-SA', { timeZone: 'UTC' })} (GMT)</span>
                     </div>
                     <p className="text-[#2A2118] font-medium m-0">{log.summary}</p>
                   </div>
