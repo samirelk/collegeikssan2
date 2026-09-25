@@ -1158,16 +1158,16 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
       {/* MODAL 1: Add New Daily Absence Form */}
       {isAddAbsenceOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <UserX className="w-5 h-5 text-rose-600" />
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[95vh] overflow-y-auto p-4 sm:p-6 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-slate-100">
+              <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+                <UserX className="w-5 h-5 text-rose-600 shrink-0" />
                 <span>تسجيل غياب أو تأخر في الأرشيف اليومي</span>
               </h3>
               <button
                 onClick={() => setIsAddAbsenceOpen(false)}
-                className="text-slate-400 hover:text-slate-700"
+                className="text-slate-400 hover:text-slate-700 p-1"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1319,16 +1319,16 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
       {/* MODAL 2: Add New Daily Violation Form */}
       {isAddViolationOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border border-slate-200">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-600" />
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[95vh] overflow-y-auto p-4 sm:p-6 shadow-xl border border-slate-200">
+            <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-slate-100">
+              <h3 className="text-base sm:text-lg font-bold text-slate-800 flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
                 <span>تسجيل مخالفة أو ملاحظة سلوكية</span>
               </h3>
               <button
                 onClick={() => setIsAddViolationOpen(false)}
-                className="text-slate-400 hover:text-slate-700"
+                className="text-slate-400 hover:text-slate-700 p-1"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1453,15 +1453,15 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
       {/* MODAL 3: Quick Edit Justification Status */}
       {editingAbsence && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full max-h-[95vh] overflow-y-auto p-4 sm:p-6 shadow-xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-800">
+              <h3 className="text-sm sm:text-base font-bold text-slate-800">
                 تحديث وضعية التبرير للتلميذ(ة): {editingAbsence.studentName}
               </h3>
               <button
                 onClick={() => setEditingAbsence(null)}
-                className="text-slate-400 hover:text-slate-700"
+                className="text-slate-400 hover:text-slate-700 p-1"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1662,11 +1662,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
   // Modal Overlay Container
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 md:p-6 overflow-y-auto">
-      <div className="bg-slate-100 rounded-3xl max-w-6xl w-full max-h-[92vh] overflow-y-auto p-4 md:p-6 shadow-2xl border border-slate-300 relative">
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-1.5 sm:p-4 md:p-6 overflow-y-auto">
+      <div className="bg-slate-100 rounded-2xl sm:rounded-3xl max-w-6xl w-full max-h-[96vh] sm:max-h-[92vh] overflow-y-auto p-2.5 sm:p-4 md:p-6 shadow-2xl border border-slate-300 relative">
         <button
           onClick={onClose}
-          className="absolute top-4 left-4 p-2 rounded-full bg-white/80 hover:bg-white text-slate-600 hover:text-black shadow-xs z-10 transition-colors"
+          className="absolute top-2.5 left-2.5 sm:top-4 sm:left-4 p-1.5 sm:p-2 rounded-full bg-white/80 hover:bg-white text-slate-600 hover:text-black shadow-xs z-10 transition-colors"
           title="إغلاق"
         >
           <X className="w-5 h-5" />

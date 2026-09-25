@@ -235,37 +235,37 @@ export const DirectorPrintModal: React.FC<DirectorPrintModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-1.5 sm:p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="bg-[#FAF8F5] text-[#1F2926] rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-[#D5CDC0] animate-in fade-in zoom-in-95 duration-150 my-auto"
+        className="bg-[#FAF8F5] text-[#1F2926] rounded-2xl w-full max-w-4xl max-h-[96vh] sm:max-h-[92vh] flex flex-col overflow-hidden shadow-2xl border border-[#D5CDC0] animate-in fade-in zoom-in-95 duration-150 my-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className={`p-4 sm:p-5 border-b border-[#E5DFD5] flex items-center justify-between gap-3 ${
+        <div className={`p-3 sm:p-5 border-b border-[#E5DFD5] flex items-start justify-between gap-2.5 sm:gap-3 relative pr-3 pl-10 sm:px-5 ${
           isViolations
             ? 'bg-gradient-to-r from-[#FEF2F2] to-[#FAF8F5]'
             : 'bg-gradient-to-r from-[#FEFCE8] to-[#FAF8F5]'
         }`}>
-          <div className="flex items-center gap-3">
-            <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border shadow-xs ${
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shrink-0 border shadow-xs ${
               isViolations
                 ? 'bg-red-100 text-red-700 border-red-200'
                 : 'bg-amber-100 text-amber-800 border-amber-200'
             }`}>
-              {isViolations ? <AlertTriangle className="w-5 h-5" /> : <UserX className="w-5 h-5" />}
+              {isViolations ? <AlertTriangle className="w-4 h-4 sm:w-5 sm:h-5" /> : <UserX className="w-4 h-4 sm:w-5 sm:h-5" />}
             </div>
-            <div>
-              <h2 className="text-lg sm:text-xl font-bold font-serif text-[#1F2926] m-0 flex items-center gap-2">
-                <span>{isViolations ? 'طباعة لائحة وسجل المخالفات الرسمية' : 'طباعة لائحة وسجل الغياب والمواظبة'}</span>
-                <span className="text-xs font-sans px-2 py-0.5 rounded-full font-bold bg-[#1A4E47] text-white">
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-xl font-bold font-serif text-[#1F2926] m-0 flex items-center gap-2 flex-wrap">
+                <span className="truncate">{isViolations ? 'طباعة لائحة وسجل المخالفات الرسمية' : 'طباعة لائحة وسجل الغياب والمواظبة'}</span>
+                <span className="text-[10px] sm:text-xs font-sans px-2 py-0.5 rounded-full font-bold bg-[#1A4E47] text-white">
                   خاص بالإدارة
                 </span>
               </h2>
-              <div className="text-xs text-[#5E6D66] mt-1 flex items-center gap-2 flex-wrap">
+              <div className="text-[11px] sm:text-xs text-[#5E6D66] mt-0.5 sm:mt-1 flex items-center gap-2 flex-wrap">
                 <span>المؤسسة: <strong className="text-[#1F2926]">{settings.institution || 'الثانوية الإعدادية ايكسان'}</strong></span>
                 <span>•</span>
                 <span>الموسم الدراسي: <strong className="font-mono text-[#1F2926]">{settings.year || '2026/2027'}</strong></span>
@@ -276,7 +276,7 @@ export const DirectorPrintModal: React.FC<DirectorPrintModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 text-[#5E6D66] hover:text-[#1F2926] hover:bg-black/5 rounded-xl transition-colors cursor-pointer"
+            className="absolute left-2.5 top-2.5 sm:relative sm:left-auto sm:top-auto p-1.5 sm:p-2 text-[#5E6D66] hover:text-[#1F2926] hover:bg-black/5 rounded-xl transition-colors cursor-pointer"
             title="إغلاق النافذة"
           >
             <X className="w-5 h-5" />

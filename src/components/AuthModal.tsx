@@ -318,44 +318,44 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   return (
     <div
       id="modal-auth"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn overflow-y-auto"
       dir="rtl"
     >
-      <div className="relative w-full max-w-lg bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-3xl shadow-2xl overflow-hidden">
+      <div className="relative w-full max-w-lg bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto max-h-[96vh] sm:max-h-[92vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24]">
+        <div className="p-3.5 sm:p-6 pb-3 sm:pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] shrink-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C]">
-                {activeTab === 'login' && <LogIn className="w-5 h-5" />}
-                {activeTab === 'register' && <UserPlus className="w-5 h-5" />}
-                {activeTab === 'verify' && <ShieldCheck className="w-5 h-5" />}
-                {activeTab === 'forgot' && <KeyRound className="w-5 h-5" />}
+            <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C] shrink-0">
+                {activeTab === 'login' && <LogIn className="w-4 h-4 sm:w-5 sm:h-5" />}
+                {activeTab === 'register' && <UserPlus className="w-4 h-4 sm:w-5 sm:h-5" />}
+                {activeTab === 'verify' && <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />}
+                {activeTab === 'forgot' && <KeyRound className="w-4 h-4 sm:w-5 sm:h-5" />}
               </div>
-              <div>
-                <h3 className="text-xl font-bold text-[#F2EFE3]">
+              <div className="min-w-0">
+                <h3 className="text-base sm:text-xl font-bold text-[#F2EFE3] truncate">
                   {activeTab === 'login' && 'تسجيل الدخول إلى النظام'}
                   {activeTab === 'register' && 'تسجيل حساب أستاذ جديد'}
                   {activeTab === 'verify' && 'تأكيد البريد الإلكتروني'}
                   {activeTab === 'forgot' && 'استعادة معلومات الدخول'}
                 </h3>
-                <p className="text-xs text-[rgba(242,239,227,0.6)] mt-0.5">
-                  الثانوية الإعدادية ايكسان • نظام إدارة وتوزيع مقاعد التلاميذ
+                <p className="text-[11px] sm:text-xs text-[rgba(242,239,227,0.6)] mt-0.5 truncate">
+                  الثانوية الإعدادية ايكسان • إدارة وتوزيع المقاعد
                 </p>
               </div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
+              className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-base sm:text-lg transition-colors cursor-pointer shrink-0"
             >
               ✕
             </button>
           </div>
 
           {/* Tab Selector */}
-          <div className="flex items-center gap-1.5 mt-4 p-1 bg-[rgba(0,0,0,0.25)] rounded-2xl border border-[rgba(242,239,227,0.08)]">
+          <div className="flex items-center gap-1 sm:gap-1.5 mt-3 sm:mt-4 p-1 bg-[rgba(0,0,0,0.25)] rounded-xl sm:rounded-2xl border border-[rgba(242,239,227,0.08)]">
             <button
               type="button"
               id="tab-btn-login"
@@ -364,13 +364,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 py-1.5 sm:py-2 px-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer text-center ${
                 activeTab === 'login'
                   ? 'bg-[#C98A3C] text-[#1E362D] shadow-sm'
                   : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3]'
               }`}
             >
-              تسجيل الدخول
+              دخول
             </button>
             <button
               type="button"
@@ -380,7 +380,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className={`flex-1 py-2 px-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 py-1.5 sm:py-2 px-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer text-center ${
                 activeTab === 'register'
                   ? 'bg-[#C98A3C] text-[#1E362D] shadow-sm'
                   : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3]'
@@ -396,13 +396,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className={`py-2 px-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`py-1.5 sm:py-2 px-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer text-center ${
                 activeTab === 'verify'
                   ? 'bg-[#C98A3C] text-[#1E362D] shadow-sm'
                   : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3]'
               }`}
             >
-              تأكيد البريد
+              تأكيد
             </button>
             <button
               type="button"
@@ -412,7 +412,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setErrorMessage(null);
                 setSuccessMessage(null);
               }}
-              className={`py-2 px-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+              className={`py-1.5 sm:py-2 px-1.5 sm:px-2.5 rounded-lg sm:rounded-xl text-[11px] sm:text-xs font-medium transition-all cursor-pointer text-center ${
                 activeTab === 'forgot'
                   ? 'bg-[#C98A3C] text-[#1E362D] shadow-sm'
                   : 'text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3]'
@@ -424,7 +424,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 max-h-[75vh] overflow-y-auto">
+        <div className="p-3.5 sm:p-6 flex-1 overflow-y-auto">
           {/* Error Banner */}
           {errorMessage && (
             <div className="mb-4 p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5 leading-relaxed">

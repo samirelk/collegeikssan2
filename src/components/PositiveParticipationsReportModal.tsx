@@ -223,56 +223,56 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-1.5 sm:p-4 overflow-y-auto">
       <div
-        className="bg-white rounded-3xl shadow-2xl border border-amber-200/80 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh]"
+        className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-amber-200/80 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[96vh] sm:max-h-[92vh]"
         dir="rtl"
       >
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-amber-800 text-white p-5 sm:p-6 relative shrink-0">
+        <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-amber-800 text-white p-3.5 sm:p-6 pr-3.5 pl-12 sm:px-6 relative shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="absolute left-4 top-4 p-2 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
+            className="absolute left-2.5 top-2.5 sm:left-4 sm:top-4 p-1.5 sm:p-2 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
             aria-label="إغلاق"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-300 text-amber-950 flex items-center justify-center font-bold shadow-md shrink-0">
-              <Trophy className="w-7 h-7 text-amber-900" />
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-amber-300 text-amber-950 flex items-center justify-center font-bold shadow-md shrink-0">
+              <Trophy className="w-5 h-5 sm:w-7 sm:h-7 text-amber-900" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-xl sm:text-2xl font-bold font-serif text-white">
-                  سجل ولوحة شرف المشاركات الإيجابية والتحفيز
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h3 className="text-base sm:text-2xl font-bold font-serif text-white truncate">
+                  سجل ولوحة شرف المشاركات الإيجابية
                 </h3>
-                <span className="bg-amber-300 text-amber-950 text-xs px-2.5 py-0.5 rounded-full font-black">
-                  ⭐ متاح للإدارة والأساتذة
+                <span className="bg-amber-300 text-amber-950 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-black">
+                  ⭐ للإدارة والأساتذة
                 </span>
               </div>
-              <p className="text-amber-100 text-xs sm:text-sm mt-0.5">
-                طباعة لوحة الشرف وتقارير التعزيز والسلوك الإيجابي حسب القسم أو حسب التلميذ
+              <p className="text-amber-100 text-[11px] sm:text-sm mt-0.5">
+                طباعة لوحة الشرف والتعزيز الإيجابي حسب القسم أو حسب التلميذ
               </p>
             </div>
           </div>
         </div>
 
         {/* Filter & Controls Toolbar */}
-        <div className="bg-amber-50/70 border-b border-amber-200/70 p-4 space-y-3 shrink-0">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-amber-50/70 border-b border-amber-200/70 p-2.5 sm:p-4 space-y-2.5 sm:space-y-3 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
             {/* Section Selector */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full sm:w-auto">
               <Users className="w-4 h-4 text-amber-800 shrink-0" />
-              <span className="text-xs font-bold text-amber-900">القسم:</span>
+              <span className="text-xs font-bold text-amber-900 shrink-0">القسم:</span>
               <select
                 value={selectedSectionId}
                 onChange={(e) => {
                   setSelectedSectionId(e.target.value);
                   setSelectedStudentName('');
                 }}
-                className="bg-white border border-amber-300 rounded-xl px-3 py-1.5 text-xs sm:text-sm font-bold text-amber-950 shadow-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                className="bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-amber-950 shadow-xs focus:ring-2 focus:ring-amber-500 focus:outline-none flex-1 sm:flex-none"
               >
                 {sections.map((sec) => (
                   <option key={sec.id} value={sec.id}>
@@ -283,45 +283,45 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
             </div>
 
             {/* Scope Switcher: By Section OR By Student */}
-            <div className="flex items-center bg-white p-1 rounded-xl border border-amber-300 shadow-xs">
+            <div className="grid grid-cols-2 sm:flex items-center bg-white p-1 rounded-xl border border-amber-300 shadow-xs w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setReportScope('section')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
                   reportScope === 'section'
                     ? 'bg-amber-600 text-white shadow-xs'
                     : 'text-amber-900 hover:bg-amber-100/60'
                 }`}
               >
-                <Users className="w-3.5 h-3.5" />
-                <span>حسب القسم (لوحة الشرف والسجل)</span>
+                <Users className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">حسب القسم (لوحة الشرف)</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setReportScope('student')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
                   reportScope === 'student'
                     ? 'bg-amber-600 text-white shadow-xs'
                     : 'text-amber-900 hover:bg-amber-100/60'
                 }`}
               >
-                <User className="w-3.5 h-3.5" />
-                <span>حسب التلميذ (شهادة وبطاقة)</span>
+                <User className="w-3.5 h-3.5 shrink-0" />
+                <span className="truncate">حسب التلميذ (شهادة وبطاقة)</span>
               </button>
             </div>
           </div>
 
           {/* Student Selector when Scope is 'student' */}
           {reportScope === 'student' && (
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/50">
-              <div className="flex items-center gap-2 flex-1 min-w-[240px]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 pt-2 border-t border-amber-200/50">
+              <div className="flex items-center gap-2 w-full sm:flex-1 sm:min-w-[240px]">
                 <User className="w-4 h-4 text-amber-800 shrink-0" />
-                <span className="text-xs font-bold text-amber-900">اختر التلميذ(ة):</span>
+                <span className="text-xs font-bold text-amber-900 shrink-0">اختر التلميذ:</span>
                 <select
                   value={selectedStudentName}
                   onChange={(e) => setSelectedStudentName(e.target.value)}
-                  className="bg-white border border-amber-300 rounded-xl px-3 py-1.5 text-xs sm:text-sm font-bold text-amber-950 flex-1 max-w-sm shadow-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  className="bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-amber-950 flex-1 max-w-full sm:max-w-sm shadow-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
                 >
                   {studentsData.map((st) => (
                     <option key={st.name} value={st.name}>
@@ -332,25 +332,25 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
               </div>
 
               {/* Print Student Action Buttons */}
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <button
                   type="button"
                   onClick={() => handlePrintStudent('report')}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
                   title="طباعة بطاقة وسجل المشاركات الإيجابية الكامل"
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>طباعة بطاقة وسجل التلميذ</span>
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>طباعة السجل</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => handlePrintStudent('certificate')}
-                  className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
+                  className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all active:scale-95 cursor-pointer"
                   title="طباعة شهادة تقدير وتحفيز تربوي رسمية"
                 >
-                  <Award className="w-4 h-4" />
-                  <span>شهادة تقدير وتشجيع</span>
+                  <Award className="w-3.5 h-3.5" />
+                  <span>شهادة تقدير</span>
                 </button>
               </div>
             </div>
@@ -358,36 +358,36 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
 
           {/* Section Print Action Button when Scope is 'section' */}
           {reportScope === 'section' && (
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-amber-200/50">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 pt-2 border-t border-amber-200/50">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <button
                   type="button"
                   onClick={() => setActiveSubTab('honor-roll')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-none px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer text-center ${
                     activeSubTab === 'honor-roll'
                       ? 'bg-amber-200/80 text-amber-950 font-black'
                       : 'text-amber-800 hover:bg-amber-100'
                   }`}
                 >
-                  🏅 لوحة الشرف والترتيب
+                  🏅 لوحة الشرف
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveSubTab('detailed-log')}
-                  className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  className={`flex-1 sm:flex-none px-2.5 sm:px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer text-center ${
                     activeSubTab === 'detailed-log'
                       ? 'bg-amber-200/80 text-amber-950 font-black'
                       : 'text-amber-800 hover:bg-amber-100'
                   }`}
                 >
-                  📋 السجل التفصيلي ({allSectionParticipations.length})
+                  📋 السجل ({allSectionParticipations.length})
                 </button>
               </div>
 
               <button
                 type="button"
                 onClick={handlePrintSection}
-                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all active:scale-95 cursor-pointer"
+                className="w-full sm:w-auto flex items-center justify-center gap-2 px-3.5 py-1.5 sm:py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl text-xs sm:text-sm font-bold shadow-md transition-all active:scale-95 cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>🖨️ طباعة لوحة الشرف وسجل القسم (A4)</span>
@@ -397,37 +397,37 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
         </div>
 
         {/* Content Area */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-5 flex-1 bg-stone-50">
+        <div className="p-3 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5 flex-1 bg-stone-50">
           {/* Quick Stats Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-white border border-amber-200/80 rounded-2xl p-3.5 text-center shadow-xs">
-              <div className="text-xs font-bold text-amber-800">إجمالي نقاط القسم</div>
-              <div className="text-xl sm:text-2xl font-black text-amber-600 mt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+            <div className="bg-white border border-amber-200/80 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 text-center shadow-xs">
+              <div className="text-[11px] sm:text-xs font-bold text-amber-800">إجمالي نقاط القسم</div>
+              <div className="text-lg sm:text-2xl font-black text-amber-600 mt-0.5 sm:mt-1">
                 ⭐ {totalPoints}
               </div>
             </div>
 
-            <div className="bg-white border border-amber-200/80 rounded-2xl p-3.5 text-center shadow-xs">
-              <div className="text-xs font-bold text-amber-800">التلاميذ المتميزون</div>
-              <div className="text-xl sm:text-2xl font-black text-emerald-600 mt-1">
+            <div className="bg-white border border-amber-200/80 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 text-center shadow-xs">
+              <div className="text-[11px] sm:text-xs font-bold text-amber-800">التلاميذ المتميزون</div>
+              <div className="text-lg sm:text-2xl font-black text-emerald-600 mt-0.5 sm:mt-1">
                 {activeCount} / {studentsData.length}
               </div>
             </div>
 
-            <div className="bg-white border border-amber-200/80 rounded-2xl p-3.5 text-center shadow-xs">
-              <div className="text-xs font-bold text-amber-800">المشاركات المسجلة</div>
-              <div className="text-xl sm:text-2xl font-black text-blue-600 mt-1">
+            <div className="bg-white border border-amber-200/80 rounded-xl sm:rounded-2xl p-2.5 sm:p-3.5 text-center shadow-xs">
+              <div className="text-[11px] sm:text-xs font-bold text-amber-800">المشاركات المسجلة</div>
+              <div className="text-lg sm:text-2xl font-black text-blue-600 mt-0.5 sm:mt-1">
                 {allSectionParticipations.length}
               </div>
             </div>
 
-            <div className="bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-300 rounded-2xl p-3 text-center shadow-xs">
-              <div className="text-xs font-bold text-amber-900">متصدر القسم 🥇</div>
-              <div className="text-xs sm:text-sm font-black text-amber-950 truncate mt-1">
+            <div className="bg-gradient-to-br from-amber-50 to-amber-100 border border-amber-300 rounded-xl sm:rounded-2xl p-2 sm:p-3 text-center shadow-xs">
+              <div className="text-[11px] sm:text-xs font-bold text-amber-900">متصدر القسم 🥇</div>
+              <div className="text-xs sm:text-sm font-black text-amber-950 truncate mt-0.5 sm:mt-1">
                 {topStudent ? topStudent.name : '—'}
               </div>
               {topStudent && (
-                <div className="text-[11px] font-bold text-amber-700">
+                <div className="text-[10px] sm:text-[11px] font-bold text-amber-700">
                   {topStudent.points} نقطة تميز
                 </div>
               )}
@@ -439,28 +439,28 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
             <div className="space-y-4">
               {activeSubTab === 'honor-roll' ? (
                 <div className="bg-white border border-amber-200 rounded-2xl shadow-xs overflow-hidden">
-                  <div className="p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between flex-wrap gap-2">
+                  <div className="p-3 sm:p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <Trophy className="w-4 h-4 text-amber-600" />
-                      <h4 className="font-bold text-amber-950 text-sm">
+                      <h4 className="font-bold text-amber-950 text-xs sm:text-sm">
                         لوحة الشرف وتصنيف التلاميذ حسب رصيد النقاط
                       </h4>
                     </div>
 
-                    <div className="relative">
+                    <div className="relative w-full sm:w-auto">
                       <Search className="w-3.5 h-3.5 text-stone-400 absolute right-2.5 top-2" />
                       <input
                         type="text"
                         placeholder="بحث عن تلميذ..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="bg-white border border-stone-200 rounded-xl pr-8 pl-3 py-1 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none"
+                        className="bg-white border border-stone-200 rounded-xl pr-8 pl-3 py-1 text-xs focus:ring-1 focus:ring-amber-500 focus:outline-none w-full sm:w-44"
                       />
                     </div>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full text-right text-xs">
+                    <table className="w-full min-w-[580px] text-right text-xs">
                       <thead className="bg-stone-50 border-b border-stone-200 text-stone-700 font-bold">
                         <tr>
                           <th className="py-2.5 px-3 text-center w-12">الرتبة</th>
@@ -558,8 +558,8 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
               ) : (
                 /* Detailed participations log tab */
                 <div className="bg-white border border-amber-200 rounded-2xl shadow-xs overflow-hidden">
-                  <div className="p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between">
-                    <h4 className="font-bold text-amber-950 text-sm">
+                  <div className="p-3 sm:p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between">
+                    <h4 className="font-bold text-amber-950 text-xs sm:text-sm">
                       السجل التفصيلي لجميع المشاركات الإيجابية المسجلة
                     </h4>
                     <span className="text-xs text-amber-800 font-bold">
@@ -576,21 +576,21 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
                       allSectionParticipations.map((p, idx) => (
                         <div
                           key={p.id || idx}
-                          className="p-3 hover:bg-stone-50 transition-colors flex items-center justify-between gap-3 text-xs"
+                          className="p-2.5 sm:p-3 hover:bg-stone-50 transition-colors flex items-center justify-between gap-3 text-xs"
                         >
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-2.5 sm:gap-3">
                             <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 font-bold flex items-center justify-center shrink-0 text-[11px]">
                               {idx + 1}
                             </span>
                             <div>
-                              <div className="flex items-center gap-2">
-                                <strong className="text-stone-900 text-sm">
+                              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                                <strong className="text-stone-900 text-xs sm:text-sm">
                                   {p.studentName || '—'}
                                 </strong>
-                                <span className="bg-amber-100 text-amber-950 px-2 py-0.5 rounded-md font-bold text-[11px]">
+                                <span className="bg-amber-100 text-amber-950 px-2 py-0.5 rounded-md font-bold text-[10px] sm:text-[11px]">
                                   ⭐ {p.participationType}
                                 </span>
-                                <span className="bg-emerald-100 text-emerald-950 px-1.5 py-0.5 rounded-md font-black text-[11px]">
+                                <span className="bg-emerald-100 text-emerald-950 px-1.5 py-0.5 rounded-md font-black text-[10px] sm:text-[11px]">
                                   +{p.points || 1}
                                 </span>
                               </div>
@@ -600,7 +600,7 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
                             </div>
                           </div>
 
-                          <div className="text-left text-stone-400 font-mono text-[11px]">
+                          <div className="text-left text-stone-400 font-mono text-[10px] sm:text-[11px] shrink-0">
                             <div>{p.recordedDate || '—'}</div>
                             <div>{p.teacherName || ''}</div>
                           </div>
@@ -617,16 +617,16 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
           {reportScope === 'student' && selectedStudentObj && (
             <div className="space-y-4">
               {/* Student Hero Card */}
-              <div className="bg-gradient-to-br from-amber-500/10 via-amber-100/40 to-emerald-500/10 border-2 border-amber-300 rounded-2xl p-5 shadow-xs flex flex-wrap items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-amber-400 text-amber-950 flex items-center justify-center font-bold text-2xl shadow-md shrink-0">
+              <div className="bg-gradient-to-br from-amber-500/10 via-amber-100/40 to-emerald-500/10 border-2 border-amber-300 rounded-2xl p-3 sm:p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-amber-400 text-amber-950 flex items-center justify-center font-bold text-xl sm:text-2xl shadow-md shrink-0">
                     ⭐
                   </div>
                   <div>
-                    <h4 className="text-xl font-bold text-amber-950 font-serif">
+                    <h4 className="text-base sm:text-xl font-bold text-amber-950 font-serif">
                       {selectedStudentObj.name}
                     </h4>
-                    <div className="flex items-center gap-3 text-xs text-amber-800 mt-1 flex-wrap font-bold">
+                    <div className="flex items-center gap-2 sm:gap-3 text-[11px] sm:text-xs text-amber-800 mt-0.5 flex-wrap font-bold">
                       <span>القسم: {currentSection.level} ({currentSection.classNumber})</span>
                       {selectedStudentObj.number && (
                         <span>الرقم: #{selectedStudentObj.number}</span>
@@ -638,16 +638,16 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white/90 border border-amber-300 px-4 py-2 rounded-2xl shadow-xs">
+                <div className="flex items-center justify-between sm:justify-start gap-3 sm:gap-4 bg-white/90 border border-amber-300 p-2.5 sm:px-4 sm:py-2 rounded-xl sm:rounded-2xl shadow-xs">
                   <div>
-                    <div className="text-xs text-amber-800 font-bold">رصيد نقاط التميز:</div>
-                    <div className="text-2xl font-black text-amber-600">
+                    <div className="text-[11px] sm:text-xs text-amber-800 font-bold">رصيد النقاط:</div>
+                    <div className="text-xl sm:text-2xl font-black text-amber-600">
                       {selectedStudentObj.points} ⭐
                     </div>
                   </div>
                   <div className="border-r border-amber-200 pr-3">
-                    <div className="text-xs text-stone-500 font-bold">عدد المشاركات:</div>
-                    <div className="text-lg font-bold text-stone-800">
+                    <div className="text-[11px] sm:text-xs text-stone-500 font-bold">المشاركات:</div>
+                    <div className="text-base sm:text-lg font-bold text-stone-800">
                       {selectedStudentObj.participationsCount}
                     </div>
                   </div>
@@ -656,12 +656,12 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
 
               {/* Participations List for Student */}
               <div className="bg-white border border-amber-200 rounded-2xl shadow-xs overflow-hidden">
-                <div className="p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between">
-                  <h4 className="font-bold text-amber-950 text-sm">
+                <div className="p-3 sm:p-3.5 bg-amber-50/70 border-b border-amber-200/80 flex items-center justify-between">
+                  <h4 className="font-bold text-amber-950 text-xs sm:text-sm">
                     سجل مشاركات وتعزيزات التلميذ(ة)
                   </h4>
                   <span className="text-xs text-amber-800 font-bold">
-                    {selectedStudentObj.participations.length} مشاركة مسجلة
+                    {selectedStudentObj.participations.length} مشاركة
                   </span>
                 </div>
 
@@ -674,30 +674,30 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
                     selectedStudentObj.participations.map((p, idx) => (
                       <div
                         key={p.id || idx}
-                        className="p-3.5 hover:bg-amber-50/30 transition-colors flex items-center justify-between gap-3 text-xs"
+                        className="p-3 sm:p-3.5 hover:bg-amber-50/30 transition-colors flex items-center justify-between gap-2.5 sm:gap-3 text-xs"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2.5 sm:gap-3">
                           <span className="w-6 h-6 rounded-full bg-amber-100 text-amber-900 font-bold flex items-center justify-center shrink-0 text-xs">
                             {idx + 1}
                           </span>
                           <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-amber-950 text-sm">
+                            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                              <span className="font-bold text-amber-950 text-xs sm:text-sm">
                                 ⭐ {p.participationType}
                               </span>
-                              <span className="bg-emerald-100 text-emerald-950 font-black px-2 py-0.5 rounded-md text-xs">
+                              <span className="bg-emerald-100 text-emerald-950 font-black px-2 py-0.5 rounded-md text-[10px] sm:text-xs">
                                 +{p.points || 1} نقطة
                               </span>
                             </div>
                             {p.note && (
-                              <p className="text-stone-600 text-xs mt-1 bg-stone-50 p-2 rounded-lg border border-stone-100">
+                              <p className="text-stone-600 text-[11px] sm:text-xs mt-1 bg-stone-50 p-2 rounded-lg border border-stone-100">
                                 {p.note}
                               </p>
                             )}
                           </div>
                         </div>
 
-                        <div className="text-left text-stone-400 font-mono text-xs shrink-0">
+                        <div className="text-left text-stone-400 font-mono text-[10px] sm:text-xs shrink-0">
                           <div>{p.recordedDate || '—'} {p.recordedTime || ''}</div>
                           <div className="text-stone-600 font-sans font-bold">{p.teacherName || ''}</div>
                         </div>
@@ -711,16 +711,16 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
         </div>
 
         {/* Modal Footer */}
-        <div className="bg-stone-100 border-t border-stone-200 p-4 px-6 flex items-center justify-between gap-3 shrink-0">
-          <div className="text-xs text-stone-500">
+        <div className="bg-stone-100 border-t border-stone-200 p-2.5 sm:p-4 px-3 sm:px-6 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 sm:gap-3 shrink-0">
+          <div className="text-xs text-stone-500 hidden sm:block">
             💡 يتم استخراج وطباعة المستندات وفق التنسيق المغربي الرسمي A4 مع أطر المصادقة والتوقيع.
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-xs font-bold text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none px-3.5 py-2 rounded-xl text-xs font-bold text-stone-700 bg-white border border-stone-300 hover:bg-stone-50 transition-colors cursor-pointer text-center"
             >
               إغلاق
             </button>
@@ -729,7 +729,7 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
               <button
                 type="button"
                 onClick={handlePrintSection}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>طباعة سجل ولوحة شرف القسم</span>
@@ -738,7 +738,7 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
               <button
                 type="button"
                 onClick={() => handlePrintStudent('report')}
-                className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer"
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-md transition-all active:scale-95 cursor-pointer"
               >
                 <Printer className="w-4 h-4" />
                 <span>طباعة بطاقة وسجل التلميذ</span>

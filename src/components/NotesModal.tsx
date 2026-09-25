@@ -61,31 +61,31 @@ export const NotesModal: React.FC<NotesModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-[#E4DBC0] animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-md max-h-[96vh] sm:max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-[#E4DBC0] animate-in fade-in zoom-in-95 duration-150">
         
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-[#E4DBC0] flex items-start justify-between gap-3 bg-[#EFE9D5]">
-          <div>
-            <h3 className="text-lg sm:text-xl font-bold font-serif text-[#2A2118] m-0">
+        <div className="p-3 sm:p-5 border-b border-[#E4DBC0] flex items-start justify-between gap-2.5 sm:gap-3 bg-[#EFE9D5] relative pr-3 pl-10 sm:px-5">
+          <div className="min-w-0">
+            <h3 className="text-base sm:text-xl font-bold font-serif text-[#2A2118] m-0 truncate">
               ملاحظات — {studentDisplayName}
             </h3>
-            <div className="text-xs text-[#5B5040] mt-1 flex items-center gap-2">
-              <span>المقعد رقم {seat.seat}</span>
+            <div className="text-[11px] sm:text-xs text-[#5B5040] mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <span>المقعد #{seat.seat}</span>
               {seat.number && <span>· الرقم: {seat.number}</span>}
               <span>· {section.level} ({section.classNumber})</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2">
             <button
               type="button"
               onClick={onPrint}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-[rgba(42,33,24,0.06)] hover:bg-[rgba(201,138,60,0.2)] border border-[#E4DBC0] text-[#2A2118] transition-colors cursor-pointer"
+              className="flex items-center gap-1 px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-bold rounded-lg bg-[rgba(42,33,24,0.06)] hover:bg-[rgba(201,138,60,0.2)] border border-[#E4DBC0] text-[#2A2118] transition-colors cursor-pointer"
               title="طباعة بطاقة ملاحظات التلميذ"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -95,9 +95,10 @@ export const NotesModal: React.FC<NotesModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="w-8 h-8 rounded-lg flex items-center justify-center text-[#5B5040] hover:text-[#A8443A] hover:bg-[rgba(168,68,58,0.1)] transition-colors cursor-pointer text-lg font-bold"
+              className="absolute left-2.5 top-2.5 sm:relative sm:left-auto sm:top-auto w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center text-[#5B5040] hover:text-[#A8443A] hover:bg-[rgba(168,68,58,0.1)] transition-colors cursor-pointer text-base font-bold"
+              aria-label="إغلاق"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
           </div>
         </div>

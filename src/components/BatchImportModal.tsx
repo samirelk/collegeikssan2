@@ -613,33 +613,33 @@ export const BatchImportModal: React.FC<BatchImportModalProps> = ({
   const totalStudentsCount = parsedSections.reduce((acc, s) => acc + s.students.length, 0);
 
   return (
-    <div className="overlay" onClick={onClose}>
+    <div className="overlay p-2 sm:p-4 overflow-y-auto" onClick={onClose}>
       <div
-        className="modal max-w-3xl w-full"
-        style={{ maxWidth: '780px', width: '95%' }}
+        className="modal max-w-3xl w-full my-auto rounded-2xl sm:rounded-3xl max-h-[96vh] sm:max-h-[90vh] flex flex-col overflow-hidden"
+        style={{ maxWidth: '780px' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="modal-head flex items-center justify-between border-b border-white/15 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center border border-emerald-500/30">
-              <FileSpreadsheet className="w-5 h-5" />
+        <div className="modal-head flex items-center justify-between border-b border-white/15 p-3 sm:p-5 relative pr-3 pl-10 sm:px-5 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-emerald-500/20 text-emerald-300 flex items-center justify-center border border-emerald-500/30 shrink-0">
+              <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h3 className="text-xl font-bold text-[#F2EFE3] m-0">
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-xl font-bold text-[#F2EFE3] m-0 truncate">
                 استيراد شامل للأقسام والتلاميذ (Excel / CSV)
               </h3>
-              <p className="text-xs text-[#F2EFE3]/60 m-0">
+              <p className="text-[11px] sm:text-xs text-[#F2EFE3]/60 m-0 hidden sm:block">
                 يدعم ملفات تحوي 10 أقسام أو أكثر مع التقسيم العشوائي التلقائي على المقاعد
               </p>
             </div>
           </div>
-          <button className="modal-close" onClick={onClose} title="إغلاق">
+          <button className="modal-close absolute left-2.5 top-2.5 sm:relative sm:left-auto sm:top-auto p-1.5" onClick={onClose} title="إغلاق">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="modal-body py-4 max-h-[75vh] overflow-y-auto space-y-4">
+        <div className="modal-body p-3 sm:p-5 flex-1 overflow-y-auto space-y-3 sm:space-y-4">
           {/* Quick Actions Row */}
           <div className="flex items-center justify-between gap-2 p-3 bg-white/5 border border-white/10 rounded-xl flex-wrap">
             <div className="text-xs text-[#F2EFE3]/80">

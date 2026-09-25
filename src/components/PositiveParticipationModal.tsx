@@ -109,122 +109,124 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
   const studentDisplayName = seat.name && seat.name.trim() ? seat.name : `المقعد رقم ${seat.seat}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-1.5 sm:p-4 overflow-y-auto">
       <div
-        className="bg-white rounded-3xl shadow-2xl border border-emerald-100 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh]"
+        className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-emerald-100 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[96vh] sm:max-h-[92vh]"
         dir="rtl"
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 text-white p-5 sm:p-6 relative">
+        <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 text-white p-3.5 sm:p-6 pr-3.5 pl-12 sm:px-6 relative shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="absolute left-4 top-4 p-2 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
+            className="absolute left-2.5 top-2.5 sm:left-4 sm:top-4 p-1.5 sm:p-2 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
             aria-label="إغلاق"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
-              <Sparkles className="w-7 h-7 text-emerald-900" />
+          <div className="flex items-center gap-2.5 sm:gap-3">
+            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
+              <Sparkles className="w-5 h-5 sm:w-7 sm:h-7 text-emerald-900" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xl sm:text-2xl font-bold font-serif text-white">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h3 className="text-base sm:text-2xl font-bold font-serif text-white truncate">
                   المشاركات الإيجابية والتعزيز
                 </h3>
-                <span className="bg-amber-400 text-emerald-950 text-xs px-2.5 py-0.5 rounded-full font-black">
+                <span className="bg-amber-400 text-emerald-950 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-black">
                   ⭐ نقاط التميز
                 </span>
               </div>
-              <p className="text-emerald-100 text-xs sm:text-sm mt-0.5">
+              <p className="text-emerald-100 text-[11px] sm:text-sm mt-0.5">
                 تحفيز التلميذ ورصد السلوكيات والمشاركات المتميزة داخل الحصة
               </p>
             </div>
           </div>
 
           {/* Student Banner */}
-          <div className="mt-4 bg-emerald-900/40 border border-emerald-500/30 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm">
-            <div className="flex items-center gap-2">
-              <User className="w-4 h-4 text-emerald-300" />
-              <span className="text-emerald-200">التلميذ(ة):</span>
-              <strong className="text-white text-base font-bold">{studentDisplayName}</strong>
+          <div className="mt-3 sm:mt-4 bg-emerald-900/40 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs sm:text-sm">
+            <div className="flex items-center gap-2 flex-wrap">
+              <User className="w-4 h-4 text-emerald-300 shrink-0" />
+              <span className="text-emerald-200">التلميذ:</span>
+              <strong className="text-white text-sm sm:text-base font-bold">{studentDisplayName}</strong>
               {seat.number && (
-                <span className="bg-white/20 px-2 py-0.5 rounded-md font-mono text-emerald-100 text-xs">
+                <span className="bg-white/20 px-2 py-0.5 rounded-md font-mono text-emerald-100 text-[11px] sm:text-xs">
                   رقم: {seat.number}
                 </span>
               )}
               {seat.massarNumber && (
-                <span className="bg-emerald-950/60 px-2 py-0.5 rounded-md font-mono text-emerald-200 text-xs">
+                <span className="bg-emerald-950/60 px-2 py-0.5 rounded-md font-mono text-emerald-200 text-[11px] sm:text-xs">
                   مسار: {seat.massarNumber}
                 </span>
               )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex items-center gap-2 bg-amber-400/20 border border-amber-300/40 px-3 py-1 rounded-xl text-amber-200 font-bold">
-                <Trophy className="w-4 h-4 text-amber-300" />
-                <span>مجموع النقاط:</span>
-                <span className="text-white text-base font-black px-1.5 py-0.5 bg-amber-500 rounded-lg shadow-xs">
+            <div className="flex items-center justify-between sm:justify-end gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 bg-amber-400/20 border border-amber-300/40 px-2.5 py-1 rounded-xl text-amber-200 font-bold text-xs">
+                <Trophy className="w-3.5 h-3.5 text-amber-300" />
+                <span>الرصيد:</span>
+                <span className="text-white font-black px-1.5 py-0.5 bg-amber-500 rounded-md shadow-xs">
                   {totalPoints} ⭐
                 </span>
               </div>
 
               {/* Print buttons for Teacher & Admin */}
-              <button
-                type="button"
-                onClick={() => {
-                  printStudentPositiveParticipationsReport({
-                    level: section.level,
-                    classNumber: section.classNumber,
-                    studentName: studentDisplayName,
-                    studentNumber: seat.number,
-                    massarNumber: seat.massarNumber,
-                    seatNum: seat.seat,
-                    teacherName: currentUser?.fullName || currentUser?.username,
-                    subject: currentUser?.subject,
-                    participations,
-                    totalPoints,
-                    mode: 'report'
-                  });
-                }}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
-                title="طباعة بطاقة وسجل المشاركات الإيجابية للتلميذ"
-              >
-                <Printer className="w-3.5 h-3.5" />
-                <span>طباعة السجل</span>
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    printStudentPositiveParticipationsReport({
+                      level: section.level,
+                      classNumber: section.classNumber,
+                      studentName: studentDisplayName,
+                      studentNumber: seat.number,
+                      massarNumber: seat.massarNumber,
+                      seatNum: seat.seat,
+                      teacherName: currentUser?.fullName || currentUser?.username,
+                      subject: currentUser?.subject,
+                      participations,
+                      totalPoints,
+                      mode: 'report'
+                    });
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
+                  title="طباعة بطاقة وسجل المشاركات الإيجابية للتلميذ"
+                >
+                  <Printer className="w-3 h-3" />
+                  <span>طباعة السجل</span>
+                </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  printStudentPositiveParticipationsReport({
-                    level: section.level,
-                    classNumber: section.classNumber,
-                    studentName: studentDisplayName,
-                    studentNumber: seat.number,
-                    massarNumber: seat.massarNumber,
-                    seatNum: seat.seat,
-                    teacherName: currentUser?.fullName || currentUser?.username,
-                    subject: currentUser?.subject,
-                    participations,
-                    totalPoints,
-                    mode: 'certificate'
-                  });
-                }}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
-                title="طباعة شهادة تقدير وتشجيع تربوي رسمية"
-              >
-                <Award className="w-3.5 h-3.5" />
-                <span>شهادة تقدير</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    printStudentPositiveParticipationsReport({
+                      level: section.level,
+                      classNumber: section.classNumber,
+                      studentName: studentDisplayName,
+                      studentNumber: seat.number,
+                      massarNumber: seat.massarNumber,
+                      seatNum: seat.seat,
+                      teacherName: currentUser?.fullName || currentUser?.username,
+                      subject: currentUser?.subject,
+                      participations,
+                      totalPoints,
+                      mode: 'certificate'
+                    });
+                  }}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
+                  title="طباعة شهادة تقدير وتشجيع تربوي رسمية"
+                >
+                  <Award className="w-3 h-3" />
+                  <span>شهادة تقدير</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
         {/* Content body */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 bg-stone-50/50">
+        <div className="p-3 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 bg-stone-50/50">
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-center justify-between">
               <span>{errorMsg}</span>
