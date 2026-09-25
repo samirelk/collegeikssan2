@@ -1259,6 +1259,13 @@ export function createSection(data: { level: string; classNumber: string; teache
     now
   );
 
+  try {
+    const createdSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(id) as any;
+    if (createdSec) cloudSaveSection(createdSec);
+  } catch (syncErr: any) {
+    console.warn('[createSection] Firestore sync warning:', syncErr?.message || syncErr);
+  }
+
   return {
     id,
     level: data.level,
@@ -1287,6 +1294,13 @@ export function updateSectionMeta(id: string, data: { level: string; classNumber
     JSON.stringify({ id, ...data }),
     now
   );
+
+  try {
+    const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(id) as any;
+    if (updatedSec) cloudSaveSection(updatedSec);
+  } catch (syncErr: any) {
+    console.warn('[updateSectionMeta] Firestore sync warning:', syncErr?.message || syncErr);
+  }
 }
 
 export function deleteSection(id: string) {
@@ -1526,6 +1540,20 @@ export function updateSeat(
     } catch {
       // Non-critical
     }
+  }
+
+  try {
+    cloudSaveSeat(sectionId, {
+      seat: seatNum,
+      name,
+      number,
+      massarNumber,
+      rosterId,
+      statusColor,
+      attendance
+    });
+  } catch (err: any) {
+    console.warn(`[updateSeat] cloudSaveSeat warning for sec=${sectionId}, seat=${seatNum}:`, err?.message || err);
   }
 
   return { success: true };
@@ -1876,6 +1904,15 @@ export function saveSectionRoster(sectionId: string, roster: RosterItem[]) {
     now
   );
 
+  try {
+    const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+    if (updatedSec) {
+      cloudSaveSection(updatedSec);
+    }
+  } catch (err: any) {
+    console.warn(`[saveSectionRoster] cloudSaveSection warning for ${sectionId}:`, err?.message || err);
+  }
+
   return { success: true, count: roster.length };
 }
 
@@ -1977,6 +2014,22 @@ export function addStudentToSection(
     now
   );
 
+  try {
+    const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+    if (updatedSec) cloudSaveSection(updatedSec);
+    cloudSaveSeat(sectionId, {
+      seat: targetSeatNum,
+      name: studentName,
+      number: assignedNumber,
+      massarNumber,
+      rosterId: newRosterItem.id,
+      statusColor: 'default',
+      attendance: null
+    });
+  } catch (syncErr: any) {
+    console.warn('[addStudentToSection] Firestore sync warning:', syncErr?.message || syncErr);
+  }
+
   return {
     success: true,
     student: newRosterItem,
@@ -2045,6 +2098,22 @@ export function removeStudentFromSection(
     JSON.stringify({ sectionId, seatNum, studentName: removedName, number: removedNumber, reason: reasonText }),
     now
   );
+
+  try {
+    const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+    if (updatedSec) cloudSaveSection(updatedSec);
+    cloudSaveSeat(sectionId, {
+      seat: seatNum,
+      name: '',
+      number: '',
+      massarNumber: '',
+      rosterId: null,
+      statusColor: 'default',
+      attendance: null
+    });
+  } catch (syncErr: any) {
+    console.warn('[removeStudentFromSection] Firestore sync warning:', syncErr?.message || syncErr);
+  }
 
   return {
     success: true,
@@ -2731,6 +2800,24 @@ export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, a
     );
 
     db.exec('COMMIT;');
+
+    try {
+      const allSecSeats = db.prepare('SELECT * FROM seats WHERE section_id = ?').all(sectionId) as any[];
+      for (const st of allSecSeats) {
+        cloudSaveSeat(sectionId, {
+          seat: st.seat_num,
+          name: st.student_name || '',
+          number: st.student_number || '',
+          massarNumber: st.massar_number || '',
+          rosterId: st.roster_id || null,
+          statusColor: st.status_color || 'default',
+          attendance: st.attendance || null
+        });
+      }
+    } catch (syncErr: any) {
+      console.warn('[orderSectionSeatsByNumber] Firestore seats sync warning:', syncErr?.message || syncErr);
+    }
+
     return { success: true, assignedCount };
   } catch (err) {
     db.exec('ROLLBACK;');
@@ -2874,6 +2961,24 @@ export function shuffleSectionSeats(sectionId: string, actorId?: string, actorRo
     );
 
     db.exec('COMMIT;');
+
+    try {
+      const allSecSeats = db.prepare('SELECT * FROM seats WHERE section_id = ?').all(sectionId) as any[];
+      for (const st of allSecSeats) {
+        cloudSaveSeat(sectionId, {
+          seat: st.seat_num,
+          name: st.student_name || '',
+          number: st.student_number || '',
+          massarNumber: st.massar_number || '',
+          rosterId: st.roster_id || null,
+          statusColor: st.status_color || 'default',
+          attendance: st.attendance || null
+        });
+      }
+    } catch (syncErr: any) {
+      console.warn('[shuffleSectionSeats] Firestore seats sync warning:', syncErr?.message || syncErr);
+    }
+
     return { success: true, assignedCount };
   } catch (err) {
     db.exec('ROLLBACK;');
@@ -3006,6 +3111,21 @@ export function batchImportSections(
     );
 
     db.exec('COMMIT;');
+
+    try {
+      const allSections = getAllSections();
+      for (const sec of allSections) {
+        cloudSaveSection(sec);
+        for (const st of (sec.seats || [])) {
+          if (st.name && st.name.trim()) {
+            cloudSaveSeat(sec.id, st);
+          }
+        }
+      }
+    } catch (syncErr: any) {
+      console.warn('[batchImportSections] Firestore sync warning:', syncErr?.message || syncErr);
+    }
+
     return {
       success: true,
       sectionsCount: sectionsData.length,

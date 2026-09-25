@@ -255,10 +255,9 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
     // Always use the most recent daily snapshot
     const targetSnapshot = all[0];
 
-    // Only skip if the local database already has populated sections or teachers
-    // (Crucial: NEVER overwrite if local DB already has data, because local might have intentional deletions!)
-    if (localSections > 0 || localTeachers > 0) {
-      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s) and ${localTeachers} teacher(s); skipping snapshot auto-restore to respect current state.`);
+    // If local database has 0 sections or 0 students, but cloud snapshot has sections, restore it!
+    if (localSections > 0 && localOccupiedSeats > 0) {
+      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s) and ${localOccupiedSeats} seated students; skipping snapshot auto-restore to respect current state.`);
       return;
     }
 

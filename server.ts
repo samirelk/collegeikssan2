@@ -100,6 +100,7 @@ import {
   writeSnapshot,
   listSnapshots,
   restoreSnapshot,
+  restoreLatestSnapshotOnBoot,
   getBackupStatus,
 } from './server/cloudBackup.ts';
 
@@ -107,7 +108,14 @@ async function startServer() {
   initDatabase();
   configureCloudBackup({ exportFullBackup, importFullBackup, db });
 
-  // Authoritative Single Cloud Database Persistence:
+  // 1. First, restore the latest full database snapshot on boot if needed
+  try {
+    await restoreLatestSnapshotOnBoot();
+  } catch (err: any) {
+    console.warn('[CloudBackup] restoreLatestSnapshotOnBoot warning:', err?.message || err);
+  }
+
+  // 2. Authoritative Single Cloud Database Persistence:
   // Google Cloud Firestore (ai-studio-152aaa98-85f4-47cd-a9c7-c5d362d5959a)
   // Granular bidirectional synchronization between SQLite query cache and permanent Firestore collections.
   try {
