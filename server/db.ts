@@ -1658,29 +1658,7 @@ export function addStudentViolation(
   const id = 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const now = new Date().toISOString();
 
-  let studentName = (data.studentName || '').trim();
-  let studentNumber = (data.studentNumber || '').trim();
-  let massarNumber = (data.massarNumber || '').trim();
-
-  if (!studentName && data.teacherId) {
-    const override = db.prepare('SELECT student_name, student_number, massar_number FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(data.teacherId, sectionId, seatNum) as any;
-    if (override && override.student_name && override.student_name.trim()) {
-      studentName = override.student_name.trim();
-      if (!studentNumber) studentNumber = (override.student_number || '').trim();
-      if (!massarNumber) massarNumber = (override.massar_number || '').trim();
-    }
-  }
-
   const seat = db.prepare('SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ?').get(sectionId, seatNum) as any;
-  if (!studentName && seat) {
-    studentName = seat.student_name || '';
-    if (!studentNumber) studentNumber = seat.student_number || '';
-    if (!massarNumber) massarNumber = seat.massar_number || '';
-  }
-
-  if (!studentName) {
-    studentName = `المقعد #${seatNum}`;
-  }
   const secInfo = db.prepare(`
     SELECT sec.level, sec.class_number, u.full_name as teacher_name, u.subject as teacher_subject
     FROM sections sec
@@ -1695,6 +1673,9 @@ export function addStudentViolation(
     ? data.teacherSubject.trim() 
     : (secInfo?.teacher_subject || 'المادة');
 
+  const studentName = seat?.student_name || `المقعد #${seatNum}`;
+  const studentNumber = seat?.student_number || '';
+  const massarNumber = seat?.massar_number || '';
   const actionTaken = data.actionTaken || 'تنبيه شفهي';
 
   db.prepare(`
@@ -6194,4 +6175,98 @@ export function deleteTimetableEntryById(id: string, teacherId?: string) {
   }
   return { success: true };
 }
+
+// ---------------- Wipe All Data Except Admin ----------------
+export function wipeAllDataExceptAdmin() {
+  const now = new Date().toISOString();
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    // 1. Wipe all academic and operational data safely
+    const tablesToWipe = [
+      'sections',
+      'seats',
+      'notes',
+      'daily_violations',
+      'attendance_history',
+      'section_assignments',
+      'teacher_seat_overrides',
+      'teacher_timetable',
+      'student_change_requests',
+      'school_activities',
+      'change_history',
+      'email_outbox',
+      'password_resets',
+      'verification_codes'
+    ];
+    for (const tbl of tablesToWipe) {
+      try {
+        db.prepare(`DELETE FROM ${tbl}`).run();
+      } catch {
+        // Table might not exist in some schema versions
+      }
+    }
+
+    // 2. Wipe all users except the Admin (Super Supervisor)
+    db.prepare("DELETE FROM users WHERE role != 'admin' AND id != 'usr_admin_samir' AND username != 'admin'").run();
+
+    // 3. Ensure the Super Admin account is intact and active
+    db.prepare(`
+      INSERT INTO users (
+        id, username, email, password, full_name, role, academic_year, status, email_verified,
+        must_change_profile, must_change_password, created_at, updated_at
+      ) VALUES (
+        'usr_admin_samir', 'admin', 'mrsamiro69@gmail.com', 'Samir@0102.',
+        'الأستاذ: سمير القراشي (المشرف العام على التطبيق)', 'admin', '2026/2027', 'active', 1,
+        0, 0, ?, ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        username = 'admin',
+        email = 'mrsamiro69@gmail.com',
+        password = 'Samir@0102.',
+        full_name = 'الأستاذ: سمير القراشي (المشرف العام على التطبيق)',
+        role = 'admin',
+        academic_year = '2026/2027',
+        status = 'active',
+        email_verified = 1,
+        updated_at = excluded.updated_at
+    `).run(now, now);
+
+    // 4. Mark data reset as completed in app_settings so sample data is never re-seeded
+    db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at) VALUES ('data_reset_completed', 'true', ?)
+      ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = ?
+    `).run(now, now);
+
+    db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at) VALUES ('institution', 'الثانوية الإعدادية ايكسان', ?)
+      ON CONFLICT(key) DO UPDATE SET value = 'الثانوية الإعدادية ايكسان', updated_at = ?
+    `).run(now, now);
+
+    db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at) VALUES ('year', '2026/2027', ?)
+      ON CONFLICT(key) DO UPDATE SET value = '2026/2027', updated_at = ?
+    `).run(now, now);
+
+    // 5. Insert fresh initial log
+    db.prepare(`
+      INSERT INTO change_history (action, summary, details_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      'wipe_all_data',
+      'تم مسح جميع البيانات والبدء من جديد (تم الاحتفاظ فقط بحساب المشرف العام)',
+      JSON.stringify({ preservedUser: 'admin (mrsamiro69@gmail.com)' }),
+      now
+    );
+
+    db.exec('COMMIT;');
+    return {
+      success: true,
+      message: 'تم مسح كافة البيانات بنجاح، وتم الاحتفاظ فقط بحساب المشرف العام (Admin).'
+    };
+  } catch (err) {
+    db.exec('ROLLBACK;');
+    throw err;
+  }
+}
+
 

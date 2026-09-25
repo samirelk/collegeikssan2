@@ -38,9 +38,11 @@ export function getFirebaseConfig(): FirebaseConfig {
   return cachedConfig;
 }
 
+export const PERMANENT_FIRESTORE_DB_ID = 'ai-studio-152aaa98-85f4-47cd-a9c7-c5d362d5959a';
+
 export function getFirestoreBaseUrl(): string {
   const config = getFirebaseConfig();
-  const dbId = config.firestoreDatabaseId || '(default)';
+  const dbId = config.firestoreDatabaseId || PERMANENT_FIRESTORE_DB_ID;
   return `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${dbId}/documents`;
 }
 
@@ -168,7 +170,7 @@ export async function deleteDoc(collection: string, docId: string): Promise<bool
 
 export async function listDocs(collection: string): Promise<Record<string, any>[]> {
   const config = getFirebaseConfig();
-  const dbId = config.firestoreDatabaseId || '(default)';
+  const dbId = config.firestoreDatabaseId || PERMANENT_FIRESTORE_DB_ID;
   const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${dbId}/documents:runQuery?key=${config.apiKey}`;
   const results: Record<string, any>[] = [];
 

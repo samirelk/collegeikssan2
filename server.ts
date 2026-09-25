@@ -84,13 +84,12 @@ import {
   upsertTimetableSlot,
   deleteTimetableSlot,
   deleteTimetableEntryById,
+  wipeAllDataExceptAdmin,
   db
 } from './server/db.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
 import {
   configureCloudBackup,
-  restoreLatestSnapshotOnBoot,
-  startAutoBackup,
   markDirty,
   flushSnapshot,
   writeSnapshot,
@@ -101,46 +100,34 @@ import {
 
 async function startServer() {
   initDatabase();
-
-  // Configure the automatic cloud-backup engine (full-snapshot durability layer).
   configureCloudBackup({ exportFullBackup, importFullBackup, db });
 
-  // Durable Cloud Persistence boot sequence:
-  // 1. Restore the most recent authoritative snapshot FIRST so all seating maps, rosters,
-  //    users, attendance, and settings are restored into the ephemeral SQLite database.
+  // Authoritative Single Cloud Database Persistence:
+  // Google Cloud Firestore (ai-studio-152aaa98-85f4-47cd-a9c7-c5d362d5959a)
+  // Granular bidirectional synchronization between SQLite query cache and permanent Firestore collections.
   try {
-    console.log('🔄 [CloudBackup] Checking and restoring cloud snapshot on boot...');
-    await restoreLatestSnapshotOnBoot();
-  } catch (err: any) {
-    console.error('Boot snapshot restore failed:', err?.message || err);
-  }
-
-  // 2. Perform bidirectional granular sync with Firestore (respecting timestamps).
-  try {
-    console.log('🔄 [FirestoreSync] Initializing granular Firestore sync...');
+    console.log('🔄 [SingleDatabase] Initializing permanent Cloud Firestore synchronization...');
     await syncDatabaseWithFirestore(db);
+    console.log('✅ [SingleDatabase] Cloud Firestore is active as the single authoritative database.');
   } catch (err: any) {
     console.error('Initial Firebase Firestore sync failed:', err?.message || err);
   }
-  // Begin taking automatic periodic snapshots.
-  startAutoBackup();
 
-  // Save a final snapshot when the container is being shut down / redeployed.
+  // Gracefully flush all pending Firestore writes on container exit
   let shuttingDown = false;
-  const gracefulSnapshot = async (signal: string) => {
+  const gracefulExit = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    console.log(`\n[CloudBackup] Received ${signal}; flushing final snapshot before exit...`);
+    console.log(`\n[SingleDatabase] Received ${signal}; flushing all pending writes to Firestore before exit...`);
     try {
       await flushPendingCloudWrites();
-      await flushSnapshot('shutdown');
     } catch {
       // ignore
     }
     process.exit(0);
   };
-  process.on('SIGTERM', () => void gracefulSnapshot('SIGTERM'));
-  process.on('SIGINT', () => void gracefulSnapshot('SIGINT'));
+  process.on('SIGTERM', () => void gracefulExit('SIGTERM'));
+  process.on('SIGINT', () => void gracefulExit('SIGINT'));
 
   const app = express();
   const PORT = 3000;
@@ -800,6 +787,25 @@ async function startServer() {
       res.json(result);
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Total wipe of all data except Super Admin account
+  app.post('/api/admin/wipe-database', async (req, res) => {
+    try {
+      const requester = getRequester(req);
+      if (requester.role && requester.role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'هذه العملية محصورة بالمشرف العام على التطبيق (Admin) فقط' });
+      }
+      const result = wipeAllDataExceptAdmin();
+      try {
+        await writeSnapshot('manual');
+      } catch {
+        // non-blocking
+      }
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
