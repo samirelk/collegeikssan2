@@ -379,9 +379,10 @@ async function startServer() {
   // 3. Sections
   app.get('/api/sections', (req, res) => {
     try {
+      const requester = getRequester(req);
       const teacherId = req.query.teacherId as string | undefined;
-      const viewerId = (req.headers['x-user-id'] as string) || undefined;
-      const viewerRole = (req.headers['x-user-role'] as string) || undefined;
+      const viewerId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
+      const viewerRole = requester.role || (req.headers['x-user-role'] as string) || undefined;
       const sections = getAllSections(teacherId, viewerId, viewerRole);
       res.json({ success: true, sections });
     } catch (err: any) {
@@ -1342,7 +1343,10 @@ async function startServer() {
       if (!req.params.sectionId || !Number.isInteger(seatNum) || seatNum < 1) {
         return res.status(400).json({ success: false, error: 'بيانات التلميذ غير صالحة' });
       }
-      res.json({ success: true, history: getStudentHistory(req.params.sectionId, seatNum) });
+      const studentName = (req.query.studentName as string) || undefined;
+      const studentNumber = (req.query.studentNumber as string) || undefined;
+      const viewerId = (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
+      res.json({ success: true, history: getStudentHistory(req.params.sectionId, seatNum, studentName, studentNumber, viewerId) });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

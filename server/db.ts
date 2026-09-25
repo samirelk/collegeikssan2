@@ -956,9 +956,21 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     LEFT JOIN users u ON s.assigned_teacher_id = u.id
   `;
   const params: any[] = [];
-  if (teacherFilterId) {
-    query += ' WHERE s.assigned_teacher_id = ? ';
-    params.push(teacherFilterId);
+
+  // Strict RBAC: If requester is a teacher, ONLY show sections assigned to this teacher in the database
+  const effectiveTeacherId = viewerRole === 'teacher' ? (viewerId || teacherFilterId) : teacherFilterId;
+
+  if (effectiveTeacherId) {
+    query += `
+      WHERE s.id IN (
+        SELECT section_id FROM section_assignments WHERE teacher_id = ? AND status = 'approved'
+        UNION
+        SELECT id FROM sections WHERE assigned_teacher_id = ?
+        UNION
+        SELECT section_id FROM teacher_timetable WHERE teacher_id = ?
+      )
+    `;
+    params.push(effectiveTeacherId, effectiveTeacherId, effectiveTeacherId);
   }
   query += ' ORDER BY s.created_at ASC';
 
@@ -966,7 +978,7 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
   const result: SectionItem[] = [];
 
   for (const sec of sectionRows) {
-    // Get seats
+    // Get canonical seats
     const seatRows = db.prepare('SELECT * FROM seats WHERE section_id = ? ORDER BY seat_num ASC').all(sec.id) as any[];
     let sectionRoster: RosterItem[] = [];
     try {
@@ -975,69 +987,12 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       sectionRoster = [];
     }
 
-    // Materialize a complete private layout before reading it. This prevents a
-    // teacher who has not edited the section yet from inheriting another
-    // teacher's shared seat arrangement.
-    if (viewerRole === 'teacher' && viewerId) {
-      const existingOverrides = db.prepare(
-        'SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ?'
-      ).all(viewerId, sec.id) as any[];
-      const baseBySeat = new Map(seatRows.map((seat) => [seat.seat_num, seat]));
-      const overrideBySeat = new Map(existingOverrides.map((seat) => [seat.seat_num, seat]));
-      const canonicalDiffersFromShared = sectionRoster.length > 0 && sectionRoster.some((student, index) => {
-        const shared = baseBySeat.get(index + 1);
-        return (shared?.roster_id || '') !== (student.id || '') ||
-          (shared?.student_number || '') !== (student.number || '');
-      });
-      const overrideMirrorsShared = existingOverrides.length >= 100 && Array.from({ length: 100 }, (_, index) => {
-        const shared = baseBySeat.get(index + 1);
-        const override = overrideBySeat.get(index + 1);
-        return Boolean(override) &&
-          (override.student_name || '') === (shared?.student_name || '') &&
-          (override.student_number || '') === (shared?.student_number || '') &&
-          (override.roster_id || '') === (shared?.roster_id || '');
-      }).every(Boolean);
-
-      // Older versions copied the shared layout into a teacher override. If it
-      // still mirrors that layout while the roster has a different order, it
-      // is stale and must be rebuilt from the canonical roster.
-      if (overrideMirrorsShared && canonicalDiffersFromShared) {
-        db.prepare('DELETE FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ?').run(viewerId, sec.id);
-      }
-
-      const ensureOverride = db.prepare(`
-        INSERT OR IGNORE INTO teacher_seat_overrides
-          (teacher_id, section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      const now = new Date().toISOString();
-      db.exec('BEGIN TRANSACTION;');
-      try {
-        for (let seatNum = 1; seatNum <= 100; seatNum++) {
-          const rosterItem = sectionRoster[seatNum - 1];
-          const base = seatRows.find((seat) => seat.seat_num === seatNum);
-          ensureOverride.run(
-            viewerId,
-            sec.id,
-            seatNum,
-            rosterItem?.name || base?.student_name || '',
-            rosterItem?.number || base?.student_number || '',
-            rosterItem?.massarNumber || base?.massar_number || '',
-            rosterItem?.id || base?.roster_id || null,
-            base?.status_color || 'default',
-            now
-          );
-        }
-        db.exec('COMMIT;');
-      } catch (err) {
-        db.exec('ROLLBACK;');
-        throw err;
-      }
-    }
+    // Teacher-specific private seating arrangement
     const teacherOverrides = viewerRole === 'teacher' && viewerId
       ? db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ?').all(viewerId, sec.id) as any[]
       : [];
     const overridesBySeat = new Map(teacherOverrides.map((override) => [override.seat_num, override]));
+    const hasTeacherCustomSeating = teacherOverrides.some((o) => o.student_name && o.student_name.trim() !== '');
     
     // Get notes for section
     const noteRows = viewerRole === 'teacher' && viewerId
@@ -1068,39 +1023,66 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       ORDER BY created_at DESC
     `).all(...(viewerRole === 'teacher' && viewerId ? [sec.id, viewerId] : [sec.id])) as any[];
 
-    const violationsBySeat: Record<number, any[]> = {};
-    for (const v of violRows) {
-      if (!violationsBySeat[v.seat_num]) violationsBySeat[v.seat_num] = [];
-      violationsBySeat[v.seat_num].push({
-        id: v.id,
-        sectionId: v.section_id,
-        seatNum: v.seat_num,
-        studentName: v.student_name,
-        studentNumber: v.student_number,
-        massarNumber: v.massar_number,
-        violationType: v.violation_type,
-        actionTaken: v.action_taken,
-        teacherName: v.teacher_name,
-        teacherSubject: v.teacher_subject,
-        recordedDate: v.recorded_date,
-        recordedTime: v.recorded_time,
-        createdAt: v.created_at
-      });
-    }
-
     const seats: SeatItem[] = [];
     const maxSeatNum = Math.max(100, seatRows.length > 0 ? Math.max(...seatRows.map((s: any) => s.seat_num)) : 100);
     for (let i = 1; i <= maxSeatNum; i++) {
       const found = seatRows.find((s) => s.seat_num === i);
       const override = overridesBySeat.get(i);
-      const seatViols = violationsBySeat[i] || [];
+
+      // Student identity for this seat:
+      // If teacher has a custom seating map, use the teacher's arrangement.
+      // Otherwise, use the canonical class arrangement so students NEVER disappear!
+      const studentName = hasTeacherCustomSeating
+        ? (override?.student_name || '')
+        : (found?.student_name || '');
+      const studentNumber = hasTeacherCustomSeating
+        ? (override?.student_number || '')
+        : (found?.student_number || '');
+      const massarNumber = hasTeacherCustomSeating
+        ? (override?.massar_number || '')
+        : (found?.massar_number || '');
+      const rosterId = hasTeacherCustomSeating
+        ? (override?.roster_id || null)
+        : (found?.roster_id || null);
+      const statusColor = (hasTeacherCustomSeating
+        ? (override?.status_color || 'default')
+        : (found?.status_color || 'default')) as SeatStatusColor;
+
+      // Match violations to the student occupying this seat (not just the chair)
+      let seatViols: any[] = [];
+      if (studentName && studentName.trim() !== '') {
+        const cleanName = studentName.trim().toLowerCase();
+        const cleanNum = String(studentNumber || '').trim();
+        seatViols = violRows
+          .filter((v: any) => {
+            if (cleanNum && v.student_number && String(v.student_number).trim() === cleanNum) return true;
+            if (v.student_name && v.student_name.trim().toLowerCase() === cleanName) return true;
+            return false;
+          })
+          .map((v: any) => ({
+            id: v.id,
+            sectionId: v.section_id,
+            seatNum: i,
+            studentName: v.student_name,
+            studentNumber: v.student_number,
+            massarNumber: v.massar_number,
+            violationType: v.violation_type,
+            actionTaken: v.action_taken,
+            teacherName: v.teacher_name,
+            teacherSubject: v.teacher_subject,
+            recordedDate: v.recorded_date,
+            recordedTime: v.recorded_time,
+            createdAt: v.created_at
+          }));
+      }
+
       seats.push({
         seat: i,
-        name: override?.student_name ?? found?.student_name ?? '',
-        number: override?.student_number ?? found?.student_number ?? '',
-        massarNumber: override?.massar_number ?? found?.massar_number ?? '',
-        rosterId: override?.roster_id ?? found?.roster_id ?? null,
-        statusColor: (override?.status_color ?? found?.status_color ?? 'default') as any,
+        name: studentName,
+        number: studentNumber,
+        massarNumber: massarNumber,
+        rosterId: rosterId,
+        statusColor: statusColor,
         attendance: (found?.attendance as any) || null,
         violations: seatViols,
         notes: notesBySeat[i] || []
@@ -1232,9 +1214,20 @@ export function deleteSection(id: string) {
   const title = sec ? `${sec.level} - القسم ${sec.class_number}` : id;
 
   db.prepare('DELETE FROM section_assignments WHERE section_id = ?').run(id);
+  db.prepare('DELETE FROM teacher_seat_overrides WHERE section_id = ?').run(id);
+  db.prepare('DELETE FROM teacher_timetable WHERE section_id = ?').run(id);
+  db.prepare('DELETE FROM attendance_history WHERE section_id = ?').run(id);
+  db.prepare('DELETE FROM daily_violations WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM notes WHERE section_id = ?').run(id);
+  db.prepare('DELETE FROM student_change_requests WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM seats WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM sections WHERE id = ?').run(id);
+
+  try {
+    cloudDeleteSection(id);
+  } catch (cloudErr: any) {
+    console.warn(`[deleteSection] cloudDeleteSection warning for ${id}:`, cloudErr?.message || cloudErr);
+  }
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -1248,13 +1241,26 @@ export function deleteSection(id: string) {
 }
 
 export function deleteAllSections() {
-  const countRow = db.prepare('SELECT COUNT(*) as count FROM sections').get() as any;
-  const count = countRow ? countRow.count : 0;
+  const allSections = db.prepare('SELECT id FROM sections').all() as Array<{ id: string }>;
+  const count = allSections.length;
 
   db.prepare('DELETE FROM section_assignments').run();
+  db.prepare('DELETE FROM teacher_seat_overrides').run();
+  db.prepare('DELETE FROM teacher_timetable').run();
+  db.prepare('DELETE FROM attendance_history').run();
+  db.prepare('DELETE FROM daily_violations').run();
   db.prepare('DELETE FROM notes').run();
+  db.prepare('DELETE FROM student_change_requests').run();
   db.prepare('DELETE FROM seats').run();
   db.prepare('DELETE FROM sections').run();
+
+  for (const s of allSections) {
+    try {
+      cloudDeleteSection(s.id);
+    } catch {
+      // Ignore non-critical individual cleanup
+    }
+  }
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -1652,7 +1658,29 @@ export function addStudentViolation(
   const id = 'v_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const now = new Date().toISOString();
 
+  let studentName = (data.studentName || '').trim();
+  let studentNumber = (data.studentNumber || '').trim();
+  let massarNumber = (data.massarNumber || '').trim();
+
+  if (!studentName && data.teacherId) {
+    const override = db.prepare('SELECT student_name, student_number, massar_number FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(data.teacherId, sectionId, seatNum) as any;
+    if (override && override.student_name && override.student_name.trim()) {
+      studentName = override.student_name.trim();
+      if (!studentNumber) studentNumber = (override.student_number || '').trim();
+      if (!massarNumber) massarNumber = (override.massar_number || '').trim();
+    }
+  }
+
   const seat = db.prepare('SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ?').get(sectionId, seatNum) as any;
+  if (!studentName && seat) {
+    studentName = seat.student_name || '';
+    if (!studentNumber) studentNumber = seat.student_number || '';
+    if (!massarNumber) massarNumber = seat.massar_number || '';
+  }
+
+  if (!studentName) {
+    studentName = `المقعد #${seatNum}`;
+  }
   const secInfo = db.prepare(`
     SELECT sec.level, sec.class_number, u.full_name as teacher_name, u.subject as teacher_subject
     FROM sections sec
@@ -1667,9 +1695,6 @@ export function addStudentViolation(
     ? data.teacherSubject.trim() 
     : (secInfo?.teacher_subject || 'المادة');
 
-  const studentName = seat?.student_name || `المقعد #${seatNum}`;
-  const studentNumber = seat?.student_number || '';
-  const massarNumber = seat?.massar_number || '';
   const actionTaken = data.actionTaken || 'تنبيه شفهي';
 
   db.prepare(`
@@ -2010,16 +2035,28 @@ export function exportFullBackup() {
   const history = getChangeLogs(200);
   const schoolActivities = db.prepare('SELECT * FROM school_activities ORDER BY created_at DESC').all();
   const users = db.prepare('SELECT * FROM users').all();
+  const sectionAssignments = db.prepare('SELECT * FROM section_assignments').all();
+  const academicYears = db.prepare('SELECT * FROM academic_years').all();
+  const teacherSeatOverrides = db.prepare('SELECT * FROM teacher_seat_overrides').all();
+  const attendanceHistory = db.prepare('SELECT * FROM attendance_history').all();
+  const dailyViolations = db.prepare('SELECT * FROM daily_violations').all();
+  const teacherTimetable = db.prepare('SELECT * FROM teacher_timetable').all();
 
   return {
-    version: '2.1.0',
+    version: '2.2.0',
     app: 'خرائط الأقسام',
     exportedAt: new Date().toISOString(),
     settings,
     sections,
     history,
     schoolActivities,
-    users
+    users,
+    sectionAssignments,
+    academicYears,
+    teacherSeatOverrides,
+    attendanceHistory,
+    dailyViolations,
+    teacherTimetable
   };
 }
 
@@ -2081,16 +2118,16 @@ export function importFullBackup(backupData: any) {
     db.prepare('DELETE FROM sections').run();
 
     const insertSec = db.prepare(`
-      INSERT INTO sections (id, level, class_number, teacher, created_at, updated_at, roster_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sections (id, level, class_number, teacher, assigned_teacher_id, created_at, updated_at, roster_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertSeat = db.prepare(`
       INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, attendance, status_color, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertNote = db.prepare(`
-      INSERT INTO notes (id, section_id, seat_num, note_text, note_date, note_time, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO notes (id, section_id, seat_num, note_text, note_date, note_time, created_at, teacher_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertActivity = db.prepare(`
       INSERT INTO school_activities (
@@ -2106,8 +2143,9 @@ export function importFullBackup(backupData: any) {
       insertSec.run(
         sec.id,
         sec.level,
-        sec.classNumber,
+        sec.classNumber || sec.class_number,
         sec.teacher || '',
+        sec.assignedTeacherId || sec.assigned_teacher_id || null,
         sec.createdAt || Date.now(),
         now,
         JSON.stringify(sec.roster || [])
@@ -2117,22 +2155,187 @@ export function importFullBackup(backupData: any) {
         for (const st of sec.seats) {
           insertSeat.run(
             sec.id,
-            st.seat,
-            st.name || '',
-            st.number || '',
-            st.massarNumber || '',
-            st.rosterId || null,
+            st.seat || st.seat_num,
+            st.name || st.student_name || '',
+            st.number || st.student_number || '',
+            st.massarNumber || st.massar_number || '',
+            st.rosterId || st.roster_id || null,
             st.attendance || null,
-            st.statusColor || 'default',
+            st.statusColor || st.status_color || 'default',
             now
           );
 
           if (Array.isArray(st.notes)) {
             for (const n of st.notes) {
-              insertNote.run(n.id || ('n' + Math.random().toString(36).slice(2)), sec.id, st.seat, n.text, n.date, n.time, now);
+              insertNote.run(
+                n.id || ('n' + Math.random().toString(36).slice(2)),
+                sec.id,
+                st.seat || st.seat_num,
+                n.text || n.note_text || '',
+                n.date || n.note_date || '',
+                n.time || n.note_time || '',
+                now,
+                n.teacherId || n.teacher_id || ''
+              );
             }
           }
         }
+      }
+    }
+
+    // 4. Section Assignments
+    if (Array.isArray(backupData.sectionAssignments)) {
+      const insertAsgn = db.prepare(`
+        INSERT OR REPLACE INTO section_assignments (
+          id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const a of backupData.sectionAssignments) {
+        if (!a.id || !a.teacher_id || !a.section_id) continue;
+        insertAsgn.run(
+          a.id,
+          a.teacher_id,
+          a.section_id,
+          a.status || 'approved',
+          a.request_note || '',
+          a.requested_at || now,
+          a.reviewed_at || now,
+          a.reviewed_by || 'admin',
+          a.academic_year || '2026/2027',
+          a.subject || 'عام'
+        );
+      }
+    }
+
+    // 5. Academic Years
+    if (Array.isArray(backupData.academicYears)) {
+      const insertYear = db.prepare(`
+        INSERT OR REPLACE INTO academic_years (id, name, start_date, end_date, is_current, is_archived, notes, created_at, archived_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const y of backupData.academicYears) {
+        if (!y.id || !y.name) continue;
+        insertYear.run(
+          y.id,
+          y.name,
+          y.start_date || '',
+          y.end_date || '',
+          y.is_current ? 1 : 0,
+          y.is_archived ? 1 : 0,
+          y.notes || '',
+          y.created_at || now,
+          y.archived_at || null
+        );
+      }
+    }
+
+    // 6. Teacher Seat Overrides
+    if (Array.isArray(backupData.teacherSeatOverrides)) {
+      const insertTso = db.prepare(`
+        INSERT OR REPLACE INTO teacher_seat_overrides (
+          teacher_id, section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const t of backupData.teacherSeatOverrides) {
+        if (!t.teacher_id || !t.section_id) continue;
+        insertTso.run(
+          t.teacher_id,
+          t.section_id,
+          t.seat_num,
+          t.student_name || '',
+          t.student_number || '',
+          t.massar_number || '',
+          t.roster_id || null,
+          t.status_color || 'default',
+          t.updated_at || now
+        );
+      }
+    }
+
+    // 7. Attendance History
+    if (Array.isArray(backupData.attendanceHistory)) {
+      const insertAtt = db.prepare(`
+        INSERT OR REPLACE INTO attendance_history (
+          id, section_id, seat_num, student_name, student_number, status, recorded_date,
+          session_period, teacher_name, teacher_subject, justified, justification_reason, notes, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const a of backupData.attendanceHistory) {
+        if (!a.id || !a.section_id) continue;
+        insertAtt.run(
+          a.id,
+          a.section_id,
+          a.seat_num || 0,
+          a.student_name || '',
+          a.student_number || '',
+          a.status || 'absent',
+          a.recorded_date || now.slice(0, 10),
+          a.session_period || 'كامل اليوم',
+          a.teacher_name || '',
+          a.teacher_subject || '',
+          a.justified || 'unjustified',
+          a.justification_reason || '',
+          a.notes || '',
+          a.created_at || now
+        );
+      }
+    }
+
+    // 8. Daily Violations
+    if (Array.isArray(backupData.dailyViolations)) {
+      const insertVio = db.prepare(`
+        INSERT OR REPLACE INTO daily_violations (
+          id, section_id, seat_num, student_name, student_number, massar_number,
+          violation_type, description, action_taken, teacher_name, teacher_subject,
+          recorded_date, recorded_time, created_at, teacher_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const v of backupData.dailyViolations) {
+        if (!v.id || !v.section_id) continue;
+        insertVio.run(
+          v.id,
+          v.section_id,
+          v.seat_num || 0,
+          v.student_name || '',
+          v.student_number || '',
+          v.massar_number || '',
+          v.violation_type || 'مخالفة سلوكية',
+          v.description || '',
+          v.action_taken || 'تنبيه شفهي',
+          v.teacher_name || '',
+          v.teacher_subject || '',
+          v.recorded_date || now.slice(0, 10),
+          v.recorded_time || '08:30',
+          v.created_at || now,
+          v.teacher_id || ''
+        );
+      }
+    }
+
+    // 9. Teacher Timetable
+    if (Array.isArray(backupData.teacherTimetable)) {
+      const insertTt = db.prepare(`
+        INSERT OR REPLACE INTO teacher_timetable (
+          id, teacher_id, day_of_week, slot_id, period_type, start_time, end_time, section_id, room, subject, notes, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const tt of backupData.teacherTimetable) {
+        if (!tt.id || !tt.teacher_id || !tt.section_id) continue;
+        insertTt.run(
+          tt.id,
+          tt.teacher_id,
+          tt.day_of_week,
+          tt.slot_id,
+          tt.period_type || 'morning',
+          tt.start_time || '08:00',
+          tt.end_time || '09:00',
+          tt.section_id,
+          tt.room || '',
+          tt.subject || '',
+          tt.notes || '',
+          tt.created_at || now,
+          tt.updated_at || now
+        );
       }
     }
 
@@ -3282,16 +3485,32 @@ export function deleteTeacher(id: string, requesterRole?: string) {
 
   const now = new Date().toISOString();
 
-  // Unassign sections
-  db.prepare('UPDATE sections SET assigned_teacher_id = NULL, updated_at = ? WHERE assigned_teacher_id = ?')
-    .run(now, id);
-
-  // Delete assignment requests
+  // Clean up teacher specific records
   db.prepare('DELETE FROM section_assignments WHERE teacher_id = ?').run(id);
+  db.prepare('DELETE FROM teacher_seat_overrides WHERE teacher_id = ?').run(id);
+  db.prepare('DELETE FROM teacher_timetable WHERE teacher_id = ?').run(id);
+  db.prepare('DELETE FROM notes WHERE teacher_id = ?').run(id);
+  db.prepare('DELETE FROM student_change_requests WHERE teacher_id = ?').run(id);
 
-  // Delete user
+  // If this teacher was primary assigned_teacher_id on sections, replace with next approved teacher or NULL
+  const affectedSections = db.prepare('SELECT id FROM sections WHERE assigned_teacher_id = ?').all(id) as Array<{ id: string }>;
+  for (const s of affectedSections) {
+    const nextApproved = db.prepare(`
+      SELECT teacher_id FROM section_assignments
+      WHERE section_id = ? AND status = 'approved'
+      LIMIT 1
+    `).get(s.id) as any;
+    db.prepare('UPDATE sections SET assigned_teacher_id = ?, updated_at = ? WHERE id = ?')
+      .run(nextApproved ? nextApproved.teacher_id : null, now, s.id);
+  }
+
+  // Delete user from SQLite and Cloud
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
-  cloudDeleteUser(id);
+  try {
+    cloudDeleteUser(id);
+  } catch (err: any) {
+    console.warn(`[deleteTeacher] cloudDeleteUser warning for ${id}:`, err?.message || err);
+  }
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -5154,22 +5373,72 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   };
 }
 
-export function getStudentHistory(sectionId: string, seatNum: number) {
-  const absences = db.prepare(`
-    SELECT id, status, recorded_date, session_period, teacher_name, teacher_subject,
-           justified, justification_reason, notes, created_at
-    FROM attendance_history
-    WHERE section_id = ? AND seat_num = ?
-    ORDER BY recorded_date DESC, created_at DESC
-  `).all(sectionId, seatNum) as any[];
+export function getStudentHistory(sectionId: string, seatNum: number, studentName?: string, studentNumber?: string, viewerId?: string) {
+  let targetName = (studentName || '').trim();
+  let targetNumber = (studentNumber || '').trim();
 
-  const violations = db.prepare(`
-    SELECT id, violation_type, description, action_taken, teacher_name,
-           teacher_subject, recorded_date, recorded_time, created_at
-    FROM daily_violations
-    WHERE section_id = ? AND seat_num = ?
-    ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
-  `).all(sectionId, seatNum) as any[];
+  // If name and number are not provided, find who currently occupies seatNum
+  if (!targetName && !targetNumber) {
+    if (viewerId) {
+      const override = db.prepare('SELECT student_name, student_number FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(viewerId, sectionId, seatNum) as any;
+      if (override && override.student_name && override.student_name.trim()) {
+        targetName = override.student_name.trim();
+        targetNumber = (override.student_number || '').trim();
+      }
+    }
+    if (!targetName && !targetNumber) {
+      const canonical = db.prepare('SELECT student_name, student_number FROM seats WHERE section_id = ? AND seat_num = ?').get(sectionId, seatNum) as any;
+      if (canonical) {
+        targetName = (canonical.student_name || '').trim();
+        targetNumber = (canonical.student_number || '').trim();
+      }
+    }
+  }
+
+  let absences: any[] = [];
+  let violations: any[] = [];
+
+  if (targetName || targetNumber) {
+    absences = db.prepare(`
+      SELECT id, status, recorded_date, session_period, teacher_name, teacher_subject,
+             justified, justification_reason, notes, created_at
+      FROM attendance_history
+      WHERE section_id = ? AND (
+        (student_number != '' AND student_number = ?)
+        OR (student_name != '' AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
+        OR (seat_num = ? AND student_name = '')
+      )
+      ORDER BY recorded_date DESC, created_at DESC
+    `).all(sectionId, targetNumber || '__none__', targetName || '__none__', seatNum) as any[];
+
+    violations = db.prepare(`
+      SELECT id, violation_type, description, action_taken, teacher_name,
+             teacher_subject, recorded_date, recorded_time, created_at
+      FROM daily_violations
+      WHERE section_id = ? AND (
+        (student_number != '' AND student_number = ?)
+        OR (student_name != '' AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
+        OR (seat_num = ? AND student_name = '')
+      )
+      ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
+    `).all(sectionId, targetNumber || '__none__', targetName || '__none__', seatNum) as any[];
+  } else {
+    absences = db.prepare(`
+      SELECT id, status, recorded_date, session_period, teacher_name, teacher_subject,
+             justified, justification_reason, notes, created_at
+      FROM attendance_history
+      WHERE section_id = ? AND seat_num = ?
+      ORDER BY recorded_date DESC, created_at DESC
+    `).all(sectionId, seatNum) as any[];
+
+    violations = db.prepare(`
+      SELECT id, violation_type, description, action_taken, teacher_name,
+             teacher_subject, recorded_date, recorded_time, created_at
+      FROM daily_violations
+      WHERE section_id = ? AND seat_num = ?
+      ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
+    `).all(sectionId, seatNum) as any[];
+  }
 
   const days = Array.from(new Set(
     absences
@@ -5179,6 +5448,8 @@ export function getStudentHistory(sectionId: string, seatNum: number) {
   ));
 
   return {
+    studentName: targetName,
+    studentNumber: targetNumber,
     absences: absences.map((absence) => ({
       id: absence.id,
       status: absence.status,

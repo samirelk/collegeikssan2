@@ -597,13 +597,20 @@ async function pushMissingLocalDataToFirestore(db: any) {
     // 2. Sections
     const localSections = db.prepare('SELECT * FROM sections').all() as any[];
     for (const s of localSections) {
+      let rosterData: any[] = [];
+      try {
+        rosterData = s.roster_json ? JSON.parse(s.roster_json) : [];
+      } catch {
+        rosterData = [];
+      }
       await setDoc('sections', s.id, {
         id: s.id,
         level: s.level,
         classNumber: s.class_number,
         teacher: s.teacher || '',
         assignedTeacherId: s.assigned_teacher_id || null,
-        academicYear: s.academic_year || '2025/2026',
+        academicYear: s.academic_year || '2026/2027',
+        roster: rosterData,
         createdAt: s.created_at || new Date().toISOString(),
         updatedAt: s.updated_at || new Date().toISOString()
       });
@@ -765,10 +772,12 @@ export function cloudDeleteUser(userId: string) {
 }
 
 export function cloudSaveSection(sec: any) {
+  const rosterData = sec.roster || (sec.roster_json ? JSON.parse(sec.roster_json) : []);
   return trackCloudWrite(`cloudSaveSection(${sec.id})`, () => setDoc('sections', sec.id, {
     id: sec.id, level: sec.level, classNumber: sec.classNumber || sec.class_number,
     teacher: sec.teacher || '', assignedTeacherId: sec.assignedTeacherId || sec.assigned_teacher_id || null,
-    academicYear: sec.academicYear || sec.academic_year || '2025/2026',
+    academicYear: sec.academicYear || sec.academic_year || '2026/2027',
+    roster: rosterData,
     updatedAt: new Date().toISOString()
   }));
 }

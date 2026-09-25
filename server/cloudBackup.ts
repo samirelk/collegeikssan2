@@ -235,12 +235,15 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
   try {
     let localSections = 0;
     let localOccupiedSeats = 0;
+    let localTeachers = 0;
     try {
       localSections = (dbRef.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
       localOccupiedSeats = (dbRef.prepare("SELECT COUNT(*) as c FROM seats WHERE student_name != ''").get() as any)?.c || 0;
+      localTeachers = (dbRef.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'teacher'").get() as any)?.c || 0;
     } catch {
       localSections = 0;
       localOccupiedSeats = 0;
+      localTeachers = 0;
     }
 
     const all = await listSnapshots();
@@ -252,9 +255,10 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
     // Always use the most recent daily snapshot
     const targetSnapshot = all[0];
 
-    // Only skip if the local database already has populated sections matching or exceeding the snapshot
-    if (localSections > 0 && localOccupiedSeats > 0 && localSections >= (targetSnapshot.sectionsCount || 0)) {
-      console.log(`✅ [CloudBackup] Skipping snapshot restore; ${localSections} local section(s) with ${localOccupiedSeats} seated students already loaded.`);
+    // Only skip if the local database already has populated sections or teachers
+    // (Crucial: NEVER overwrite if local DB already has data, because local might have intentional deletions!)
+    if (localSections > 0 || localTeachers > 0) {
+      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s) and ${localTeachers} teacher(s); skipping snapshot auto-restore to respect current state.`);
       return;
     }
 
