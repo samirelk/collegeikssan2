@@ -80,6 +80,9 @@ import {
   resetViolationTypes,
   addStudentViolation,
   deleteStudentViolation,
+  addPositiveParticipation,
+  deletePositiveParticipation,
+  getPositiveParticipationsBySection,
   getTeacherTimetable,
   upsertTimetableSlot,
   deleteTimetableSlot,
@@ -533,6 +536,60 @@ async function startServer() {
       const seatNum = Number(req.params.seatNum);
       const violationId = req.params.violationId;
       const result = deleteStudentViolation(sectionId, seatNum, violationId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 5c. Positive Participation Endpoints (المشاركات الإيجابية والنقاط التشجيعية للتلميذ)
+  app.post('/api/sections/:id/seats/:seatNum/positive-participations', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const seatNum = Number(req.params.seatNum);
+      const teacherId = (req.headers['x-user-id'] as string) || req.body.teacherId || '';
+      const participation = addPositiveParticipation({
+        ...req.body,
+        sectionId,
+        seatNum,
+        teacherId
+      });
+      res.json({ success: true, participation });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/sections/:id/positive-participations', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const teacherId = (req.headers['x-user-id'] as string) || req.body.teacherId || '';
+      const participation = addPositiveParticipation({
+        ...req.body,
+        sectionId,
+        teacherId
+      });
+      res.json({ success: true, participation });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/sections/:id/positive-participations', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const teacherId = (req.query.teacherId as string) || undefined;
+      const list = getPositiveParticipationsBySection(sectionId, teacherId);
+      res.json({ success: true, participations: list });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/sections/:id/positive-participations/:participationId', (req, res) => {
+    try {
+      const participationId = req.params.participationId;
+      const result = deletePositiveParticipation(participationId);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

@@ -1,0 +1,401 @@
+import React, { useState } from 'react';
+import {
+  Sparkles,
+  Star,
+  Award,
+  ThumbsUp,
+  Plus,
+  Trash2,
+  X,
+  Loader2,
+  CheckCircle2,
+  Calendar,
+  Clock,
+  User,
+  HeartHandshake,
+  Lightbulb,
+  BookCheck,
+  Trophy
+} from 'lucide-react';
+import { SeatItem, SectionItem, User as UserType, PositiveParticipationItem } from '../types';
+
+interface PositiveParticipationModalProps {
+  section: SectionItem;
+  seat: SeatItem;
+  currentUser: UserType | null;
+  onClose: () => void;
+  onAddPositiveParticipation: (data: {
+    participationType: string;
+    points: number;
+    note?: string;
+    date?: string;
+    time?: string;
+  }) => Promise<void>;
+  onDeletePositiveParticipation: (id: string) => Promise<void>;
+}
+
+const PRESET_TYPES = [
+  { title: 'مشاركة صفية متميزة وإجابة صحيحة', points: 1, icon: Star, color: 'text-amber-500 bg-amber-50 border-amber-200' },
+  { title: 'إنجاز متقن للواجبات والتمارين', points: 1, icon: BookCheck, color: 'text-emerald-500 bg-emerald-50 border-emerald-200' },
+  { title: 'تفكير إبداعي وفهم عميق للدرس', points: 2, icon: Lightbulb, color: 'text-blue-500 bg-blue-50 border-blue-200' },
+  { title: 'سلوك ونظام مثالي داخل الحجرة', points: 1, icon: Award, color: 'text-purple-500 bg-purple-50 border-purple-200' },
+  { title: 'مساعدة الزملاء وروح التعاون الإيجابي', points: 1, icon: HeartHandshake, color: 'text-rose-500 bg-rose-50 border-rose-200' },
+  { title: 'تفوق وتميز في التقييم اليومي', points: 2, icon: Trophy, color: 'text-amber-600 bg-amber-100 border-amber-300' },
+];
+
+export const PositiveParticipationModal: React.FC<PositiveParticipationModalProps> = ({
+  section,
+  seat,
+  currentUser,
+  onClose,
+  onAddPositiveParticipation,
+  onDeletePositiveParticipation
+}) => {
+  const [selectedType, setSelectedType] = useState<string>(PRESET_TYPES[0].title);
+  const [points, setPoints] = useState<number>(PRESET_TYPES[0].points);
+  const [customNote, setCustomNote] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const participations: PositiveParticipationItem[] = seat.positiveParticipations || [];
+  const totalPoints = participations.reduce((acc, p) => acc + (p.points || 1), 0);
+
+  const handleSelectPreset = (item: typeof PRESET_TYPES[0]) => {
+    setSelectedType(item.title);
+    setPoints(item.points);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedType.trim()) {
+      setErrorMsg('يرجى تحديد نوع المشاركة الإيجابية');
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMsg(null);
+      await onAddPositiveParticipation({
+        participationType: selectedType.trim(),
+        points: Math.max(1, points),
+        note: customNote.trim() || undefined
+      });
+      setSuccessMsg('تم تسجيل المشاركة الإيجابية وتعزيز التلميذ بنجاح ⭐');
+      setCustomNote('');
+      setTimeout(() => setSuccessMsg(null), 3000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'حدث خطأ أثناء حفظ المشاركة');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من رغبتك في حذف هذا التعزيز الإيجابي؟')) return;
+    try {
+      setDeletingId(id);
+      await onDeletePositiveParticipation(id);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'فشل حذف المشاركة');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const studentDisplayName = seat.name && seat.name.trim() ? seat.name : `المقعد رقم ${seat.seat}`;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+      <div
+        className="bg-white rounded-3xl shadow-2xl border border-emerald-100 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[92vh]"
+        dir="rtl"
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 text-white p-5 sm:p-6 relative">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute left-4 top-4 p-2 rounded-full hover:bg-white/20 text-white transition-colors cursor-pointer"
+            aria-label="إغلاق"
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
+              <Sparkles className="w-7 h-7 text-emerald-900" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xl sm:text-2xl font-bold font-serif text-white">
+                  المشاركات الإيجابية والتعزيز
+                </h3>
+                <span className="bg-amber-400 text-emerald-950 text-xs px-2.5 py-0.5 rounded-full font-black">
+                  ⭐ نقاط التميز
+                </span>
+              </div>
+              <p className="text-emerald-100 text-xs sm:text-sm mt-0.5">
+                تحفيز التلميذ ورصد السلوكيات والمشاركات المتميزة داخل الحصة
+              </p>
+            </div>
+          </div>
+
+          {/* Student Banner */}
+          <div className="mt-4 bg-emerald-900/40 border border-emerald-500/30 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm">
+            <div className="flex items-center gap-2">
+              <User className="w-4 h-4 text-emerald-300" />
+              <span className="text-emerald-200">التلميذ(ة):</span>
+              <strong className="text-white text-base font-bold">{studentDisplayName}</strong>
+              {seat.number && (
+                <span className="bg-white/20 px-2 py-0.5 rounded-md font-mono text-emerald-100 text-xs">
+                  رقم: {seat.number}
+                </span>
+              )}
+              {seat.massarNumber && (
+                <span className="bg-emerald-950/60 px-2 py-0.5 rounded-md font-mono text-emerald-200 text-xs">
+                  مسار: {seat.massarNumber}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 bg-amber-400/20 border border-amber-300/40 px-3 py-1 rounded-xl text-amber-200 font-bold">
+              <Trophy className="w-4 h-4 text-amber-300" />
+              <span>مجموع النقاط:</span>
+              <span className="text-white text-base font-black px-1.5 py-0.5 bg-amber-500 rounded-lg shadow-xs">
+                {totalPoints} ⭐
+              </span>
+            </div>
+          </div>
+        </div>
+
+        {/* Content body */}
+        <div className="p-5 sm:p-6 overflow-y-auto space-y-6 flex-1 bg-stone-50/50">
+          {errorMsg && (
+            <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-center justify-between">
+              <span>{errorMsg}</span>
+              <button type="button" onClick={() => setErrorMsg(null)} className="text-rose-500 hover:text-rose-700">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {successMsg && (
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs sm:text-sm flex items-center gap-2 font-bold animate-pulse">
+              <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+              <span>{successMsg}</span>
+            </div>
+          )}
+
+          {/* Form to add participation */}
+          <form onSubmit={handleSubmit} className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <h4 className="text-sm font-bold text-stone-800 flex items-center gap-2">
+                <Plus className="w-4 h-4 text-emerald-600" />
+                <span>إضافة نقطة تميز / مشاركة إيجابية جديدة:</span>
+              </h4>
+              <span className="text-xs text-stone-500">اختر نموذجاً أو اكتب مخصصاً</span>
+            </div>
+
+            {/* Presets grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {PRESET_TYPES.map((item, idx) => {
+                const Icon = item.icon;
+                const isSelected = selectedType === item.title;
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSelectPreset(item)}
+                    className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-emerald-600 bg-emerald-50/80 shadow-xs ring-2 ring-emerald-500/20'
+                        : 'border-stone-200 bg-white hover:border-emerald-300 hover:bg-stone-50'
+                    }`}
+                  >
+                    <div className={`p-1.5 rounded-lg border shrink-0 ${item.color}`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-bold text-stone-800 leading-snug">{item.title}</div>
+                      <div className="text-[11px] text-emerald-700 font-bold mt-0.5">
+                        +{item.points} {item.points === 1 ? 'نقطة' : 'نقاط'}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom / edited input */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  عنوان المشاركة الإيجابية:
+                </label>
+                <input
+                  type="text"
+                  value={selectedType}
+                  onChange={(e) => setSelectedType(e.target.value)}
+                  placeholder="مثال: إجابة نموذجية، حفظ السورة، مساعدة زميل..."
+                  className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 bg-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-stone-700 mb-1">
+                  النقاط التشجيعية:
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={points}
+                    onChange={(e) => setPoints(Math.max(1, Number(e.target.value)))}
+                    className="w-full px-3 py-2 text-center text-sm font-bold rounded-xl border border-stone-300 focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 bg-white"
+                  />
+                  <span className="text-xs text-stone-500 font-bold">⭐</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-stone-700 mb-1">
+                ملاحظة إضافية أو تفصيل الإنجاز (اختياري):
+              </label>
+              <input
+                type="text"
+                value={customNote}
+                onChange={(e) => setCustomNote(e.target.value)}
+                placeholder="مثال: تميز في تمرين المعادلات، تفاعل ممتاز أثناء الشرح..."
+                className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 bg-white"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs hover:shadow-md transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>جاري الحفظ...</span>
+                  </>
+                ) : (
+                  <>
+                    <Star className="w-4 h-4 text-amber-300 fill-amber-300" />
+                    <span>تسجيل التعزيز والإشادة</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </form>
+
+          {/* History of Positive Participations */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-bold text-stone-800 flex items-center gap-2">
+                <Award className="w-4 h-4 text-emerald-600" />
+                <span>سجل تعزيزات ومشاركات التلميذ ({participations.length}):</span>
+              </h4>
+              {participations.length > 0 && (
+                <span className="text-xs text-emerald-800 bg-emerald-100 font-bold px-2.5 py-0.5 rounded-full">
+                  المجموع: {totalPoints} نقاط
+                </span>
+              )}
+            </div>
+
+            {participations.length === 0 ? (
+              <div className="text-center py-8 bg-white rounded-2xl border border-dashed border-stone-300 p-6">
+                <Sparkles className="w-10 h-10 text-emerald-300 mx-auto mb-2" />
+                <p className="text-stone-600 text-sm font-bold">لا توجد مشاركات إيجابية مسجلة بعد لهذا التلميذ</p>
+                <p className="text-stone-400 text-xs mt-1">
+                  استخدم النموذج أعلاه لتحفيز التلميذ وتسجيل أول نقطة تميز له اليوم!
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2.5 max-h-64 overflow-y-auto pr-1">
+                {participations.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-2xs hover:border-emerald-300 transition-colors flex items-center justify-between gap-3"
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center font-bold shrink-0 mt-0.5">
+                        <span className="text-xs font-black">+{item.points || 1}</span>
+                      </div>
+                      <div>
+                        <div className="text-xs sm:text-sm font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
+                          <span>{item.participationType}</span>
+                          <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.2 rounded-md">
+                            ⭐ {item.points || 1} {item.points === 1 ? 'نقطة' : 'نقاط'}
+                          </span>
+                        </div>
+                        {item.note && (
+                          <p className="text-xs text-stone-600 mt-0.5 bg-stone-50 px-2 py-0.5 rounded-md border border-stone-100 inline-block">
+                            «{item.note}»
+                          </p>
+                        )}
+                        <div className="flex items-center gap-3 text-[11px] text-stone-400 mt-1 flex-wrap">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-stone-400" />
+                            <span>{item.recordedDate}</span>
+                          </span>
+                          {item.recordedTime && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-stone-400" />
+                              <span>{item.recordedTime}</span>
+                            </span>
+                          )}
+                          {item.teacherName && (
+                            <span>الأستاذ: <strong className="text-stone-600">{item.teacherName}</strong></span>
+                          )}
+                          {item.teacherSubject && (
+                            <span className="text-emerald-700 font-medium">({item.teacherSubject})</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(item.id)}
+                      disabled={deletingId === item.id}
+                      className="p-1.5 text-stone-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                      title="حذف هذا السجل"
+                    >
+                      {deletingId === item.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-rose-600" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-4 bg-stone-100 border-t border-stone-200 flex items-center justify-between">
+          <div className="text-xs text-stone-500">
+            القسم: <strong>{section.level} - القسم {section.classNumber}</strong>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl bg-white border border-stone-300 hover:bg-stone-50 text-stone-700 text-xs sm:text-sm font-bold transition-colors cursor-pointer"
+          >
+            إغلاق
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

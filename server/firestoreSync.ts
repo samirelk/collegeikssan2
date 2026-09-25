@@ -35,6 +35,9 @@ export async function syncDatabaseWithFirestore(db: any) {
     // F. Sync Daily Violations
     await syncViolationsFromFirestore(db);
 
+    // F2. Sync Positive Participations
+    await syncPositiveParticipationsFromFirestore(db);
+
     // G. Sync Notes
     await syncNotesFromFirestore(db);
 
@@ -389,6 +392,53 @@ async function syncViolationsFromFirestore(db: any) {
     }
   } catch (e: any) {
     console.error('Error in syncViolationsFromFirestore:', e.message);
+  }
+}
+
+async function syncPositiveParticipationsFromFirestore(db: any) {
+  try {
+    const list = await listDocs('positive_participations');
+    if (!list || list.length === 0) return;
+
+    console.log(`📥 [FirestoreSync] Found ${list.length} positive participations in Firestore.`);
+    const insertStmt = db.prepare(`
+      INSERT OR REPLACE INTO positive_participations (
+        id, section_id, seat_num, student_name, student_number, massar_number,
+        participation_type, points, note, teacher_id, teacher_name, teacher_subject,
+        recorded_date, recorded_time, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
+
+    for (const p of list) {
+      if (!p.id || !p.sectionId) continue;
+      try {
+        const sectionExists = checkSectionStmt.get(p.sectionId);
+        if (!sectionExists) continue;
+
+        insertStmt.run(
+          p.id,
+          p.sectionId,
+          Number(p.seatNum || 0),
+          p.studentName || '',
+          p.studentNumber || '',
+          p.massarNumber || '',
+          p.participationType || 'مشاركة متميزة',
+          Number(p.points || 1),
+          p.note || '',
+          p.teacherId || '',
+          p.teacherName || '',
+          p.teacherSubject || '',
+          p.recordedDate || new Date().toISOString().slice(0, 10),
+          p.recordedTime || new Date().toTimeString().slice(0, 5),
+          p.createdAt || new Date().toISOString()
+        );
+      } catch (rowErr: any) {
+        console.warn(`[FirestoreSync] Skipping participation ${p.id}: ${rowErr?.message}`);
+      }
+    }
+  } catch (e: any) {
+    console.error('Error in syncPositiveParticipationsFromFirestore:', e.message);
   }
 }
 
@@ -829,6 +879,30 @@ export function cloudSaveViolation(vio: any) {
 
 export function cloudDeleteViolation(id: string) {
   return trackCloudWrite(`cloudDeleteViolation(${id})`, () => deleteDoc('daily_violations', id));
+}
+
+export function cloudSavePositiveParticipation(part: any) {
+  return trackCloudWrite(`cloudSavePositiveParticipation(${part.id})`, () => setDoc('positive_participations', part.id, {
+    id: part.id,
+    sectionId: part.sectionId || part.section_id,
+    seatNum: Number(part.seatNum || part.seat_num || 0),
+    studentName: part.studentName || part.student_name || '',
+    studentNumber: part.studentNumber || part.student_number || '',
+    massarNumber: part.massarNumber || part.massar_number || '',
+    participationType: part.participationType || part.participation_type || 'مشاركة متميزة',
+    points: Number(part.points || 1),
+    note: part.note || '',
+    teacherName: part.teacherName || part.teacher_name || '',
+    teacherSubject: part.teacherSubject || part.teacher_subject || '',
+    recordedDate: part.recordedDate || part.recorded_date || '',
+    recordedTime: part.recordedTime || part.recorded_time || '',
+    createdAt: part.createdAt || part.created_at || new Date().toISOString(),
+    teacherId: part.teacherId || part.teacher_id || ''
+  }));
+}
+
+export function cloudDeletePositiveParticipation(id: string) {
+  return trackCloudWrite(`cloudDeletePositiveParticipation(${id})`, () => deleteDoc('positive_participations', id));
 }
 
 export function cloudSaveNote(note: any) {

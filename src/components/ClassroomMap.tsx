@@ -12,7 +12,9 @@ import {
   AlertCircle,
   Shuffle,
   GripVertical,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Star,
+  Sparkles
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SectionItem, SeatItem } from '../types';
@@ -22,6 +24,7 @@ interface ClassroomMapProps {
   onBack: () => void;
   onUpdateSeat: (seatNum: number, data: { name?: string; number?: string; massarNumber?: string; rosterId?: string | null }) => void;
   onOpenNotes: (seatNum: number) => void;
+  onOpenPositiveParticipation?: (seatNum: number) => void;
   onEditSection: () => void;
   onDeleteSection: () => void;
   onImportRoster: (roster: { id: string; name: string; number: string; massarNumber?: string }[]) => Promise<void>;
@@ -36,6 +39,7 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
   onBack,
   onUpdateSeat,
   onOpenNotes,
+  onOpenPositiveParticipation,
   onEditSection,
   onDeleteSection,
   onImportRoster,
@@ -371,31 +375,58 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           </div>
         </div>
 
-        {/* Violations Button with Count Badge */}
+        {/* Actions: Positive Participation & Violations */}
         {(() => {
-          const count = (seat.violations && seat.violations.length > 0)
+          const positivePoints = seat.positiveParticipationCount !== undefined
+            ? seat.positiveParticipationCount
+            : (seat.positiveParticipations ? seat.positiveParticipations.reduce((sum, p) => sum + (p.points || 1), 0) : 0);
+
+          const violationsCount = (seat.violations && seat.violations.length > 0)
             ? seat.violations.length
             : (seat.notes ? seat.notes.length : 0);
 
           return (
-            <button
-              type="button"
-              onClick={() => onOpenNotes(seat.seat)}
-              className={`w-full mt-1 flex items-center justify-center gap-1.5 border rounded-lg py-1.5 text-[11px] font-bold transition-colors cursor-pointer ${
-                count > 0
-                  ? 'bg-[#FDE8E8]/70 hover:bg-[#FDE8E8] text-[#9B1C1C] border-[#F05252]/40'
-                  : 'bg-[rgba(42,33,24,0.06)] hover:bg-[rgba(201,138,60,0.18)] hover:border-[#A96E28] border-dashed border-[rgba(42,33,24,0.25)] text-[#5B5040] hover:text-[#2A2118]'
-              }`}
-              title="تسجيل وإدارة مخالفات التلميذ"
-            >
-              <AlertTriangle className={`w-3 h-3 ${count > 0 ? 'text-[#9B1C1C]' : 'text-[#A96E28]'}`} />
-              <span>المخالفات</span>
-              {count > 0 && (
-                <span className="bg-[#9B1C1C] text-white rounded-full text-[10px] min-w-[17px] h-[17px] px-1 inline-flex items-center justify-center font-black">
-                  {count}
-                </span>
-              )}
-            </button>
+            <div className="grid grid-cols-2 gap-1 mt-1.5 pt-1.5 border-t border-[rgba(42,33,24,0.1)]">
+              {/* Positive Participation Button */}
+              <button
+                type="button"
+                onClick={() => onOpenPositiveParticipation ? onOpenPositiveParticipation(seat.seat) : onOpenNotes(seat.seat)}
+                className={`flex items-center justify-center gap-1 border rounded-lg py-1.5 px-1 text-[10.5px] font-bold transition-all cursor-pointer ${
+                  positivePoints > 0
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
+                    : 'bg-emerald-50/40 hover:bg-emerald-50 text-emerald-700/80 border-dashed border-emerald-300/60'
+                }`}
+                title="تسجيل مشاركة إيجابية ونقاط تميز للتلميذ"
+              >
+                <Star className={`w-3 h-3 ${positivePoints > 0 ? 'text-amber-500 fill-amber-500' : 'text-emerald-600'}`} />
+                <span>مشاركة</span>
+                {positivePoints > 0 && (
+                  <span className="bg-emerald-600 text-white rounded-full text-[9.5px] min-w-[16px] h-[16px] px-1 inline-flex items-center justify-center font-black">
+                    +{positivePoints}
+                  </span>
+                )}
+              </button>
+
+              {/* Violations Button */}
+              <button
+                type="button"
+                onClick={() => onOpenNotes(seat.seat)}
+                className={`flex items-center justify-center gap-1 border rounded-lg py-1.5 px-1 text-[10.5px] font-bold transition-colors cursor-pointer ${
+                  violationsCount > 0
+                    ? 'bg-[#FDE8E8]/70 hover:bg-[#FDE8E8] text-[#9B1C1C] border-[#F05252]/40 shadow-2xs'
+                    : 'bg-[rgba(42,33,24,0.06)] hover:bg-[rgba(201,138,60,0.18)] hover:border-[#A96E28] border-dashed border-[rgba(42,33,24,0.25)] text-[#5B5040] hover:text-[#2A2118]'
+                }`}
+                title="تسجيل وإدارة مخالفات التلميذ"
+              >
+                <AlertTriangle className={`w-3 h-3 ${violationsCount > 0 ? 'text-[#9B1C1C]' : 'text-[#A96E28]'}`} />
+                <span>مخالفة</span>
+                {violationsCount > 0 && (
+                  <span className="bg-[#9B1C1C] text-white rounded-full text-[9.5px] min-w-[16px] h-[16px] px-1 inline-flex items-center justify-center font-black">
+                    {violationsCount}
+                  </span>
+                )}
+              </button>
+            </div>
           );
         })()}
       </div>

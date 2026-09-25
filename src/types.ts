@@ -138,6 +138,24 @@ export interface StudentViolationRecord {
   createdAt?: string;
 }
 
+export interface PositiveParticipationItem {
+  id: string;
+  sectionId?: string;
+  seatNum?: number;
+  studentName?: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  participationType: string;
+  points: number;
+  note?: string;
+  teacherName?: string;
+  teacherSubject?: string;
+  teacherId?: string;
+  recordedDate: string;
+  recordedTime: string;
+  createdAt?: string;
+}
+
 export interface ViolationTypeItem {
   id: string;
   title: string;
@@ -214,6 +232,8 @@ export interface SeatItem {
   massarNumber?: string;
   notes: NoteItem[];
   violations?: StudentViolationRecord[];
+  positiveParticipationCount?: number;
+  positiveParticipations?: PositiveParticipationItem[];
   rosterId: string | null;
   statusColor?: SeatStatusColor;
   attendance?: SeatAttendance;
@@ -227,6 +247,7 @@ export interface RosterItem {
   name: string;
   number: string;
   massarNumber?: string;
+  positiveParticipationCount?: number;
 }
 
 export interface AssignedTeacherSummary {

@@ -11,6 +11,8 @@ import {
   cloudDeleteAttendance,
   cloudSaveViolation,
   cloudDeleteViolation,
+  cloudSavePositiveParticipation,
+  cloudDeletePositiveParticipation,
   cloudSaveNote,
   cloudDeleteNote,
   cloudSaveTeacherSeatOverride,
@@ -54,6 +56,8 @@ export interface SeatItem {
   massarNumber?: string;
   notes: NoteItem[];
   violations?: any[];
+  positiveParticipations?: any[];
+  positiveParticipationCount?: number;
   rosterId: string | null;
   statusColor?: SeatStatusColor;
   attendance?: SeatAttendance;
@@ -64,6 +68,7 @@ export interface RosterItem {
   name: string;
   number: string;
   massarNumber?: string;
+  positiveParticipationCount?: number;
 }
 
 export interface AssignedTeacherSummary {
@@ -446,6 +451,30 @@ export function initDatabase() {
   } catch {
     // Column already exists
   }
+
+  // Ensure positive_participations table exists (سجل المشاركات الإيجابية والنقاط التشجيعية)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS positive_participations (
+      id TEXT PRIMARY KEY,
+      section_id TEXT NOT NULL,
+      seat_num INTEGER DEFAULT NULL,
+      student_name TEXT NOT NULL,
+      student_number TEXT DEFAULT '',
+      massar_number TEXT DEFAULT '',
+      participation_type TEXT NOT NULL DEFAULT 'مشاركة متميزة',
+      points INTEGER DEFAULT 1,
+      note TEXT DEFAULT '',
+      teacher_name TEXT DEFAULT '',
+      teacher_subject TEXT DEFAULT '',
+      teacher_id TEXT DEFAULT '',
+      recorded_date TEXT NOT NULL,
+      recorded_time TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (section_id) REFERENCES sections(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_pos_part_sec ON positive_participations(section_id);
+    CREATE INDEX IF NOT EXISTS idx_pos_part_student ON positive_participations(section_id, student_name);
+  `);
 
   // Ensure teacher_timetable table exists (استعمال زمان الأساتذة)
   db.exec(`
@@ -1023,6 +1052,16 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       ORDER BY created_at DESC
     `).all(...(viewerRole === 'teacher' && viewerId ? [sec.id, viewerId] : [sec.id])) as any[];
 
+    // Get positive participations for section
+    const posRows = db.prepare(`
+      SELECT id, section_id, seat_num, student_name, student_number, massar_number,
+             participation_type, points, note, teacher_name, teacher_subject, teacher_id,
+             recorded_date, recorded_time, created_at
+      FROM positive_participations
+      WHERE section_id = ? ${viewerRole === 'teacher' && viewerId ? 'AND teacher_id = ?' : ''}
+      ORDER BY created_at DESC
+    `).all(...(viewerRole === 'teacher' && viewerId ? [sec.id, viewerId] : [sec.id])) as any[];
+
     const seats: SeatItem[] = [];
     const maxSeatNum = Math.max(100, seatRows.length > 0 ? Math.max(...seatRows.map((s: any) => s.seat_num)) : 100);
     for (let i = 1; i <= maxSeatNum; i++) {
@@ -1050,6 +1089,7 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
 
       // Match violations to the student occupying this seat (not just the chair)
       let seatViols: any[] = [];
+      let seatPos: any[] = [];
       if (studentName && studentName.trim() !== '') {
         const cleanName = studentName.trim().toLowerCase();
         const cleanNum = String(studentNumber || '').trim();
@@ -1074,7 +1114,32 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
             recordedTime: v.recorded_time,
             createdAt: v.created_at
           }));
+
+        seatPos = posRows
+          .filter((p: any) => {
+            if (cleanNum && p.student_number && String(p.student_number).trim() === cleanNum) return true;
+            if (p.student_name && p.student_name.trim().toLowerCase() === cleanName) return true;
+            return false;
+          })
+          .map((p: any) => ({
+            id: p.id,
+            sectionId: p.section_id,
+            seatNum: i,
+            studentName: p.student_name,
+            studentNumber: p.student_number,
+            massarNumber: p.massar_number,
+            participationType: p.participation_type,
+            points: Number(p.points || 1),
+            note: p.note || '',
+            teacherName: p.teacher_name,
+            teacherSubject: p.teacher_subject,
+            recordedDate: p.recorded_date,
+            recordedTime: p.recorded_time,
+            createdAt: p.created_at
+          }));
       }
+
+      const positiveCount = seatPos.reduce((sum: number, p: any) => sum + (p.points || 1), 0);
 
       seats.push({
         seat: i,
@@ -1085,11 +1150,26 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
         statusColor: statusColor,
         attendance: (found?.attendance as any) || null,
         violations: seatViols,
+        positiveParticipations: seatPos,
+        positiveParticipationCount: positiveCount,
         notes: notesBySeat[i] || []
       });
     }
 
-    const roster = sectionRoster;
+    const roster = sectionRoster.map((r) => {
+      const cleanName = (r.name || '').trim().toLowerCase();
+      const cleanNum = String(r.number || '').trim();
+      const studentPos = posRows.filter((p: any) => {
+        if (cleanNum && p.student_number && String(p.student_number).trim() === cleanNum) return true;
+        if (p.student_name && p.student_name.trim().toLowerCase() === cleanName) return true;
+        return false;
+      });
+      const posCount = studentPos.reduce((sum: number, p: any) => sum + (p.points || 1), 0);
+      return {
+        ...r,
+        positiveParticipationCount: posCount
+      };
+    });
 
     // Get all approved assigned teachers for this section across all subjects
     const assignedTeachersRows = db.prepare(`
@@ -6186,6 +6266,7 @@ export function wipeAllDataExceptAdmin() {
       'sections',
       'seats',
       'notes',
+      'positive_participations',
       'daily_violations',
       'attendance_history',
       'section_assignments',
@@ -6268,5 +6349,143 @@ export function wipeAllDataExceptAdmin() {
     throw err;
   }
 }
+
+export function addPositiveParticipation(data: {
+  sectionId: string;
+  seatNum?: number;
+  studentName?: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  participationType?: string;
+  points?: number;
+  note?: string;
+  teacherId?: string;
+  teacherName?: string;
+  teacherSubject?: string;
+  recordedDate?: string;
+  recordedTime?: string;
+}) {
+  const id = `pos_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const now = new Date();
+  const recordedDate = data.recordedDate || now.toISOString().slice(0, 10);
+  const recordedTime = data.recordedTime || now.toTimeString().slice(0, 5);
+  const createdAt = now.toISOString();
+  const points = Math.max(1, Number(data.points || 1));
+  const participationType = data.participationType || 'مشاركة متميزة';
+
+  let studentName = (data.studentName || '').trim();
+  let studentNumber = (data.studentNumber || '').trim();
+  let massarNumber = (data.massarNumber || '').trim();
+
+  if ((!studentName || !studentNumber) && data.seatNum && data.sectionId) {
+    const seat = db.prepare('SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ?').get(data.sectionId, data.seatNum) as any;
+    if (seat) {
+      if (!studentName && seat.student_name) studentName = seat.student_name;
+      if (!studentNumber && seat.student_number) studentNumber = seat.student_number;
+      if (!massarNumber && seat.massar_number) massarNumber = seat.massar_number;
+    }
+  }
+
+  let teacherName = (data.teacherName || '').trim();
+  let teacherSubject = (data.teacherSubject || '').trim();
+  if (!teacherName && data.sectionId) {
+    const secInfo = db.prepare(`
+      SELECT sec.level, sec.class_number, u.full_name as teacher_name, u.subject as teacher_subject
+      FROM sections sec
+      LEFT JOIN users u ON sec.assigned_teacher_id = u.id
+      WHERE sec.id = ?
+    `).get(data.sectionId) as any;
+    if (secInfo) {
+      teacherName = secInfo.teacher_name || 'أستاذ المادة';
+      teacherSubject = secInfo.teacher_subject || 'المادة';
+    }
+  }
+
+  db.prepare(`
+    INSERT INTO positive_participations (
+      id, section_id, seat_num, student_name, student_number, massar_number,
+      participation_type, points, note, teacher_id, teacher_name, teacher_subject,
+      recorded_date, recorded_time, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.sectionId,
+    data.seatNum || null,
+    studentName,
+    studentNumber,
+    massarNumber,
+    participationType,
+    points,
+    data.note || '',
+    data.teacherId || '',
+    teacherName,
+    teacherSubject,
+    recordedDate,
+    recordedTime,
+    createdAt
+  );
+
+  cloudSavePositiveParticipation({
+    id,
+    sectionId: data.sectionId,
+    seatNum: data.seatNum,
+    studentName,
+    studentNumber,
+    massarNumber,
+    participationType,
+    points,
+    note: data.note,
+    teacherId: data.teacherId,
+    teacherName,
+    teacherSubject,
+    recordedDate,
+    recordedTime,
+    createdAt
+  });
+
+  return {
+    id,
+    sectionId: data.sectionId,
+    seatNum: data.seatNum,
+    studentName,
+    studentNumber,
+    massarNumber,
+    participationType,
+    points,
+    note: data.note,
+    teacherId: data.teacherId,
+    teacherName,
+    teacherSubject,
+    recordedDate,
+    recordedTime,
+    createdAt
+  };
+}
+
+export function deletePositiveParticipation(id: string) {
+  db.prepare('DELETE FROM positive_participations WHERE id = ?').run(id);
+  cloudDeletePositiveParticipation(id);
+  return { success: true };
+}
+
+export function getPositiveParticipationsBySection(sectionId: string, teacherId?: string) {
+  let query = `
+    SELECT id, section_id as sectionId, seat_num as seatNum, student_name as studentName,
+           student_number as studentNumber, massar_number as massarNumber,
+           participation_type as participationType, points, note, teacher_id as teacherId,
+           teacher_name as teacherName, teacher_subject as teacherSubject,
+           recorded_date as recordedDate, recorded_time as recordedTime, created_at as createdAt
+    FROM positive_participations
+    WHERE section_id = ?
+  `;
+  const params: any[] = [sectionId];
+  if (teacherId) {
+    query += ' AND teacher_id = ?';
+    params.push(teacherId);
+  }
+  query += ' ORDER BY created_at DESC';
+  return db.prepare(query).all(...params);
+}
+
 
 

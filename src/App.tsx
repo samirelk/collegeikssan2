@@ -8,6 +8,7 @@ import {
   SeatItem,
   NoteItem,
   StudentViolationRecord,
+  PositiveParticipationItem,
   RosterItem,
   DbStats,
   ChangeLogItem,
@@ -24,6 +25,7 @@ import { TeacherAssignmentModal } from './components/TeacherAssignmentModal';
 import { AdminApprovalsModal } from './components/AdminApprovalsModal';
 import { DirectorDashboard } from './components/DirectorDashboard';
 import { ViolationsModal } from './components/ViolationsModal';
+import { PositiveParticipationModal } from './components/PositiveParticipationModal';
 import { LandingView } from './components/LandingView';
 import { AdminPortalView } from './components/AdminPortalView';
 import { AppFooter } from './components/AppFooter';
@@ -107,6 +109,11 @@ export default function App() {
     name: string;
     notes: NoteItem[];
     violations?: StudentViolationRecord[];
+  } | null>(null);
+
+  // Positive Participation Modal state
+  const [activePositiveParticipationModal, setActivePositiveParticipationModal] = useState<{
+    seatNum: number;
   } | null>(null);
   const [studentHistory, setStudentHistory] = useState<{
     absences: Array<{ id: number; status: string; recordedDate: string; sessionPeriod: string; teacherName: string; teacherSubject: string; justified: string }>;
@@ -526,7 +533,9 @@ export default function App() {
                 statusColor: seatB.statusColor,
                 attendance: seatB.attendance,
                 notes: seatB.notes,
-                violations: seatB.violations
+                violations: seatB.violations,
+                positiveParticipations: seatB.positiveParticipations,
+                positiveParticipationCount: seatB.positiveParticipationCount
               };
             }
             if (st.seat === seatBNum) {
@@ -539,7 +548,9 @@ export default function App() {
                 statusColor: seatA.statusColor,
                 attendance: seatA.attendance,
                 notes: seatA.notes,
-                violations: seatA.violations
+                violations: seatA.violations,
+                positiveParticipations: seatA.positiveParticipations,
+                positiveParticipationCount: seatA.positiveParticipationCount
               };
             }
             return st;
@@ -832,6 +843,112 @@ export default function App() {
     } catch (err) {
       console.error(err);
       showToast('خطأ أثناء حذف المخالفة');
+    }
+  };
+
+  // 8b. Add Positive Participation (المشاركات الإيجابية والتعزيز)
+  const handleAddPositiveParticipation = async (data: {
+    participationType: string;
+    points: number;
+    note?: string;
+    date?: string;
+    time?: string;
+  }) => {
+    if (!activeSectionId || !activePositiveParticipationModal) return;
+
+    try {
+      const res = await fetch(
+        `/api/sections/${activeSectionId}/seats/${activePositiveParticipationModal.seatNum}/positive-participations`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {})
+          },
+          body: JSON.stringify({
+            participationType: data.participationType,
+            points: data.points,
+            note: data.note,
+            teacherName: currentUser?.fullName || '',
+            teacherSubject: currentUser?.subject || '',
+            recordedDate: data.date,
+            recordedTime: data.time
+          })
+        }
+      );
+      const resData = await res.json();
+      if (resData.success && resData.participation) {
+        const added: PositiveParticipationItem = resData.participation;
+
+        setSections((prev) =>
+          prev.map((sec) => {
+            if (sec.id !== activeSectionId) return sec;
+            return {
+              ...sec,
+              seats: sec.seats.map((st) => {
+                if (st.seat !== activePositiveParticipationModal.seatNum) return st;
+                const currentPos = st.positiveParticipations || [];
+                const updatedPos = [added, ...currentPos];
+                const updatedCount = updatedPos.reduce((sum, p) => sum + (p.points || 1), 0);
+                return {
+                  ...st,
+                  positiveParticipations: updatedPos,
+                  positiveParticipationCount: updatedCount
+                };
+              })
+            };
+          })
+        );
+
+        showToast(`تم تسجيل المشاركة الإيجابية (${added.participationType}) بنجاح ⭐`);
+      } else {
+        throw new Error(resData.error || 'فشل حفظ المشاركة الإيجابية');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'خطأ في حفظ المشاركة الإيجابية');
+      throw err;
+    }
+  };
+
+  // 8c. Delete Positive Participation
+  const handleDeletePositiveParticipation = async (participationId: string) => {
+    if (!activeSectionId || !activePositiveParticipationModal) return;
+
+    try {
+      const res = await fetch(
+        `/api/sections/${activeSectionId}/positive-participations/${participationId}`,
+        {
+          method: 'DELETE',
+          headers: currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {}
+        }
+      );
+      const resData = await res.json();
+      if (resData.success) {
+        setSections((prev) =>
+          prev.map((sec) => {
+            if (sec.id !== activeSectionId) return sec;
+            return {
+              ...sec,
+              seats: sec.seats.map((st) => {
+                if (st.seat !== activePositiveParticipationModal.seatNum) return st;
+                const updatedPos = (st.positiveParticipations || []).filter((p) => p.id !== participationId);
+                const updatedCount = updatedPos.reduce((sum, p) => sum + (p.points || 1), 0);
+                return {
+                  ...st,
+                  positiveParticipations: updatedPos,
+                  positiveParticipationCount: updatedCount
+                };
+              })
+            };
+          })
+        );
+        showToast('تم حذف سجل المشاركة الإيجابية');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast('خطأ أثناء حذف المشاركة');
+      throw err;
     }
   };
 
@@ -1900,6 +2017,7 @@ export default function App() {
                                 roster={activeSection.roster}
                                 onSeatChange={handleSeatChange}
                                 onOpenNotes={() => openStudentRecord(seat1)}
+                                onOpenPositiveParticipation={() => setActivePositiveParticipationModal({ seatNum: seat1.seat })}
                                 isDragging={draggingSeat === seat1.seat}
                                 isDropTarget={dropTargetSeat === seat1.seat}
                                 isSelectedForSwap={swapSourceSeat === seat1.seat}
@@ -1931,6 +2049,7 @@ export default function App() {
                                 roster={activeSection.roster}
                                 onSeatChange={handleSeatChange}
                                 onOpenNotes={() => openStudentRecord(seat2)}
+                                onOpenPositiveParticipation={() => setActivePositiveParticipationModal({ seatNum: seat2.seat })}
                                 isDragging={draggingSeat === seat2.seat}
                                 isDropTarget={dropTargetSeat === seat2.seat}
                                 isSelectedForSwap={swapSourceSeat === seat2.seat}
@@ -2562,6 +2681,26 @@ export default function App() {
         );
       })()}
 
+      {/* Modal: Positive Participation & Rewards (المشاركات الإيجابية والتعزيز) */}
+      {(() => {
+        if (!activePositiveParticipationModal || !activeSection) return null;
+        const currentSeat = activeSection.seats.find(
+          (s) => s.seat === activePositiveParticipationModal.seatNum
+        );
+        if (!currentSeat) return null;
+
+        return (
+          <PositiveParticipationModal
+            section={activeSection}
+            seat={currentSeat}
+            currentUser={currentUser}
+            onClose={() => setActivePositiveParticipationModal(null)}
+            onAddPositiveParticipation={handleAddPositiveParticipation}
+            onDeletePositiveParticipation={handleDeletePositiveParticipation}
+          />
+        );
+      })()}
+
       {/* Modal: Database Stats & Change History */}
       <DbInfoModal
         isOpen={showDbInfoModal}
@@ -2700,6 +2839,7 @@ interface SeatCardProps {
     value: any
   ) => void;
   onOpenNotes: () => void;
+  onOpenPositiveParticipation?: () => void;
   isDragging?: boolean;
   isDropTarget?: boolean;
   isSelectedForSwap?: boolean;
@@ -2725,6 +2865,7 @@ function SeatCard({
   roster,
   onSeatChange,
   onOpenNotes,
+  onOpenPositiveParticipation,
   isDragging = false,
   isDropTarget = false,
   isSelectedForSwap = false,
@@ -3003,29 +3144,56 @@ function SeatCard({
         </div>
       )}
 
-      {/* Violations button */}
-      {(() => {
-        const violationsCount = seat.violations ? seat.violations.length : 0;
+      {/* Actions: Positive Participation & Violations */}
+      <div className="grid grid-cols-2 gap-1 mt-2">
+        {(() => {
+          const positivePoints = seat.positiveParticipationCount !== undefined
+            ? seat.positiveParticipationCount
+            : (seat.positiveParticipations ? seat.positiveParticipations.reduce((sum, p) => sum + (p.points || 1), 0) : 0);
 
-        return (
-          <button
-            id={`seat-violations-btn-${seat.seat}`}
-            type="button"
-            className={`note-btn mt-2 transition-all ${
-              violationsCount > 0
-                ? '!bg-rose-50 hover:!bg-rose-100 !text-rose-900 border !border-rose-300'
-                : '!bg-[rgba(42,33,24,0.06)] hover:!bg-[rgba(42,33,24,0.12)]'
-            }`}
-            onClick={onOpenNotes}
-            title="تسجيل وإدارة مخالفات التلميذ"
-          >
-            <span>⚠️ المخالفات</span>
-            {violationsCount > 0 && (
-              <span className="badge !bg-rose-700 !text-white">{violationsCount}</span>
-            )}
-          </button>
-        );
-      })()}
+          return (
+            <button
+              id={`seat-positive-btn-${seat.seat}`}
+              type="button"
+              className={`note-btn !mt-0 transition-all flex items-center justify-center gap-1 ${
+                positivePoints > 0
+                  ? '!bg-emerald-50 hover:!bg-emerald-100 !text-emerald-900 border !border-emerald-300 font-bold'
+                  : '!bg-emerald-50/50 hover:!bg-emerald-100/60 !text-emerald-800 border !border-dashed !border-emerald-300'
+              }`}
+              onClick={onOpenPositiveParticipation || onOpenNotes}
+              title="تسجيل مشاركة إيجابية ونقاط تميز للتلميذ"
+            >
+              <span>⭐ مشاركة</span>
+              {positivePoints > 0 && (
+                <span className="badge !bg-emerald-700 !text-white font-black">+{positivePoints}</span>
+              )}
+            </button>
+          );
+        })()}
+
+        {(() => {
+          const violationsCount = seat.violations ? seat.violations.length : 0;
+
+          return (
+            <button
+              id={`seat-violations-btn-${seat.seat}`}
+              type="button"
+              className={`note-btn !mt-0 transition-all flex items-center justify-center gap-1 ${
+                violationsCount > 0
+                  ? '!bg-rose-50 hover:!bg-rose-100 !text-rose-900 border !border-rose-300 font-bold'
+                  : '!bg-[rgba(42,33,24,0.06)] hover:!bg-[rgba(42,33,24,0.12)]'
+              }`}
+              onClick={onOpenNotes}
+              title="تسجيل وإدارة مخالفات التلميذ"
+            >
+              <span>⚠️ مخالفة</span>
+              {violationsCount > 0 && (
+                <span className="badge !bg-rose-700 !text-white font-black">{violationsCount}</span>
+              )}
+            </button>
+          );
+        })()}
+      </div>
     </div>
   );
 }
