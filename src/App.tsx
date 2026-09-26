@@ -462,6 +462,61 @@ export default function App() {
     }
   };
 
+  // 6. Batch Updates Mechanism for Seats & Attendance (آلية التحديث المجمع لتقليل استهلاك حصة Firestore)
+  const pendingSeatUpdatesRef = useRef<Map<string, {
+    sectionId: string;
+    seatNum: number;
+    updates: Record<string, any>;
+  }>>(new Map());
+  const batchFlushTimeoutRef = useRef<any>(null);
+
+  // Flush pending batch updates to backend /api/sections/:id/seats/batch-update
+  const flushPendingSeatUpdates = () => {
+    if (batchFlushTimeoutRef.current) {
+      clearTimeout(batchFlushTimeoutRef.current);
+      batchFlushTimeoutRef.current = null;
+    }
+
+    if (pendingSeatUpdatesRef.current.size === 0) return;
+
+    // Group updates by sectionId
+    const updatesBySection: Record<string, any[]> = {};
+    pendingSeatUpdatesRef.current.forEach(({ sectionId, seatNum, updates }) => {
+      if (!updatesBySection[sectionId]) updatesBySection[sectionId] = [];
+      updatesBySection[sectionId].push({
+        seatNum,
+        ...updates
+      });
+    });
+
+    // Clear queue
+    pendingSeatUpdatesRef.current.clear();
+
+    // Send batch update for each section in a single POST request
+    Object.entries(updatesBySection).forEach(([sectionId, updates]) => {
+      fetch(`/api/sections/${sectionId}/seats/batch-update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUser?.id || '',
+          'x-user-role': currentUser?.role || 'teacher'
+        },
+        body: JSON.stringify({
+          updates,
+          actorId: currentUser?.id || '',
+          actorRole: currentUser?.role || 'teacher'
+        })
+      }).catch((err) => console.error('Failed to flush batch seat updates:', err));
+    });
+  };
+
+  // Flush any pending updates when active section changes
+  useEffect(() => {
+    return () => {
+      flushPendingSeatUpdates();
+    };
+  }, [activeSectionId]);
+
   // 6. Update Seat (Name / Number / Roster Link / Status Color / Attendance)
   const handleSeatChange = (
     sectionId: string,
@@ -500,22 +555,32 @@ export default function App() {
     const currentSec = sections.find((sec) => sec.id === sectionId);
     const targetSeat = currentSec?.seats.find((st) => st.seat === seatNum);
 
-    // Persist to backend with student identity
-    fetch(`/api/sections/${sectionId}/seats/${seatNum}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        [field]: value,
-        name: field === 'name' ? value : targetSeat?.name,
-        number: field === 'number' ? value : targetSeat?.number,
-        massarNumber: field === 'massarNumber' ? value : targetSeat?.massarNumber,
-        rosterId: field === 'rosterId' ? value : targetSeat?.rosterId,
-        statusColor: field === 'statusColor' ? value : targetSeat?.statusColor,
-        attendance: field === 'attendance' ? value : targetSeat?.attendance,
-        actorId: currentUser?.id || '',
-        actorRole: currentUser?.role || 'teacher'
-      })
-    }).catch((err) => console.error('Failed to sync seat change:', err));
+    const updatePayload = {
+      name: field === 'name' ? value : targetSeat?.name,
+      number: field === 'number' ? value : targetSeat?.number,
+      massarNumber: field === 'massarNumber' ? value : targetSeat?.massarNumber,
+      rosterId: field === 'rosterId' ? value : targetSeat?.rosterId,
+      statusColor: field === 'statusColor' ? value : targetSeat?.statusColor,
+      attendance: field === 'attendance' ? value : targetSeat?.attendance,
+      [field]: value
+    };
+
+    // Buffer into the batch update queue
+    const queueKey = `${sectionId}_${seatNum}`;
+    const existing = pendingSeatUpdatesRef.current.get(queueKey);
+    pendingSeatUpdatesRef.current.set(queueKey, {
+      sectionId,
+      seatNum,
+      updates: { ...(existing?.updates || {}), ...updatePayload }
+    });
+
+    // If attendance changed, flush immediately; otherwise debounce to coalesce keystrokes
+    if (field === 'attendance') {
+      flushPendingSeatUpdates();
+    } else {
+      if (batchFlushTimeoutRef.current) clearTimeout(batchFlushTimeoutRef.current);
+      batchFlushTimeoutRef.current = setTimeout(flushPendingSeatUpdates, 400);
+    }
   };
 
   // 6b. Drag and Drop / Seat Swapping
@@ -526,6 +591,9 @@ export default function App() {
       setSwapSourceSeat(null);
       return;
     }
+
+    // Flush any pending individual updates first
+    flushPendingSeatUpdates();
 
     const currentSec = sections.find((s) => s.id === activeSectionId);
     if (!currentSec) return;
@@ -609,7 +677,7 @@ export default function App() {
     }
   };
 
-  // 6c. Batch Attendance Marking for active section
+  // 6c. Batch Attendance Marking for active section (تحديث مجمع لجميع المقاعد بطلب واحد)
   const handleMarkAllPresent = () => {
     if (!activeSectionId) return;
     const currentSec = sections.find((s) => s.id === activeSectionId);
@@ -633,22 +701,30 @@ export default function App() {
       })
     );
 
-    filledSeats.forEach((st) => {
-      fetch(`/api/sections/${activeSectionId}/seats/${st.seat}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          attendance: 'present',
-          name: st.name,
-          number: st.number,
-          massarNumber: st.massarNumber,
-          rosterId: st.rosterId,
-          statusColor: st.statusColor,
-          actorId: currentUser?.id || '',
-          actorRole: currentUser?.role || 'teacher'
-        })
-      }).catch((err) => console.error(err));
-    });
+    // Send single batch update instead of 40 individual HTTP calls!
+    const batchUpdates = filledSeats.map((st) => ({
+      seatNum: st.seat,
+      attendance: 'present',
+      name: st.name,
+      number: st.number,
+      massarNumber: st.massarNumber,
+      rosterId: st.rosterId,
+      statusColor: st.statusColor
+    }));
+
+    fetch(`/api/sections/${activeSectionId}/seats/batch-update`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': currentUser?.id || '',
+        'x-user-role': currentUser?.role || 'teacher'
+      },
+      body: JSON.stringify({
+        updates: batchUpdates,
+        actorId: currentUser?.id || '',
+        actorRole: currentUser?.role || 'teacher'
+      })
+    }).catch((err) => console.error('Batch mark all present error:', err));
 
     showToast(`تم تسجيل حضور جميع التلاميذ (${filledSeats.length}) بنجاح ✓`);
   };
@@ -672,24 +748,33 @@ export default function App() {
       })
     );
 
-    currentSec?.seats.forEach((st) => {
-      if (st.attendance) {
-        fetch(`/api/sections/${activeSectionId}/seats/${st.seat}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            attendance: null,
-            name: st.name,
-            number: st.number,
-            massarNumber: st.massarNumber,
-            rosterId: st.rosterId,
-            statusColor: st.statusColor,
-            actorId: currentUser?.id || '',
-            actorRole: currentUser?.role || 'teacher'
-          })
-        }).catch((err) => console.error(err));
-      }
-    });
+    const attendedSeats = currentSec?.seats.filter((st) => st.attendance) || [];
+    if (attendedSeats.length > 0) {
+      // Send single batch update instead of multiple individual calls!
+      const batchUpdates = attendedSeats.map((st) => ({
+        seatNum: st.seat,
+        attendance: null,
+        name: st.name,
+        number: st.number,
+        massarNumber: st.massarNumber,
+        rosterId: st.rosterId,
+        statusColor: st.statusColor
+      }));
+
+      fetch(`/api/sections/${activeSectionId}/seats/batch-update`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUser?.id || '',
+          'x-user-role': currentUser?.role || 'teacher'
+        },
+        body: JSON.stringify({
+          updates: batchUpdates,
+          actorId: currentUser?.id || '',
+          actorRole: currentUser?.role || 'teacher'
+        })
+      }).catch((err) => console.error('Batch clear attendance error:', err));
+    }
 
     showToast('تمت إعادة تعيين تسجيل الحضور لهذا القسم');
   };

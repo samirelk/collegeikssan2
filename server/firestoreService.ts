@@ -123,7 +123,21 @@ export async function getDoc(collection: string, docId: string): Promise<Record<
   }
 }
 
+// Quota circuit breaker to avoid hammering Firestore when daily write limit is reached (429 RESOURCE_EXHAUSTED)
+let quotaExhaustedUntil = 0;
+
+export function isQuotaExhausted(): boolean {
+  return Date.now() < quotaExhaustedUntil;
+}
+
+export function markQuotaExhausted(cooldownMs = 60_000): void {
+  quotaExhaustedUntil = Date.now() + cooldownMs;
+  console.warn(`⚠️ [FirestoreService] Quota reached (429 RESOURCE_EXHAUSTED). Cloud writes paused for ${Math.round(cooldownMs / 1000)}s; local SQLite & Cloud Backup are handling persistence.`);
+}
+
 export async function setDoc(collection: string, docId: string, data: Record<string, any>): Promise<boolean> {
+  if (isQuotaExhausted()) return false;
+
   const config = getFirebaseConfig();
   const url = `${getFirestoreBaseUrl()}/${collection}/${encodeURIComponent(docId)}?key=${config.apiKey}`;
   
@@ -142,6 +156,10 @@ export async function setDoc(collection: string, docId: string, data: Record<str
         body: JSON.stringify({ fields })
       });
       if (res.ok) return true;
+      if (res.status === 429) {
+        markQuotaExhausted();
+        return false;
+      }
       const errText = await res.text();
       console.error(`Firestore setDoc(${collection}/${docId}) failed [${res.status}] attempt ${attempt}:`, errText);
     } catch (err) {
@@ -153,12 +171,18 @@ export async function setDoc(collection: string, docId: string, data: Record<str
 }
 
 export async function deleteDoc(collection: string, docId: string): Promise<boolean> {
+  if (isQuotaExhausted()) return false;
+
   const config = getFirebaseConfig();
   const url = `${getFirestoreBaseUrl()}/${collection}/${encodeURIComponent(docId)}?key=${config.apiKey}`;
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const res = await fetch(url, { method: 'DELETE' });
       if (res.ok || res.status === 404) return true;
+      if (res.status === 429) {
+        markQuotaExhausted();
+        return false;
+      }
       console.error(`Firestore deleteDoc(${collection}/${docId}) failed [${res.status}] attempt ${attempt}`);
     } catch (err) {
       console.error(`Firestore deleteDoc(${collection}/${docId}) network error attempt ${attempt}:`, err);
@@ -230,36 +254,75 @@ export async function listSubcollectionDocs(collectionPath: string): Promise<Rec
   return results;
 }
 
-// Batch write / upsert helper
-export async function batchDeleteDocs(collection: string, docIds: string[]): Promise<number> {
-  let count = 0;
-  const CHUNK_SIZE = 20;
-  for (let i = 0; i < docIds.length; i += CHUNK_SIZE) {
-    const chunk = docIds.slice(i, i + CHUNK_SIZE);
-    await Promise.all(
-      chunk.map(async (id) => {
-        const ok = await deleteDoc(collection, id);
-        if (ok) count++;
-      })
-    );
+// Native Firestore REST documents:commit Batch Operations (Atomic & Quota Efficient)
+export async function commitBatchDocs(
+  writes: Array<{ type: 'set' | 'delete'; collection: string; id: string; data?: Record<string, any> }>
+): Promise<number> {
+  if (writes.length === 0) return 0;
+  if (isQuotaExhausted()) return 0;
+
+  const config = getFirebaseConfig();
+  const dbId = config.firestoreDatabaseId || PERMANENT_FIRESTORE_DB_ID;
+  const url = `https://firestore.googleapis.com/v1/projects/${config.projectId}/databases/${dbId}/documents:commit?key=${config.apiKey}`;
+
+  let totalSucceeded = 0;
+  // Firestore commit supports up to 500 writes in a single HTTP request!
+  const CHUNK_SIZE = 100;
+
+  for (let i = 0; i < writes.length; i += CHUNK_SIZE) {
+    if (isQuotaExhausted()) break;
+    const chunk = writes.slice(i, i + CHUNK_SIZE);
+    const writePayload = chunk.map((w) => {
+      const docPath = `projects/${config.projectId}/databases/${dbId}/documents/${w.collection}/${encodeURIComponent(w.id)}`;
+      if (w.type === 'delete') {
+        return { delete: docPath };
+      }
+      const fields: Record<string, any> = {};
+      for (const [k, v] of Object.entries(w.data || {})) {
+        if (v !== undefined) {
+          fields[k] = toFirestoreValue(v);
+        }
+      }
+      return {
+        update: {
+          name: docPath,
+          fields
+        }
+      };
+    });
+
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ writes: writePayload })
+      });
+
+      if (res.ok) {
+        totalSucceeded += chunk.length;
+      } else {
+        if (res.status === 429) {
+          markQuotaExhausted();
+          break;
+        }
+        const errText = await res.text();
+        console.warn(`Firestore commitBatchDocs returned ${res.status}:`, errText);
+      }
+    } catch (err) {
+      console.error('Firestore commitBatchDocs network error:', err);
+    }
   }
-  return count;
+
+  return totalSucceeded;
+}
+
+// Batch write / upsert helper using atomic commit
+export async function batchDeleteDocs(collection: string, docIds: string[]): Promise<number> {
+  return commitBatchDocs(docIds.map((id) => ({ type: 'delete', collection, id })));
 }
 
 export async function batchSetDocs(collection: string, docs: Array<{ id: string; data: Record<string, any> }>): Promise<number> {
-  let successCount = 0;
-  // Process in small batches of 5 concurrent requests
-  const CHUNK_SIZE = 5;
-  for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
-    const chunk = docs.slice(i, i + CHUNK_SIZE);
-    await Promise.all(
-      chunk.map(async (item) => {
-        const ok = await setDoc(collection, item.id, item.data);
-        if (ok) successCount++;
-      })
-    );
-  }
-  return successCount;
+  return commitBatchDocs(docs.map((d) => ({ type: 'set', collection, id: d.id, data: d.data })));
 }
 
 export async function deleteDocumentByPath(docPath: string): Promise<boolean> {

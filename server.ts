@@ -12,6 +12,7 @@ import {
   deleteSection,
   deleteAllSections,
   updateSeat,
+  batchUpdateSeats,
   addSeatNote,
   deleteSeatNote,
   saveSectionRoster,
@@ -117,14 +118,16 @@ async function startServer() {
 
   // 2. Authoritative Single Cloud Database Persistence:
   // Google Cloud Firestore (ai-studio-152aaa98-85f4-47cd-a9c7-c5d362d5959a)
-  // Granular bidirectional synchronization between SQLite query cache and permanent Firestore collections.
-  try {
-    console.log('🔄 [SingleDatabase] Initializing permanent Cloud Firestore synchronization...');
-    await syncDatabaseWithFirestore(db);
-    console.log('✅ [SingleDatabase] Cloud Firestore is active as the single authoritative database.');
-  } catch (err: any) {
-    console.error('Initial Firebase Firestore sync failed:', err?.message || err);
-  }
+  // Run asynchronously in the background to ensure port 3000 starts listening immediately for Cloud Run TCP health checks.
+  void (async () => {
+    try {
+      console.log('🔄 [SingleDatabase] Initializing permanent Cloud Firestore synchronization in background...');
+      await syncDatabaseWithFirestore(db);
+      console.log('✅ [SingleDatabase] Cloud Firestore is active as the single authoritative database.');
+    } catch (err: any) {
+      console.warn('Initial Firebase Firestore sync warning:', err?.message || err);
+    }
+  })();
 
   // Gracefully flush all pending Firestore writes on container exit
   let shuttingDown = false;
@@ -446,6 +449,20 @@ async function startServer() {
         actorId: (req.headers['x-user-id'] as string) || req.body.actorId || '',
         actorRole: (req.headers['x-user-role'] as string) || req.body.actorRole || 'teacher'
       });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 4b. Batch Update Seats (آلية التحديث المجمع لتقليل استهلاك حصة Firestore)
+  app.post('/api/sections/:id/seats/batch-update', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const updates = req.body.updates;
+      const actorId = (req.headers['x-user-id'] as string) || req.body.actorId || '';
+      const actorRole = (req.headers['x-user-role'] as string) || req.body.actorRole || 'teacher';
+      const result = batchUpdateSeats(sectionId, updates, { actorId, actorRole });
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

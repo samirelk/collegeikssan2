@@ -1,4 +1,4 @@
-import { getDoc, setDoc, deleteDoc, listDocs, getFirebaseConfig, batchSetDocs } from './firestoreService.ts';
+import { getDoc, setDoc, deleteDoc, listDocs, getFirebaseConfig, batchSetDocs, isQuotaExhausted, commitBatchDocs } from './firestoreService.ts';
 import path from 'node:path';
 import fs from 'node:fs';
 
@@ -16,6 +16,11 @@ export async function syncDatabaseWithFirestore(db: any) {
   try {
     const config = getFirebaseConfig();
     console.log(`📡 [FirestoreSync] Connected to Firestore: ${config.projectId} (${config.firestoreDatabaseId})`);
+
+    if (isQuotaExhausted()) {
+      console.warn('⚠️ [FirestoreSync] Quota limit is active. Skipping startup pull/push to conserve write units.');
+      return;
+    }
 
     // A. Sync Users (Admins, Directors, Teachers)
     await syncUsersFromFirestore(db);
@@ -50,13 +55,12 @@ export async function syncDatabaseWithFirestore(db: any) {
     // J. Sync Teacher Timetable
     await syncTimetableFromFirestore(db);
 
-    // K. Push any local records that Firestore doesn't have yet
+    // K. Push any local records that Firestore doesn't have yet (Batched)
     await pushMissingLocalDataToFirestore(db);
 
     console.log('✅ [FirestoreSync] Full Cloud Firestore synchronization complete!');
   } catch (err: any) {
     console.error('❌ [FirestoreSync] Error during Firestore synchronization:', err?.message || err);
-    throw err;
   }
 }
 
@@ -620,153 +624,202 @@ async function syncTimetableFromFirestore(db: any) {
   }
 }
 
-// Push any SQLite records that are missing from Firestore
+// Push any SQLite records that are missing from Firestore (Optimized with Batch Updates)
 async function pushMissingLocalDataToFirestore(db: any) {
+  if (isQuotaExhausted()) return;
+
   try {
     // 1. Users
     const localUsers = db.prepare('SELECT * FROM users').all() as any[];
-    for (const u of localUsers) {
-      await setDoc('users', u.id, {
+    if (localUsers.length > 0) {
+      const userDocs = localUsers.map((u) => ({
         id: u.id,
-        username: u.username,
-        email: u.email,
-        password: u.password,
-        fullName: u.full_name,
-        role: u.role,
-        status: u.status,
-        subject: u.subject || '',
-        academicYear: u.academic_year || '2026/2027',
-        emailVerified: Boolean(u.email_verified),
-        mustChangeProfile: Boolean(u.must_change_profile),
-        mustChangePassword: Boolean(u.must_change_password),
-        createdAt: u.created_at || new Date().toISOString(),
-        updatedAt: u.updated_at || new Date().toISOString()
-      });
+        data: {
+          id: u.id,
+          username: u.username,
+          email: u.email,
+          password: u.password,
+          fullName: u.full_name,
+          role: u.role,
+          status: u.status,
+          subject: u.subject || '',
+          academicYear: u.academic_year || '2026/2027',
+          emailVerified: Boolean(u.email_verified),
+          mustChangeProfile: Boolean(u.must_change_profile),
+          mustChangePassword: Boolean(u.must_change_password),
+          createdAt: u.created_at || new Date().toISOString(),
+          updatedAt: u.updated_at || new Date().toISOString()
+        }
+      }));
+      await batchSetDocs('users', userDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 2. Sections
     const localSections = db.prepare('SELECT * FROM sections').all() as any[];
-    for (const s of localSections) {
-      let rosterData: any[] = [];
-      try {
-        rosterData = s.roster_json ? JSON.parse(s.roster_json) : [];
-      } catch {
-        rosterData = [];
-      }
-      await setDoc('sections', s.id, {
-        id: s.id,
-        level: s.level,
-        classNumber: s.class_number,
-        teacher: s.teacher || '',
-        assignedTeacherId: s.assigned_teacher_id || null,
-        academicYear: s.academic_year || '2026/2027',
-        roster: rosterData,
-        createdAt: s.created_at || new Date().toISOString(),
-        updatedAt: s.updated_at || new Date().toISOString()
+    if (localSections.length > 0) {
+      const sectionDocs = localSections.map((s) => {
+        let rosterData: any[] = [];
+        try {
+          rosterData = s.roster_json ? JSON.parse(s.roster_json) : [];
+        } catch {
+          rosterData = [];
+        }
+        return {
+          id: s.id,
+          data: {
+            id: s.id,
+            level: s.level,
+            classNumber: s.class_number,
+            teacher: s.teacher || '',
+            assignedTeacherId: s.assigned_teacher_id || null,
+            academicYear: s.academic_year || '2026/2027',
+            roster: rosterData,
+            createdAt: s.created_at || new Date().toISOString(),
+            updatedAt: s.updated_at || new Date().toISOString()
+          }
+        };
       });
+      await batchSetDocs('sections', sectionDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 3. Settings
     const localSettings = db.prepare('SELECT * FROM app_settings').all() as any[];
-    for (const s of localSettings) {
-      await setDoc('app_settings', s.key, {
-        key: s.key,
-        value: s.value,
-        updatedAt: s.updated_at || new Date().toISOString()
-      });
+    if (localSettings.length > 0) {
+      const settingsDocs = localSettings.map((s) => ({
+        id: s.key,
+        data: {
+          key: s.key,
+          value: s.value,
+          updatedAt: s.updated_at || new Date().toISOString()
+        }
+      }));
+      await batchSetDocs('app_settings', settingsDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 4. Daily Violations (with teacherId)
     const localViolations = db.prepare('SELECT * FROM daily_violations').all() as any[];
-    for (const v of localViolations) {
-      await setDoc('daily_violations', v.id, {
+    if (localViolations.length > 0) {
+      const violationDocs = localViolations.map((v) => ({
         id: v.id,
-        sectionId: v.section_id,
-        seatNum: Number(v.seat_num || 0),
-        studentName: v.student_name || '',
-        studentNumber: v.student_number || '',
-        massarNumber: v.massar_number || '',
-        violationType: v.violation_type || '',
-        actionTaken: v.action_taken || '',
-        teacherName: v.teacher_name || '',
-        teacherSubject: v.teacher_subject || '',
-        date: v.recorded_date || '',
-        time: v.recorded_time || '',
-        academicYear: '2025/2026',
-        notes: v.description || '',
-        createdAt: v.created_at || new Date().toISOString(),
-        teacherId: v.teacher_id || ''
-      });
+        data: {
+          id: v.id,
+          sectionId: v.section_id,
+          seatNum: Number(v.seat_num || 0),
+          studentName: v.student_name || '',
+          studentNumber: v.student_number || '',
+          massarNumber: v.massar_number || '',
+          violationType: v.violation_type || '',
+          actionTaken: v.action_taken || '',
+          teacherName: v.teacher_name || '',
+          teacherSubject: v.teacher_subject || '',
+          date: v.recorded_date || '',
+          time: v.recorded_time || '',
+          academicYear: '2025/2026',
+          notes: v.description || '',
+          createdAt: v.created_at || new Date().toISOString(),
+          teacherId: v.teacher_id || ''
+        }
+      }));
+      await batchSetDocs('daily_violations', violationDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 5. Notes (with teacherId)
     const localNotes = db.prepare('SELECT * FROM notes').all() as any[];
-    for (const n of localNotes) {
-      await setDoc('notes', n.id, {
+    if (localNotes.length > 0) {
+      const noteDocs = localNotes.map((n) => ({
         id: n.id,
-        sectionId: n.section_id,
-        seatNum: Number(n.seat_num || 0),
-        noteText: n.note_text || '',
-        noteDate: n.note_date || '',
-        noteTime: n.note_time || '',
-        createdAt: n.created_at || new Date().toISOString(),
-        teacherId: n.teacher_id || ''
-      });
+        data: {
+          id: n.id,
+          sectionId: n.section_id,
+          seatNum: Number(n.seat_num || 0),
+          noteText: n.note_text || '',
+          noteDate: n.note_date || '',
+          noteTime: n.note_time || '',
+          createdAt: n.created_at || new Date().toISOString(),
+          teacherId: n.teacher_id || ''
+        }
+      }));
+      await batchSetDocs('notes', noteDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 6. Teacher Seat Overrides (with teacherId and sectionId)
     const localOverrides = db.prepare('SELECT * FROM teacher_seat_overrides').all() as any[];
-    for (const o of localOverrides) {
-      const overrideId = `${o.teacher_id}_${o.section_id}_seat_${o.seat_num}`;
-      await setDoc('teacher_seat_overrides', overrideId, {
-        id: overrideId,
-        teacherId: o.teacher_id,
-        sectionId: o.section_id,
-        seatNum: Number(o.seat_num),
-        studentName: o.student_name || '',
-        studentNumber: o.student_number || '',
-        massarNumber: o.massar_number || '',
-        rosterId: o.roster_id || null,
-        statusColor: o.status_color || 'default',
-        updatedAt: o.updated_at || new Date().toISOString()
-      });
+    if (localOverrides.length > 0) {
+      const overrideDocs = localOverrides.map((o) => ({
+        id: `${o.teacher_id}_${o.section_id}_seat_${o.seat_num}`,
+        data: {
+          id: `${o.teacher_id}_${o.section_id}_seat_${o.seat_num}`,
+          teacherId: o.teacher_id,
+          sectionId: o.section_id,
+          seatNum: Number(o.seat_num),
+          studentName: o.student_name || '',
+          studentNumber: o.student_number || '',
+          massarNumber: o.massar_number || '',
+          rosterId: o.roster_id || null,
+          statusColor: o.status_color || 'default',
+          updatedAt: o.updated_at || new Date().toISOString()
+        }
+      }));
+      await batchSetDocs('teacher_seat_overrides', overrideDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 7. Section Assignments
     const localAssignments = db.prepare('SELECT * FROM section_assignments').all() as any[];
-    for (const asgn of localAssignments) {
-      await setDoc('section_assignments', asgn.id, {
+    if (localAssignments.length > 0) {
+      const assignmentDocs = localAssignments.map((asgn) => ({
         id: asgn.id,
-        teacherId: asgn.teacher_id,
-        sectionId: asgn.section_id,
-        status: asgn.status || 'approved',
-        requestNote: asgn.request_note || '',
-        requestedAt: asgn.requested_at || new Date().toISOString(),
-        reviewedAt: asgn.reviewed_at || new Date().toISOString(),
-        reviewedBy: asgn.reviewed_by || 'admin',
-        academicYear: asgn.academic_year || '2026/2027',
-        subject: asgn.subject || 'عام'
-      });
+        data: {
+          id: asgn.id,
+          teacherId: asgn.teacher_id,
+          sectionId: asgn.section_id,
+          status: asgn.status || 'approved',
+          requestNote: asgn.request_note || '',
+          requestedAt: asgn.requested_at || new Date().toISOString(),
+          reviewedAt: asgn.reviewed_at || new Date().toISOString(),
+          reviewedBy: asgn.reviewed_by || 'admin',
+          academicYear: asgn.academic_year || '2026/2027',
+          subject: asgn.subject || 'عام'
+        }
+      }));
+      await batchSetDocs('section_assignments', assignmentDocs);
     }
+
+    if (isQuotaExhausted()) return;
 
     // 8. Teacher Timetable
     const localTimetable = db.prepare('SELECT * FROM teacher_timetable').all() as any[];
-    for (const t of localTimetable) {
-      await setDoc('teacher_timetable', t.id, {
+    if (localTimetable.length > 0) {
+      const timetableDocs = localTimetable.map((t) => ({
         id: t.id,
-        teacherId: t.teacher_id,
-        dayOfWeek: t.day_of_week,
-        slotId: t.slot_id,
-        periodType: t.period_type || 'morning',
-        startTime: t.start_time || '08:00',
-        endTime: t.end_time || '09:00',
-        sectionId: t.section_id,
-        room: t.room || '',
-        subject: t.subject || '',
-        notes: t.notes || '',
-        createdAt: t.created_at || new Date().toISOString(),
-        updatedAt: t.updated_at || new Date().toISOString()
-      });
+        data: {
+          id: t.id,
+          teacherId: t.teacher_id,
+          dayOfWeek: t.day_of_week,
+          slotId: t.slot_id,
+          periodType: t.period_type || 'morning',
+          startTime: t.start_time || '08:00',
+          endTime: t.end_time || '09:00',
+          sectionId: t.section_id,
+          room: t.room || '',
+          subject: t.subject || '',
+          notes: t.notes || '',
+          createdAt: t.created_at || new Date().toISOString(),
+          updatedAt: t.updated_at || new Date().toISOString()
+        }
+      }));
+      await batchSetDocs('teacher_timetable', timetableDocs);
     }
   } catch (e: any) {
     console.warn('pushMissingLocalDataToFirestore warning:', e.message);

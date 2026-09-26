@@ -23,6 +23,7 @@ import {
   cloudSaveTimetableEntry,
   cloudDeleteTimetableEntry
 } from './firestoreSync.ts';
+import { commitBatchDocs } from './firestoreService.ts';
 
 // Ensure data directory exists for durable SQLite file persistence
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -1409,6 +1410,7 @@ export function updateSeat(
     attendance?: string | null;
     actorId?: string;
     actorRole?: string;
+    skipCloudSync?: boolean;
   }
 ) {
   const now = new Date().toISOString();
@@ -1459,13 +1461,15 @@ export function updateSeat(
         .run(update[1], now, actorId, sectionId, seatNum);
     }
 
-    try {
-      const savedOverride = db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(actorId, sectionId, seatNum) as any;
-      if (savedOverride) {
-        cloudSaveTeacherSeatOverride(savedOverride);
+    if (!data.skipCloudSync) {
+      try {
+        const savedOverride = db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(actorId, sectionId, seatNum) as any;
+        if (savedOverride) {
+          cloudSaveTeacherSeatOverride(savedOverride);
+        }
+      } catch (err) {
+        console.warn('Firestore cloudSaveTeacherSeatOverride error:', err);
       }
-    } catch (err) {
-      console.warn('Firestore cloudSaveTeacherSeatOverride error:', err);
     }
 
     return { success: true };
@@ -1528,18 +1532,20 @@ export function updateSeat(
         updated_at = excluded.updated_at
     `).run(sectionId, seatNum, name, number, massarNumber, rosterId, statusColor, attendance, now);
 
-    try {
-      cloudSaveSeat(sectionId, {
-        seat: seatNum,
-        name,
-        number,
-        massarNumber,
-        rosterId,
-        statusColor,
-        attendance
-      });
-    } catch (err: any) {
-      console.warn(`[updateSeat] cloudSaveSeat warning for sec=${sectionId}, seat=${seatNum}:`, err?.message || err);
+    if (!data.skipCloudSync) {
+      try {
+        cloudSaveSeat(sectionId, {
+          seat: seatNum,
+          name,
+          number,
+          massarNumber,
+          rosterId,
+          statusColor,
+          attendance
+        });
+      } catch (err: any) {
+        console.warn(`[updateSeat] cloudSaveSeat warning for sec=${sectionId}, seat=${seatNum}:`, err?.message || err);
+      }
     }
   }
 
@@ -1578,25 +1584,27 @@ export function updateSeat(
           actorId || ''
         );
 
-        try {
-          cloudSaveAttendance({
-            id: String(histResult.lastInsertRowid),
-            sectionId,
-            seatNum: targetSeatNum,
-            studentName: name.trim(),
-            studentNumber: number.trim(),
-            massarNumber: massarNumber.trim(),
-            status: attendance,
-            date: today,
-            time: now.slice(11, 16),
-            session: 'كامل اليوم',
-            subject: secInfo?.teacher_subject || '',
-            teacherName: secInfo?.teacher_name || '',
-            isJustified: false,
-            justificationReason: '',
-            createdAt: now
-          });
-        } catch {}
+        if (!data.skipCloudSync) {
+          try {
+            cloudSaveAttendance({
+              id: String(histResult.lastInsertRowid),
+              sectionId,
+              seatNum: targetSeatNum,
+              studentName: name.trim(),
+              studentNumber: number.trim(),
+              massarNumber: massarNumber.trim(),
+              status: attendance,
+              date: today,
+              time: now.slice(11, 16),
+              session: 'كامل اليوم',
+              subject: secInfo?.teacher_subject || '',
+              teacherName: secInfo?.teacher_name || '',
+              isJustified: false,
+              justificationReason: '',
+              createdAt: now
+            });
+          } catch {}
+        }
       } else {
         db.prepare(`
           UPDATE attendance_history SET
@@ -1611,25 +1619,27 @@ export function updateSeat(
           WHERE id = ?
         `).run(attendance, targetSeatNum, name.trim(), number.trim(), actorId || '', existing.id);
 
-        try {
-          cloudSaveAttendance({
-            id: String(existing.id),
-            sectionId,
-            seatNum: targetSeatNum,
-            studentName: name.trim(),
-            studentNumber: number.trim(),
-            massarNumber: massarNumber.trim(),
-            status: attendance,
-            date: today,
-            time: now.slice(11, 16),
-            session: 'كامل اليوم',
-            subject: secInfo?.teacher_subject || '',
-            teacherName: secInfo?.teacher_name || '',
-            isJustified: false,
-            justificationReason: '',
-            createdAt: existing.created_at || now
-          });
-        } catch {}
+        if (!data.skipCloudSync) {
+          try {
+            cloudSaveAttendance({
+              id: String(existing.id),
+              sectionId,
+              seatNum: targetSeatNum,
+              studentName: name.trim(),
+              studentNumber: number.trim(),
+              massarNumber: massarNumber.trim(),
+              status: attendance,
+              date: today,
+              time: now.slice(11, 16),
+              session: 'كامل اليوم',
+              subject: secInfo?.teacher_subject || '',
+              teacherName: secInfo?.teacher_name || '',
+              isJustified: false,
+              justificationReason: '',
+              createdAt: existing.created_at || now
+            });
+          } catch {}
+        }
       }
     } catch {
       // Non-critical logging
@@ -1656,16 +1666,18 @@ export function updateSeat(
           WHERE id = ?
         `).run(actorId || '', now, shouldIgnoreFromStats ? 0 : 1, absenceRow.id);
 
-        try {
-          if (shouldIgnoreFromStats) {
-            cloudDeleteAttendance(String(absenceRow.id));
-          } else {
-            cloudSaveAttendance({
-              ...absenceRow,
-              countInStats: 1
-            });
-          }
-        } catch {}
+        if (!data.skipCloudSync) {
+          try {
+            if (shouldIgnoreFromStats) {
+              cloudDeleteAttendance(String(absenceRow.id));
+            } else {
+              cloudSaveAttendance({
+                ...absenceRow,
+                countInStats: 1
+              });
+            }
+          } catch {}
+        }
       }
     } catch {
       // Non-critical
@@ -1673,6 +1685,111 @@ export function updateSeat(
   }
 
   return { success: true };
+}
+
+// 4b. Batch Update Seats (آلية التحديث المجمع لتقليل استهلاك حصة Firestore)
+export function batchUpdateSeats(
+  sectionId: string,
+  updates: Array<{
+    seatNum: number;
+    name?: string;
+    number?: string;
+    massarNumber?: string;
+    rosterId?: string | null;
+    statusColor?: string;
+    attendance?: string | null;
+  }>,
+  options?: { actorId?: string; actorRole?: string }
+) {
+  const actorId = options?.actorId || '';
+  const actorRole = options?.actorRole || 'teacher';
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  // 1. Execute all updates inside a single SQLite transaction
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    for (const item of updates) {
+      updateSeat(sectionId, item.seatNum, {
+        ...item,
+        actorId,
+        actorRole,
+        skipCloudSync: true
+      });
+    }
+    db.exec('COMMIT;');
+  } catch (txErr) {
+    db.exec('ROLLBACK;');
+    throw txErr;
+  }
+
+  // 2. Cloud sync all changed seats together in ONE batch!
+  try {
+    const seatNums = updates.map((u) => u.seatNum);
+    const placeholders = seatNums.map(() => '?').join(',');
+
+    if (actorRole === 'teacher' && actorId) {
+      const overrides = db.prepare(`
+        SELECT * FROM teacher_seat_overrides
+        WHERE teacher_id = ? AND section_id = ? AND seat_num IN (${placeholders})
+      `).all(actorId, sectionId, ...seatNums) as any[];
+
+      const writes = overrides.map((o) => ({
+        type: 'set' as const,
+        collection: 'teacher_seat_overrides',
+        id: `${o.teacher_id}_${o.section_id}_seat_${o.seat_num}`,
+        data: {
+          id: `${o.teacher_id}_${o.section_id}_seat_${o.seat_num}`,
+          teacherId: o.teacher_id,
+          sectionId: o.section_id,
+          seatNum: Number(o.seat_num),
+          studentName: o.student_name || '',
+          studentNumber: o.student_number || '',
+          massarNumber: o.massar_number || '',
+          rosterId: o.roster_id || null,
+          statusColor: o.status_color || 'default',
+          updatedAt: o.updated_at || new Date().toISOString()
+        }
+      }));
+
+      if (writes.length > 0) {
+        commitBatchDocs(writes).catch((e) => console.warn('[batchUpdateSeats] teacher cloud batch warning:', e));
+      }
+    } else {
+      // Sync canonical seats
+      const seats = db.prepare(`
+        SELECT * FROM seats WHERE section_id = ? AND seat_num IN (${placeholders})
+      `).all(sectionId, ...seatNums) as any[];
+
+      const writes = seats.map((st) => ({
+        type: 'set' as const,
+        collection: 'sections',
+        id: `${sectionId}_seat_${st.seat_num}`,
+        data: {
+          id: `${sectionId}_seat_${st.seat_num}`,
+          sectionId,
+          seatNum: Number(st.seat_num),
+          studentName: st.student_name || '',
+          studentNumber: st.student_number || '',
+          massarNumber: st.massar_number || '',
+          rosterId: st.roster_id || null,
+          statusColor: st.status_color || 'default',
+          attendance: st.attendance || null,
+          updatedAt: st.updated_at || new Date().toISOString()
+        }
+      }));
+
+      if (writes.length > 0) {
+        commitBatchDocs(writes).catch((e) => console.warn('[batchUpdateSeats] canonical cloud batch warning:', e));
+      }
+    }
+  } catch (err: any) {
+    console.warn('[batchUpdateSeats] Cloud sync error:', err?.message || err);
+  }
+
+  return { success: true, count: updates.length };
 }
 
 export function addSeatNote(sectionId: string, seatNum: number, note: { id?: string; text: string; date: string; time: string; violationType?: string; actionTaken?: string; teacherId?: string }) {
