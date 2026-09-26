@@ -1056,6 +1056,7 @@ async function startServer() {
       if (!auth.authorized) return;
 
       const result = deleteTeacher(req.params.id, auth.role);
+      markDirty();
       res.json(result);
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });

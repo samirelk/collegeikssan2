@@ -72,6 +72,11 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
   const [newTeacherSubject, setNewTeacherSubject] = useState('الرياضيات');
   const [newTeacherYear, setNewTeacherYear] = useState('2025/2026');
 
+  // Confirmation states (replace window.confirm with robust React dialogs)
+  const [deleteTeacherTarget, setDeleteTeacherTarget] = useState<{ id: string; name: string } | null>(null);
+  const [unassignTarget, setUnassignTarget] = useState<{ sectionId: string; teacherId?: string; teacherName?: string } | null>(null);
+  const [verifyEmailTarget, setVerifyEmailTarget] = useState<{ teacherId: string; teacherName: string; email: string } | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       loadAllAdminData();
@@ -175,21 +180,22 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
     }
   };
 
-  const handleUnassign = async (sectionId: string, teacherId?: string, teacherName?: string) => {
-    const confirmMsg = teacherName 
-      ? `هل تريد إلغاء إسناد الأستاذ (${teacherName}) من هذا القسم؟`
-      : 'هل تريد إلغاء إسناد هذا القسم؟';
-    if (!window.confirm(confirmMsg)) return;
+  const handleUnassign = (sectionId: string, teacherId?: string, teacherName?: string) => {
+    setUnassignTarget({ sectionId, teacherId, teacherName });
+  };
+
+  const handleUnassignConfirm = async () => {
+    if (!unassignTarget) return;
 
     setIsLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const res = await fetch(`/api/sections/${sectionId}/unassign-teacher`, {
+      const res = await fetch(`/api/sections/${unassignTarget.sectionId}/unassign-teacher`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ teacherId })
+        body: JSON.stringify({ teacherId: unassignTarget.teacherId })
       });
 
       const data = await res.json();
@@ -198,6 +204,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
       }
 
       setSuccessMessage('تم إلغاء إسناد الأستاذ من القسم بنجاح.');
+      setUnassignTarget(null);
       await loadAllAdminData();
       onRequestReviewedOrAssigned();
     } catch (err: any) {
@@ -207,10 +214,12 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
     }
   };
 
-  const handleDeleteTeacher = async (teacherId: string, teacherName: string) => {
-    if (!window.confirm(`هل أنت متأكد من حذف حساب الأستاذ (${teacherName}) وإلغاء إسناد أي أقسام مرتبطة به؟`)) {
-      return;
-    }
+  const handleDeleteTeacher = (teacherId: string, teacherName: string) => {
+    setDeleteTeacherTarget({ id: teacherId, name: teacherName });
+  };
+
+  const handleDeleteTeacherConfirm = async () => {
+    if (!deleteTeacherTarget) return;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -219,7 +228,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
         'x-user-id': currentUser.id,
         'x-user-role': currentUser.role
       } : {};
-      const res = await fetch(`/api/auth/teachers/${teacherId}`, {
+      const res = await fetch(`/api/auth/teachers/${deleteTeacherTarget.id}`, {
         method: 'DELETE',
         headers: authHeaders
       });
@@ -228,7 +237,8 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
         throw new Error(data.error || 'تعذر حذف الحساب');
       }
 
-      setSuccessMessage(`تم حذف حساب الأستاذ ${teacherName} بنجاح.`);
+      setSuccessMessage(`تم حذف حساب الأستاذ ${deleteTeacherTarget.name} بنجاح.`);
+      setDeleteTeacherTarget(null);
       await loadAllAdminData();
       onRequestReviewedOrAssigned();
     } catch (err: any) {
@@ -238,10 +248,12 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
     }
   };
 
-  const handleManualVerifyEmail = async (teacherId: string, teacherName: string, email: string) => {
-    if (!window.confirm(`هل ترغب في تأكيد البريد الإلكتروني (${email}) للأستاذ "${teacherName}" يدوياً؟`)) {
-      return;
-    }
+  const handleManualVerifyEmail = (teacherId: string, teacherName: string, email: string) => {
+    setVerifyEmailTarget({ teacherId, teacherName, email });
+  };
+
+  const handleManualVerifyEmailConfirm = async () => {
+    if (!verifyEmailTarget) return;
 
     setIsLoading(true);
     setErrorMessage(null);
@@ -249,14 +261,15 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
       const res = await fetch('/api/auth/manual-verify-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: teacherId })
+        body: JSON.stringify({ userId: verifyEmailTarget.teacherId })
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'تعذر تأكيد البريد يدوياً');
       }
 
-      setSuccessMessage(`تم تأكيد بريد الأستاذ (${teacherName}) بنجاح`);
+      setSuccessMessage(`تم تأكيد بريد الأستاذ (${verifyEmailTarget.teacherName}) بنجاح`);
+      setVerifyEmailTarget(null);
       await loadAllAdminData();
     } catch (err: any) {
       setErrorMessage(err.message || 'خطأ أثناء تأكيد البريد');
@@ -1038,6 +1051,155 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
             إغلاق
           </button>
         </div>
+
+        {/* Modal: Confirm Delete Teacher */}
+        {deleteTeacherTarget && (
+          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isLoading && setDeleteTeacherTarget(null)}>
+            <div className="bg-[#172B24] border border-[#C98A3C]/40 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-right" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-[rgba(242,239,227,0.12)] bg-rose-950/40 text-rose-300">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-rose-400" />
+                  <h3 className="text-sm font-bold font-serif text-white">تأكيد حذف حساب الأستاذ</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeleteTeacherTarget(null)}
+                  disabled={isLoading}
+                  className="text-white/60 hover:text-white p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-5 space-y-3 text-xs text-[#F2EFE3]/80 leading-relaxed">
+                <p className="font-semibold text-rose-300 text-sm">
+                  هل أنت متأكد من حذف حساب الأستاذ &quot;{deleteTeacherTarget.name}&quot; نهائياً؟
+                </p>
+                <div className="bg-black/30 p-3 rounded-xl border border-white/10 text-[11px] text-amber-200/90 space-y-1">
+                  <div>• سيتم إلغاء إسناد أي أقسام مرتبطة به.</div>
+                  <div>• سيتم مسح جدول الحصص الخاص به من النظام.</div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[rgba(242,239,227,0.12)] bg-black/20">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTeacherTarget(null)}
+                  disabled={isLoading}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#F2EFE3]/70 hover:bg-white/10 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteTeacherConfirm}
+                  disabled={isLoading}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-rose-700 hover:bg-rose-800 text-white shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isLoading ? 'جاري الحذف...' : 'تأكيد الحذف نهائياً'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Confirm Unassign Teacher */}
+        {unassignTarget && (
+          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isLoading && setUnassignTarget(null)}>
+            <div className="bg-[#172B24] border border-[#C98A3C]/40 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-right" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-[rgba(242,239,227,0.12)] bg-amber-950/40 text-amber-300">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-sm font-bold font-serif text-white">تأكيد إلغاء الإسناد</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUnassignTarget(null)}
+                  disabled={isLoading}
+                  className="text-white/60 hover:text-white p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-5 text-xs text-[#F2EFE3]/80 leading-relaxed">
+                <p className="font-semibold text-white text-sm">
+                  {unassignTarget.teacherName
+                    ? `هل تريد إلغاء إسناد الأستاذ (${unassignTarget.teacherName}) من هذا القسم؟`
+                    : 'هل تريد إلغاء إسناد هذا القسم؟'}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[rgba(242,239,227,0.12)] bg-black/20">
+                <button
+                  type="button"
+                  onClick={() => setUnassignTarget(null)}
+                  disabled={isLoading}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#F2EFE3]/70 hover:bg-white/10 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleUnassignConfirm}
+                  disabled={isLoading}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  <span>{isLoading ? 'جاري الإلغاء...' : 'تأكيد إلغاء الإسناد'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal: Confirm Verify Email */}
+        {verifyEmailTarget && (
+          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isLoading && setVerifyEmailTarget(null)}>
+            <div className="bg-[#172B24] border border-[#C98A3C]/40 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-right" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between p-4 border-b border-[rgba(242,239,227,0.12)] bg-amber-950/40 text-amber-300">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-sm font-bold font-serif text-white">تأكيد البريد يدوياً</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setVerifyEmailTarget(null)}
+                  disabled={isLoading}
+                  className="text-white/60 hover:text-white p-1 rounded-lg cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-5 text-xs text-[#F2EFE3]/80 leading-relaxed space-y-2">
+                <p className="font-semibold text-white text-sm">
+                  هل ترغب في تأكيد البريد الإلكتروني للأستاذ &quot;{verifyEmailTarget.teacherName}&quot; واعتباره موثقاً؟
+                </p>
+                <div className="text-amber-300 font-mono text-[11px]">{verifyEmailTarget.email}</div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[rgba(242,239,227,0.12)] bg-black/20">
+                <button
+                  type="button"
+                  onClick={() => setVerifyEmailTarget(null)}
+                  disabled={isLoading}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-[#F2EFE3]/70 hover:bg-white/10 cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleManualVerifyEmailConfirm}
+                  disabled={isLoading}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#C98A3C] hover:bg-[#B37930] text-white shadow-md cursor-pointer disabled:opacity-50"
+                >
+                  <span>{isLoading ? 'جاري التأكيد...' : 'تأكيد التوثيق'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

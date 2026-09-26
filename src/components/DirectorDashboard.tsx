@@ -113,6 +113,12 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [showDeleteAllTeachersModal, setShowDeleteAllTeachersModal] = useState(false);
   const [isDeletingAllTeachers, setIsDeletingAllTeachers] = useState(false);
 
+  // Single Teacher Deletion & Email Verification State (Native React Dialogs)
+  const [teacherToDelete, setTeacherToDelete] = useState<TeacherItem | null>(null);
+  const [isDeletingTeacher, setIsDeletingTeacher] = useState(false);
+  const [verifyEmailTarget, setVerifyEmailTarget] = useState<TeacherItem | null>(null);
+  const [isVerifyingEmail, setIsVerifyingEmail] = useState(false);
+
   // Selected Section to inspect roster without desks
   const [inspectSectionId, setInspectSectionId] = useState<string | null>(null);
 
@@ -404,27 +410,33 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     }
   };
 
-  // Delete teacher
-  const handleDeleteTeacher = async (teacher: TeacherItem) => {
-    const confirmDelete = window.confirm(`هل أنت متأكد من حذف حساب الأستاذ "${teacher.fullName}" نهائياً من المؤسسة؟`);
-    if (!confirmDelete) return;
+  // Delete teacher (open confirmation modal)
+  const handleDeleteTeacher = (teacher: TeacherItem) => {
+    setTeacherToDelete(teacher);
+  };
+
+  const handleDeleteSingleTeacherConfirm = async () => {
+    if (!teacherToDelete) return;
 
     try {
-      setActionTeacherId(teacher.id);
-      const res = await fetch(`/api/auth/teachers/${teacher.id}`, {
+      setIsDeletingTeacher(true);
+      setActionTeacherId(teacherToDelete.id);
+      const res = await fetch(`/api/auth/teachers/${teacherToDelete.id}`, {
         method: 'DELETE',
-        headers: {
-          'x-user-id': currentUser.id,
-          'x-user-role': currentUser.role
-        }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'تعذر حذف الأستاذ');
-      setSuccessMessage(`تم حذف حساب الأستاذ (${teacher.fullName}) بنجاح`);
-      fetchDirectorData();
+      setSuccessMessage(`تم حذف حساب الأستاذ (${teacherToDelete.fullName}) بنجاح`);
+      setTeacherToDelete(null);
+      await Promise.all([
+        fetchDirectorData(),
+        onRefreshSections()
+      ]);
     } catch (err: any) {
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'حدث خطأ أثناء حذف الأستاذ');
     } finally {
+      setIsDeletingTeacher(false);
       setActionTeacherId(null);
     }
   };
@@ -450,25 +462,31 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     }
   };
 
-  // Manual verify teacher email
-  const handleManualVerifyEmail = async (teacher: TeacherItem) => {
-    const confirmed = window.confirm(`هل ترغب في تأكيد البريد الإلكتروني (${teacher.email}) للأستاذ "${teacher.fullName}" يدوياً واعتباره موثقاً؟`);
-    if (!confirmed) return;
+  // Manual verify teacher email (open confirmation modal)
+  const handleManualVerifyEmail = (teacher: TeacherItem) => {
+    setVerifyEmailTarget(teacher);
+  };
+
+  const handleManualVerifyEmailConfirm = async () => {
+    if (!verifyEmailTarget) return;
 
     try {
-      setActionTeacherId(teacher.id);
+      setIsVerifyingEmail(true);
+      setActionTeacherId(verifyEmailTarget.id);
       const res = await fetch('/api/auth/manual-verify-email', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ userId: teacher.id })
+        body: JSON.stringify({ userId: verifyEmailTarget.id })
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.error || 'تعذر تأكيد البريد يدوياً');
-      setSuccessMessage(`تم تأكيد بريد الأستاذ (${teacher.fullName}) بنجاح`);
+      setSuccessMessage(`تم تأكيد بريد الأستاذ (${verifyEmailTarget.fullName}) بنجاح`);
+      setVerifyEmailTarget(null);
       fetchDirectorData();
     } catch (err: any) {
-      setErrorMessage(err.message);
+      setErrorMessage(err.message || 'حدث خطأ أثناء تأكيد البريد');
     } finally {
+      setIsVerifyingEmail(false);
       setActionTeacherId(null);
     }
   };
@@ -2271,6 +2289,118 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>{isDeletingSection ? 'جاري الحذف...' : 'تأكيد الحذف'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirm Delete Single Teacher (Director) */}
+      {teacherToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isDeletingTeacher && setTeacherToDelete(null)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-50">
+              <div className="flex items-center gap-2 text-rose-700">
+                <AlertTriangle className="w-5 h-5 text-rose-600" />
+                <h3 className="text-base font-bold font-serif text-rose-900">
+                  تأكيد حذف حساب الأستاذ
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTeacherToDelete(null)}
+                disabled={isDeletingTeacher}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-rose-800 hover:bg-rose-100 cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-sm font-bold text-rose-950 leading-relaxed">
+                هل أنت متأكد من حذف حساب الأستاذ &quot;{teacherToDelete.fullName}&quot; نهائياً من المؤسسة؟
+              </p>
+              <div className="bg-[#F4EEDD] p-3 rounded-xl border border-[#E0D5B8] text-xs space-y-1.5 text-[#5C4F40]">
+                <div>• اسم المستخدم: <strong className="text-[#2A2118]">{teacherToDelete.username}</strong></div>
+                <div>• البريد الإلكتروني: <strong className="text-[#2A2118]">{teacherToDelete.email}</strong></div>
+                <div>• المادة: <strong className="text-[#2A2118]">{teacherToDelete.subject || 'غير محدد'}</strong></div>
+                <div className="text-rose-700 font-semibold pt-1 border-t border-[#E0D5B8]/60">
+                  • سيتم إلغاء إسناد الأستاذ من أي أقسام وجدول حصص مسند إليه فوراً.
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[#E4DBC0] bg-[#F4EFDE]">
+              <button
+                type="button"
+                onClick={() => setTeacherToDelete(null)}
+                disabled={isDeletingTeacher}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-100 text-[#5B5040] font-bold text-xs border border-[#D9CEB0] cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                id="director-confirm-delete-teacher-btn"
+                disabled={isDeletingTeacher}
+                onClick={handleDeleteSingleTeacherConfirm}
+                className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 flex items-center gap-1.5 transition-all"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeletingTeacher ? 'جاري حذف الأستاذ...' : 'تأكيد الحذف نهائياً'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirm Manual Verify Email (Director) */}
+      {verifyEmailTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isVerifyingEmail && setVerifyEmailTarget(null)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-amber-50">
+              <div className="flex items-center gap-2 text-amber-800">
+                <Clock className="w-5 h-5 text-amber-600" />
+                <h3 className="text-base font-bold font-serif text-amber-950">
+                  تأكيد البريد الإلكتروني يدوياً
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVerifyEmailTarget(null)}
+                disabled={isVerifyingEmail}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-amber-800 hover:bg-amber-100 cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-[#2A2118] leading-relaxed">
+                هل ترغب في تأكيد البريد الإلكتروني للأستاذ <strong className="text-amber-900">&quot;{verifyEmailTarget.fullName}&quot;</strong> يدوياً واعتباره موثقاً من قبل الإدارة؟
+              </p>
+              <div className="bg-amber-100/60 p-3 rounded-xl border border-amber-200 text-xs text-amber-900">
+                البريد: <strong>{verifyEmailTarget.email}</strong>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[#E4DBC0] bg-[#F4EFDE]">
+              <button
+                type="button"
+                onClick={() => setVerifyEmailTarget(null)}
+                disabled={isVerifyingEmail}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-100 text-[#5B5040] font-bold text-xs border border-[#D9CEB0] cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={isVerifyingEmail}
+                onClick={handleManualVerifyEmailConfirm}
+                className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{isVerifyingEmail ? 'جاري التأكيد...' : 'تأكيد التوثيق الآن'}</span>
               </button>
             </div>
           </div>
