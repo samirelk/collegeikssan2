@@ -581,6 +581,7 @@ async function startServer() {
         seatNum,
         teacherId
       });
+      markDirty();
       res.json({ success: true, participation });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
@@ -596,6 +597,7 @@ async function startServer() {
         sectionId,
         teacherId
       });
+      markDirty();
       res.json({ success: true, participation });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
@@ -617,6 +619,7 @@ async function startServer() {
     try {
       const participationId = req.params.participationId;
       const result = deletePositiveParticipation(participationId);
+      markDirty();
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

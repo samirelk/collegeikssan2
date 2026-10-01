@@ -33,9 +33,30 @@ interface ViolationsModalProps {
   }) => Promise<void>;
   onDeleteViolation: (violationId: string) => Promise<void>;
   studentHistory?: {
-    absences: Array<{ id: number; status: string; recordedDate: string; sessionPeriod: string; teacherName: string; teacherSubject: string; justified: string }>;
+    absences: Array<{
+      id: number;
+      status: string;
+      recordedDate: string;
+      sessionPeriod: string;
+      teacherName: string;
+      teacherSubject: string;
+      removerName?: string;
+      removerSubject?: string;
+      removedAt?: string | null;
+      absenceMode?: 'hours' | 'days';
+      durationHours?: number;
+      durationDays?: number;
+      durationLabel?: string;
+      isOngoing?: boolean;
+      justified: string;
+      justificationReason?: string;
+      notes?: string;
+      createdAt?: string;
+    }>;
     absenceDays: string[];
     absenceRecordCount: number;
+    totalHours?: number;
+    totalDays?: number;
     violations: Array<{ id: string; violationType: string; actionTaken: string; recordedDate: string; recordedTime: string; teacherName: string }>;
   } | null;
   isStudentHistoryLoading?: boolean;
@@ -352,30 +373,68 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
               <div className="text-xs text-[#6C6356]">جارٍ تحميل سجل الغياب والمخالفات...</div>
             ) : studentHistory ? (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  <div className="bg-white rounded-lg border border-[#E5DFD4] p-2.5">
-                    <div className="text-[10px] text-[#6C6356]">أيام الغياب</div>
-                    <div className="text-lg font-bold text-[#8A5A18]">{studentHistory.absenceDays.length}</div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="bg-amber-50 rounded-lg border border-amber-200 p-2.5">
+                    <div className="text-[10px] font-bold text-amber-900">غياب بالساعات</div>
+                    <div className="text-lg font-bold text-amber-950">
+                      {studentHistory.totalHours !== undefined ? `${studentHistory.totalHours} ساعة` : '—'}
+                    </div>
+                  </div>
+                  <div className="bg-orange-50 rounded-lg border border-orange-200 p-2.5">
+                    <div className="text-[10px] font-bold text-orange-900">غياب بالأيام (كاملة)</div>
+                    <div className="text-lg font-bold text-orange-950">
+                      {studentHistory.totalDays !== undefined ? `${studentHistory.totalDays} يوم` : `${studentHistory.absenceDays.length} يوم`}
+                    </div>
                   </div>
                   <div className="bg-white rounded-lg border border-[#E5DFD4] p-2.5">
                     <div className="text-[10px] text-[#6C6356]">سجلات الغياب</div>
                     <div className="text-lg font-bold text-[#8A5A18]">{studentHistory.absenceRecordCount}</div>
                   </div>
-                  <div className="bg-white rounded-lg border border-[#E5DFD4] p-2.5 col-span-2 sm:col-span-1">
-                    <div className="text-[10px] text-[#6C6356]">المخالفات</div>
-                    <div className="text-lg font-bold text-[#A8443A]">{studentHistory.violations.length}</div>
+                  <div className="bg-red-50 rounded-lg border border-red-200 p-2.5">
+                    <div className="text-[10px] font-bold text-red-900">المخالفات</div>
+                    <div className="text-lg font-bold text-red-950">{studentHistory.violations.length}</div>
                   </div>
                 </div>
 
                 {studentHistory.absences.length > 0 && (
                   <div className="bg-white rounded-lg border border-[#E5DFD4] overflow-hidden">
-                    <div className="px-3 py-2 text-xs font-bold text-[#8A5A18] border-b border-[#E5DFD4]">تفاصيل الغياب حسب التاريخ والحصة</div>
-                    <div className="max-h-40 overflow-y-auto divide-y divide-[#F0EBE2]">
+                    <div className="px-3 py-2 text-xs font-bold text-[#8A5A18] border-b border-[#E5DFD4] flex items-center justify-between">
+                      <span>سجل الغياب (بالساعات وبالأيام)</span>
+                      <span className="text-[10px] text-[#6C6356] font-normal">يتم احتساب المدة تلقائياً بالساعات</span>
+                    </div>
+                    <div className="max-h-52 overflow-y-auto divide-y divide-[#F0EBE2]">
                       {studentHistory.absences.map((absence) => (
-                        <div key={absence.id} className="px-3 py-2 flex items-center justify-between gap-2 text-[11px]">
-                          <span className="font-mono text-[#1F2926]">{absence.recordedDate}</span>
-                          <span className="text-[#6C6356]">{absence.sessionPeriod}</span>
-                          <span className={absence.status === 'late' ? 'text-amber-700 font-bold' : 'text-rose-700 font-bold'}>{absence.status === 'late' ? 'تأخر' : 'غياب'}</span>
+                        <div key={absence.id} className="p-2.5 space-y-1 text-[11px] hover:bg-amber-50/40 transition-colors">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-[#1F2926]">{absence.recordedDate}</span>
+                            <span className="px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                              ⏱️ {absence.durationLabel || absence.sessionPeriod}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${
+                              absence.status === 'late'
+                                ? 'bg-amber-100 text-amber-800'
+                                : 'bg-red-100 text-red-800'
+                            }`}>
+                              {absence.status === 'late' ? 'تأخر' : 'غياب'}
+                            </span>
+                          </div>
+
+                          <div className="text-[10px] text-[#6C6356] flex items-center justify-between gap-2 flex-wrap pt-0.5">
+                            {absence.teacherName && (
+                              <span>
+                                مسجل الغياب: <strong className="text-[#1F2926]">{absence.teacherName}</strong> {absence.teacherSubject ? `(${absence.teacherSubject})` : ''}
+                              </span>
+                            )}
+                            {absence.removerName ? (
+                              <span className="text-emerald-700 font-medium">
+                                سجل حضوره: <strong>{absence.removerName}</strong> {absence.removerSubject ? `(${absence.removerSubject})` : ''}
+                              </span>
+                            ) : absence.isOngoing ? (
+                              <span className="text-amber-800 font-bold bg-amber-100/80 px-1.5 py-0.5 rounded text-[9.5px]">
+                                ⏳ الغياب ما زال مستمراً حتى الآن
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                       ))}
                     </div>

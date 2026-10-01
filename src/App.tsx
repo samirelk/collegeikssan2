@@ -117,9 +117,30 @@ export default function App() {
     seatNum: number;
   } | null>(null);
   const [studentHistory, setStudentHistory] = useState<{
-    absences: Array<{ id: number; status: string; recordedDate: string; sessionPeriod: string; teacherName: string; teacherSubject: string; justified: string }>;
+    absences: Array<{
+      id: number;
+      status: string;
+      recordedDate: string;
+      sessionPeriod: string;
+      teacherName: string;
+      teacherSubject: string;
+      removerName?: string;
+      removerSubject?: string;
+      removedAt?: string | null;
+      absenceMode?: 'hours' | 'days';
+      durationHours?: number;
+      durationDays?: number;
+      durationLabel?: string;
+      isOngoing?: boolean;
+      justified: string;
+      justificationReason?: string;
+      notes?: string;
+      createdAt?: string;
+    }>;
     absenceDays: string[];
     absenceRecordCount: number;
+    totalHours?: number;
+    totalDays?: number;
     violations: Array<{ id: string; violationType: string; actionTaken: string; recordedDate: string; recordedTime: string; teacherName: string }>;
   } | null>(null);
   const [isStudentHistoryLoading, setIsStudentHistoryLoading] = useState(false);
@@ -517,6 +538,45 @@ export default function App() {
     };
   }, [activeSectionId]);
 
+function normalizeArabicText(str?: string): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/\u0640/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ');
+}
+
+function matchClientStudent(
+  targetName: string,
+  targetNum?: string,
+  targetMassar?: string,
+  recordName?: string,
+  recordNum?: string,
+  recordMassar?: string
+): boolean {
+  const tName = normalizeArabicText(targetName);
+  const rName = normalizeArabicText(recordName);
+  if (!tName && !rName) return false;
+
+  const tMassar = (targetMassar || '').trim().toUpperCase();
+  const rMassar = (recordMassar || '').trim().toUpperCase();
+  if (tMassar && rMassar && tMassar === rMassar) return true;
+
+  if (tName && rName && tName === rName) return true;
+
+  if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
+    const tNum = String(targetNum || '').trim();
+    const rNum = String(recordNum || '').trim();
+    if (!tNum || !rNum || tNum === rNum) return true;
+  }
+  return false;
+}
+
   // 6. Update Seat (Name / Number / Roster Link / Status Color / Attendance)
   const handleSeatChange = (
     sectionId: string,
@@ -542,11 +602,41 @@ export default function App() {
     setSections((prev) =>
       prev.map((sec) => {
         if (sec.id !== sectionId) return sec;
+
+        // Collect all positive participations pool for this section
+        const allParts = [
+          ...(sec.seats.flatMap((s) => s.positiveParticipations || [])),
+          ...(sec.roster?.flatMap((r) => r.positiveParticipations || []) || [])
+        ];
+        const seen = new Set<string>();
+        const uniqueParts = allParts.filter((p) => {
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
+          return true;
+        });
+
         return {
           ...sec,
           seats: sec.seats.map((st) => {
             if (st.seat !== seatNum) return st;
-            return { ...st, [field]: value };
+            const updated = { ...st, [field]: value };
+
+            // Positive participations follow the student, not the seat
+            if (field === 'name' || field === 'rosterId') {
+              const effectiveName = (updated.name || '').trim();
+              if (!effectiveName) {
+                updated.positiveParticipations = [];
+                updated.positiveParticipationCount = 0;
+              } else {
+                const studentParts = uniqueParts.filter((p) =>
+                  matchClientStudent(effectiveName, updated.number, updated.massarNumber, p.studentName, p.studentNumber, p.massarNumber)
+                );
+                updated.positiveParticipations = studentParts;
+                updated.positiveParticipationCount = studentParts.reduce((sum, p) => sum + (p.points || 1), 0);
+              }
+            }
+
+            return updated;
           })
         };
       })
@@ -1417,7 +1507,11 @@ export default function App() {
     setStudentHistory(null);
     setIsStudentHistoryLoading(true);
     try {
-      const response = await fetch(`/api/students/${encodeURIComponent(activeSectionId)}/${seat.seat}/history`);
+      const qParams = new URLSearchParams({
+        ...(seat.name ? { studentName: seat.name } : {}),
+        ...(seat.number ? { studentNumber: seat.number } : {})
+      });
+      const response = await fetch(`/api/students/${encodeURIComponent(activeSectionId)}/${seat.seat}/history?${qParams.toString()}`);
       const data = await response.json();
       if (data.success) setStudentHistory(data.history);
     } catch (error) {

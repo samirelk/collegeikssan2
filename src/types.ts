@@ -248,6 +248,7 @@ export interface RosterItem {
   number: string;
   massarNumber?: string;
   positiveParticipationCount?: number;
+  positiveParticipations?: PositiveParticipationItem[];
 }
 
 export interface AssignedTeacherSummary {
@@ -428,6 +429,14 @@ export interface DailyAbsenceItem {
   sessionPeriod?: string;
   teacherName?: string;
   teacherSubject?: string;
+  removerName?: string;
+  removerSubject?: string;
+  removedAt?: string | null;
+  absenceMode?: 'hours' | 'days';
+  durationHours?: number;
+  durationDays?: number;
+  durationLabel?: string;
+  isOngoing?: boolean;
   justified?: AbsenceJustifiedStatus;
   justificationReason?: string;
   notes?: string;

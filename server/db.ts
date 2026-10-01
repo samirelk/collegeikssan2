@@ -392,7 +392,7 @@ export function initDatabase() {
     // Column already exists
   }
 
-  // Ensure attendance_history has extended columns for daily archive
+  // Ensure attendance_history has extended columns for daily archive and duration tracking
   const attendanceCols = [
     "ALTER TABLE attendance_history ADD COLUMN session_period TEXT DEFAULT 'كامل اليوم';",
     "ALTER TABLE attendance_history ADD COLUMN teacher_name TEXT DEFAULT '';",
@@ -403,7 +403,13 @@ export function initDatabase() {
     "ALTER TABLE attendance_history ADD COLUMN created_by TEXT DEFAULT '';",
     "ALTER TABLE attendance_history ADD COLUMN removed_by TEXT DEFAULT '';",
     "ALTER TABLE attendance_history ADD COLUMN removed_at TEXT DEFAULT '';",
-    "ALTER TABLE attendance_history ADD COLUMN count_in_stats INTEGER DEFAULT 1;"
+    "ALTER TABLE attendance_history ADD COLUMN count_in_stats INTEGER DEFAULT 1;",
+    "ALTER TABLE attendance_history ADD COLUMN absence_mode TEXT DEFAULT 'hours';",
+    "ALTER TABLE attendance_history ADD COLUMN duration_hours INTEGER DEFAULT 0;",
+    "ALTER TABLE attendance_history ADD COLUMN duration_days INTEGER DEFAULT 0;",
+    "ALTER TABLE attendance_history ADD COLUMN duration_label TEXT DEFAULT '';",
+    "ALTER TABLE attendance_history ADD COLUMN remover_name TEXT DEFAULT '';",
+    "ALTER TABLE attendance_history ADD COLUMN remover_subject TEXT DEFAULT '';"
   ];
   for (const sql of attendanceCols) {
     try {
@@ -979,6 +985,86 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
 
 // ---------------- Sections Functions ----------------
 
+export function normalizeArabic(str?: string): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '') // remove tashkeel
+    .replace(/\u0640/g, '') // remove tatweel
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ');
+}
+
+export function matchStudent(
+  targetName: string,
+  targetNum?: string,
+  targetMassar?: string,
+  recordName?: string,
+  recordNum?: string,
+  recordMassar?: string
+): boolean {
+  const tName = normalizeArabic(targetName);
+  const rName = normalizeArabic(recordName);
+
+  if (!tName && !rName) return false;
+
+  // 1. If Massar number matches, it's definitively the exact same student
+  const tMassar = (targetMassar || '').trim().toUpperCase();
+  const rMassar = (recordMassar || '').trim().toUpperCase();
+  if (tMassar && rMassar && tMassar === rMassar) {
+    return true;
+  }
+
+  // 2. If Arabic names match exactly after normalization
+  if (tName && rName && tName === rName) {
+    return true;
+  }
+
+  // 3. If one name contains the other (e.g. compound name or slight difference) AND numbers match if both present
+  if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
+    const tNum = String(targetNum || '').trim();
+    const rNum = String(recordNum || '').trim();
+    if (!tNum || !rNum || tNum === rNum) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function calculateHoursDifference(startIso?: string, endIso?: string): number {
+  if (!startIso) return 1;
+  try {
+    const start = new Date(startIso).getTime();
+    const end = endIso ? new Date(endIso).getTime() : Date.now();
+    if (isNaN(start) || isNaN(end) || end <= start) return 1;
+    const diffMs = end - start;
+    const diffMinutes = Math.round(diffMs / (60 * 1000));
+    // Display in full integer hours only (without minutes) as requested
+    const hours = Math.max(1, Math.round(diffMinutes / 60));
+    return hours;
+  } catch {
+    return 1;
+  }
+}
+
+export function formatHoursInArabic(hours: number): string {
+  if (hours <= 1) return '1 ساعة';
+  if (hours === 2) return '2 ساعات';
+  if (hours >= 3 && hours <= 10) return `${hours} ساعات`;
+  return `${hours} ساعة`;
+}
+
+export function formatDaysInArabic(days: number): string {
+  if (days <= 1) return '1 يوم';
+  if (days === 2) return '2 يومان';
+  if (days >= 3 && days <= 10) return `${days} أيام`;
+  return `${days} يوم`;
+}
+
 export function getAllSections(teacherFilterId?: string, viewerId?: string, viewerRole?: string): SectionItem[] {
   let query = `
     SELECT s.*, u.full_name as assigned_teacher_name
@@ -1108,18 +1194,12 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
         resolvedAttendance = (found?.attendance as any) || null;
       }
 
-      // Match violations to the student occupying this seat (not just the chair)
+      // Match violations & positive participations strictly to the STUDENT occupying this seat (never to the chair)
       let seatViols: any[] = [];
       let seatPos: any[] = [];
       if (studentName && studentName.trim() !== '') {
-        const cleanName = studentName.trim().toLowerCase();
-        const cleanNum = String(studentNumber || '').trim();
         seatViols = violRows
-          .filter((v: any) => {
-            if (cleanNum && v.student_number && String(v.student_number).trim() === cleanNum) return true;
-            if (v.student_name && v.student_name.trim().toLowerCase() === cleanName) return true;
-            return false;
-          })
+          .filter((v: any) => matchStudent(studentName, studentNumber, massarNumber, v.student_name, v.student_number, v.massar_number))
           .map((v: any) => ({
             id: v.id,
             sectionId: v.section_id,
@@ -1137,11 +1217,7 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
           }));
 
         seatPos = posRows
-          .filter((p: any) => {
-            if (cleanNum && p.student_number && String(p.student_number).trim() === cleanNum) return true;
-            if (p.student_name && p.student_name.trim().toLowerCase() === cleanName) return true;
-            return false;
-          })
+          .filter((p: any) => matchStudent(studentName, studentNumber, massarNumber, p.student_name, p.student_number, p.massar_number))
           .map((p: any) => ({
             id: p.id,
             sectionId: p.section_id,
@@ -1178,17 +1254,29 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     }
 
     const roster = sectionRoster.map((r) => {
-      const cleanName = (r.name || '').trim().toLowerCase();
-      const cleanNum = String(r.number || '').trim();
-      const studentPos = posRows.filter((p: any) => {
-        if (cleanNum && p.student_number && String(p.student_number).trim() === cleanNum) return true;
-        if (p.student_name && p.student_name.trim().toLowerCase() === cleanName) return true;
-        return false;
-      });
+      const studentPos = posRows
+        .filter((p: any) => matchStudent(r.name, r.number, r.massarNumber, p.student_name, p.student_number, p.massar_number))
+        .map((p: any) => ({
+          id: p.id,
+          sectionId: p.section_id,
+          seatNum: undefined,
+          studentName: p.student_name,
+          studentNumber: p.student_number,
+          massarNumber: p.massar_number,
+          participationType: p.participation_type,
+          points: Number(p.points || 1),
+          note: p.note || '',
+          teacherName: p.teacher_name,
+          teacherSubject: p.teacher_subject,
+          recordedDate: p.recorded_date,
+          recordedTime: p.recorded_time,
+          createdAt: p.created_at
+        }));
       const posCount = studentPos.reduce((sum: number, p: any) => sum + (p.points || 1), 0);
       return {
         ...r,
-        positiveParticipationCount: posCount
+        positiveParticipationCount: posCount,
+        positiveParticipations: studentPos
       };
     });
 
@@ -1569,8 +1657,9 @@ export function updateSeat(
           INSERT INTO attendance_history (
             section_id, seat_num, student_name, student_number,
             status, recorded_date, session_period, teacher_name, teacher_subject,
-            justified, created_at, created_by, removed_by, removed_at, count_in_stats
-          ) VALUES (?, ?, ?, ?, ?, ?, 'كامل اليوم', ?, ?, 'unjustified', ?, ?, '', '', 1)
+            justified, created_at, created_by, removed_by, removed_at, count_in_stats,
+            absence_mode, duration_hours, duration_days, duration_label
+          ) VALUES (?, ?, ?, ?, ?, ?, 'غياب بالساعات', ?, ?, 'unjustified', ?, ?, '', '', 1, 'hours', 1, 0, '1 ساعة (جاري)')
         `).run(
           sectionId,
           targetSeatNum,
@@ -1596,11 +1685,15 @@ export function updateSeat(
               status: attendance,
               date: today,
               time: now.slice(11, 16),
-              session: 'كامل اليوم',
+              session: 'غياب بالساعات',
               subject: secInfo?.teacher_subject || '',
               teacherName: secInfo?.teacher_name || '',
               isJustified: false,
               justificationReason: '',
+              absenceMode: 'hours',
+              durationHours: 1,
+              durationDays: 0,
+              durationLabel: '1 ساعة (جاري)',
               createdAt: now
             });
           } catch {}
@@ -1615,6 +1708,9 @@ export function updateSeat(
             created_by = COALESCE(NULLIF(?, ''), created_by),
             removed_by = '',
             removed_at = '',
+            remover_name = '',
+            remover_subject = '',
+            duration_label = '1 ساعة (جاري)',
             count_in_stats = 1
           WHERE id = ?
         `).run(attendance, targetSeatNum, name.trim(), number.trim(), actorId || '', existing.id);
@@ -1631,11 +1727,13 @@ export function updateSeat(
               status: attendance,
               date: today,
               time: now.slice(11, 16),
-              session: 'كامل اليوم',
+              session: existing.session_period || 'غياب بالساعات',
               subject: secInfo?.teacher_subject || '',
               teacherName: secInfo?.teacher_name || '',
               isJustified: false,
               justificationReason: '',
+              absenceMode: existing.absence_mode || 'hours',
+              durationLabel: '1 ساعة (جاري)',
               createdAt: existing.created_at || now
             });
           } catch {}
@@ -1655,24 +1753,50 @@ export function updateSeat(
 
       if (absenceRow) {
         const sameTeacher = actorId && absenceRow.created_by && actorId === absenceRow.created_by;
-        const withinFourHours = !!absenceRow.created_at && (Date.parse(now) - Date.parse(absenceRow.created_at)) <= 4 * 60 * 60 * 1000;
-        const shouldIgnoreFromStats = sameTeacher && withinFourHours;
+        const diffMs = !!absenceRow.created_at ? (Date.parse(now) - Date.parse(absenceRow.created_at)) : 0;
+        // If the SAME teacher toggles back within 2 minutes, it's an immediate misclick undo
+        const isQuickUndo = sameTeacher && diffMs <= 2 * 60 * 1000;
+
+        // Fetch remover teacher details
+        let removerName = '';
+        let removerSubject = '';
+        if (actorId) {
+          const removerUser = db.prepare('SELECT full_name, subject FROM users WHERE id = ?').get(actorId) as any;
+          if (removerUser) {
+            removerName = removerUser.full_name || '';
+            removerSubject = removerUser.subject || '';
+          }
+        }
+
+        // Automatic duration calculation in full hours without minutes (مثل: 1 ساعة، 2 ساعات، 3 ساعات)
+        const hours = calculateHoursDifference(absenceRow.created_at, now);
+        const durationLabel = formatHoursInArabic(hours);
 
         db.prepare(`
           UPDATE attendance_history SET
             removed_by = ?,
             removed_at = ?,
+            remover_name = ?,
+            remover_subject = ?,
+            duration_hours = ?,
+            duration_label = ?,
             count_in_stats = ?
           WHERE id = ?
-        `).run(actorId || '', now, shouldIgnoreFromStats ? 0 : 1, absenceRow.id);
+        `).run(actorId || '', now, removerName, removerSubject, hours, durationLabel, isQuickUndo ? 0 : 1, absenceRow.id);
 
         if (!data.skipCloudSync) {
           try {
-            if (shouldIgnoreFromStats) {
+            if (isQuickUndo) {
               cloudDeleteAttendance(String(absenceRow.id));
             } else {
               cloudSaveAttendance({
                 ...absenceRow,
+                removedBy: actorId || '',
+                removedAt: now,
+                removerName,
+                removerSubject,
+                durationHours: hours,
+                durationLabel,
                 countInStats: 1
               });
             }
@@ -5701,6 +5825,8 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
            COALESCE(s.massar_number, '') as massar_number,
            ah.status, ah.recorded_date, ah.session_period, ah.teacher_name, ah.teacher_subject,
            ah.justified, ah.justification_reason, ah.notes, ah.created_at,
+           ah.remover_name, ah.remover_subject, ah.removed_at,
+           ah.absence_mode, ah.duration_hours, ah.duration_days, ah.duration_label,
            sec.level as section_level, sec.class_number as section_class,
            sec.roster_json
     FROM attendance_history ah
@@ -5808,6 +5934,27 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
         } catch {}
       }
 
+      let durationHours = Number(r.duration_hours || 0);
+      let durationDays = Number(r.duration_days || 0);
+      let durationLabel = r.duration_label || '';
+      let isOngoing = false;
+
+      const isDayAbsence = r.absence_mode === 'days' || r.session_period === 'كامل اليوم';
+
+      if (isDayAbsence) {
+        durationDays = 1;
+        durationLabel = '1 يوم (يوم كامل)';
+      } else {
+        if (r.removed_at) {
+          if (!durationHours) durationHours = calculateHoursDifference(r.created_at, r.removed_at);
+          durationLabel = formatHoursInArabic(durationHours);
+        } else {
+          durationHours = calculateHoursDifference(r.created_at, new Date().toISOString());
+          durationLabel = `${formatHoursInArabic(durationHours)} (جاري)`;
+          isOngoing = true;
+        }
+      }
+
       return {
         id: r.id,
         sectionId: r.section_id,
@@ -5819,9 +5966,17 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
         massarNumber: massar,
         status: r.status || 'absent',
         recordedDate: r.recorded_date,
-        sessionPeriod: r.session_period || 'كامل اليوم',
+        sessionPeriod: isDayAbsence ? 'كامل اليوم' : durationLabel,
         teacherName: r.teacher_name || '',
         teacherSubject: r.teacher_subject || '',
+        removerName: r.remover_name || '',
+        removerSubject: r.remover_subject || '',
+        removedAt: r.removed_at || null,
+        absenceMode: isDayAbsence ? 'days' : 'hours',
+        durationHours,
+        durationDays,
+        durationLabel,
+        isOngoing,
         justified: r.justified || 'unjustified',
         justificationReason: r.justification_reason || '',
         notes: r.notes || '',
@@ -5887,7 +6042,9 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
   if (targetName || targetNumber) {
     absences = db.prepare(`
       SELECT id, status, recorded_date, session_period, teacher_name, teacher_subject,
-             justified, justification_reason, notes, created_at
+             justified, justification_reason, notes, created_at, created_by,
+             removed_by, removed_at, remover_name, remover_subject,
+             absence_mode, duration_hours, duration_days, duration_label
       FROM attendance_history
       WHERE section_id = ? AND (
         (student_number != '' AND student_number = ?)
@@ -5911,7 +6068,9 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
   } else {
     absences = db.prepare(`
       SELECT id, status, recorded_date, session_period, teacher_name, teacher_subject,
-             justified, justification_reason, notes, created_at
+             justified, justification_reason, notes, created_at, created_by,
+             removed_by, removed_at, remover_name, remover_subject,
+             absence_mode, duration_hours, duration_days, duration_label
       FROM attendance_history
       WHERE section_id = ? AND seat_num = ?
       ORDER BY recorded_date DESC, created_at DESC
@@ -5933,23 +6092,65 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
       .filter(Boolean)
   ));
 
-  return {
-    studentName: targetName,
-    studentNumber: targetNumber,
-    absences: absences.map((absence) => ({
+  let totalHours = 0;
+  let totalDays = 0;
+
+  const mappedAbsences = absences.map((absence) => {
+    let durationHours = Number(absence.duration_hours || 0);
+    let durationDays = Number(absence.duration_days || 0);
+    let durationLabel = absence.duration_label || '';
+    let isOngoing = false;
+
+    const isDayAbsence = absence.absence_mode === 'days' || absence.session_period === 'كامل اليوم';
+
+    if (isDayAbsence) {
+      durationDays = 1;
+      durationLabel = '1 يوم (يوم كامل)';
+      if (absence.status === 'absent') totalDays += 1;
+    } else {
+      // Hours-based absence
+      if (absence.removed_at) {
+        if (!durationHours) durationHours = calculateHoursDifference(absence.created_at, absence.removed_at);
+        durationLabel = formatHoursInArabic(durationHours);
+      } else {
+        // Still ongoing absence
+        durationHours = calculateHoursDifference(absence.created_at, new Date().toISOString());
+        durationLabel = `${formatHoursInArabic(durationHours)} (جاري)`;
+        isOngoing = true;
+      }
+      if (absence.status === 'absent') totalHours += durationHours;
+    }
+
+    return {
       id: absence.id,
       status: absence.status,
       recordedDate: absence.recorded_date,
-      sessionPeriod: absence.session_period || 'كامل اليوم',
+      sessionPeriod: isDayAbsence ? 'كامل اليوم' : durationLabel,
       teacherName: absence.teacher_name || '',
       teacherSubject: absence.teacher_subject || '',
+      removerName: absence.remover_name || '',
+      removerSubject: absence.remover_subject || '',
+      removedAt: absence.removed_at || null,
+      absenceMode: isDayAbsence ? 'days' : 'hours',
+      durationHours,
+      durationDays,
+      durationLabel,
+      isOngoing,
       justified: absence.justified || 'unjustified',
       justificationReason: absence.justification_reason || '',
       notes: absence.notes || '',
       createdAt: absence.created_at
-    })),
+    };
+  });
+
+  return {
+    studentName: targetName,
+    studentNumber: targetNumber,
+    absences: mappedAbsences,
     absenceDays: days,
-    absenceRecordCount: absences.filter((absence) => absence.status === 'absent').length,
+    absenceRecordCount: mappedAbsences.filter((absence) => absence.status === 'absent').length,
+    totalHours,
+    totalDays,
     violations: violations.map((violation) => ({
       id: violation.id,
       violationType: violation.violation_type,
@@ -5972,6 +6173,9 @@ export function addDailyAbsence(data: {
   status?: 'absent' | 'late';
   recordedDate?: string;
   sessionPeriod?: string;
+  absenceMode?: 'hours' | 'days';
+  durationHours?: number;
+  durationDays?: number;
   teacherName?: string;
   teacherSubject?: string;
   justified?: string;
@@ -5982,6 +6186,12 @@ export function addDailyAbsence(data: {
   const date = data.recordedDate && data.recordedDate.trim() ? data.recordedDate.trim() : now.slice(0, 10);
   const status = data.status || 'absent';
   const seatNum = data.seatNum || 0;
+
+  const isDay = data.absenceMode === 'days' || (data.sessionPeriod && data.sessionPeriod.includes('يوم'));
+  const absenceMode = isDay ? 'days' : 'hours';
+  const durationHours = isDay ? 0 : (data.durationHours || 1);
+  const durationDays = isDay ? (data.durationDays || 1) : 0;
+  const durationLabel = isDay ? formatDaysInArabic(durationDays) : formatHoursInArabic(durationHours);
 
   let teacherName = data.teacherName || '';
   let teacherSubject = data.teacherSubject || '';
@@ -6002,8 +6212,9 @@ export function addDailyAbsence(data: {
     INSERT INTO attendance_history (
       section_id, seat_num, student_name, student_number,
       status, recorded_date, session_period, teacher_name, teacher_subject,
-      justified, justification_reason, notes, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      justified, justification_reason, notes, created_at,
+      absence_mode, duration_hours, duration_days, duration_label
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     data.sectionId,
     seatNum,
@@ -6011,13 +6222,17 @@ export function addDailyAbsence(data: {
     (data.studentNumber || '').trim(),
     status,
     date,
-    data.sessionPeriod || 'كامل اليوم',
+    data.sessionPeriod || (isDay ? 'كامل اليوم' : durationLabel),
     teacherName,
     teacherSubject,
     data.justified || 'unjustified',
     (data.justificationReason || '').trim(),
     (data.notes || '').trim(),
-    now
+    now,
+    absenceMode,
+    durationHours,
+    durationDays,
+    durationLabel
   );
 
   return { success: true, id: res.lastInsertRowid };
@@ -6947,13 +7162,41 @@ export function addPositiveParticipation(data: {
   let studentNumber = (data.studentNumber || '').trim();
   let massarNumber = (data.massarNumber || '').trim();
 
-  if ((!studentName || !studentNumber) && data.seatNum && data.sectionId) {
-    const seat = db.prepare('SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ?').get(data.sectionId, data.seatNum) as any;
-    if (seat) {
-      if (!studentName && seat.student_name) studentName = seat.student_name;
-      if (!studentNumber && seat.student_number) studentNumber = seat.student_number;
-      if (!massarNumber && seat.massar_number) massarNumber = seat.massar_number;
+  // If student name not explicitly provided, find the student CURRENTLY occupying this seat
+  if (!studentName && data.seatNum && data.sectionId) {
+    let seat: any = null;
+    if (data.teacherId) {
+      seat = db.prepare('SELECT student_name, student_number, massar_number FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(data.teacherId, data.sectionId, data.seatNum) as any;
     }
+    if (!seat || !seat.student_name) {
+      seat = db.prepare('SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ?').get(data.sectionId, data.seatNum) as any;
+    }
+    if (seat && seat.student_name) {
+      studentName = seat.student_name.trim();
+      if (!studentNumber && seat.student_number) studentNumber = String(seat.student_number).trim();
+      if (!massarNumber && seat.massar_number) massarNumber = String(seat.massar_number).trim();
+    }
+  }
+
+  // Enrich with roster details if available to ensure student identity integrity
+  if (studentName && data.sectionId) {
+    const secInfo = db.prepare('SELECT roster_json FROM sections WHERE id = ?').get(data.sectionId) as any;
+    if (secInfo && secInfo.roster_json) {
+      try {
+        const roster = JSON.parse(secInfo.roster_json);
+        const matchedRoster = roster.find((r: any) =>
+          matchStudent(r.name, r.number, r.massarNumber, studentName, studentNumber, massarNumber)
+        );
+        if (matchedRoster) {
+          if (!studentNumber && matchedRoster.number) studentNumber = String(matchedRoster.number).trim();
+          if (!massarNumber && matchedRoster.massarNumber) massarNumber = String(matchedRoster.massarNumber).trim();
+        }
+      } catch {}
+    }
+  }
+
+  if (!studentName) {
+    throw new Error('لا يمكن تسجيل مشاركة إيجابية لمقعد فارغ بدون تلميذ. يرجى تعيين تلميذ في المقعد أولاً.');
   }
 
   let teacherName = (data.teacherName || '').trim();
@@ -6998,7 +7241,7 @@ export function addPositiveParticipation(data: {
   cloudSavePositiveParticipation({
     id,
     sectionId: data.sectionId,
-    seatNum: data.seatNum,
+    seatNum: data.seatNum || null,
     studentName,
     studentNumber,
     massarNumber,
@@ -7016,7 +7259,7 @@ export function addPositiveParticipation(data: {
   return {
     id,
     sectionId: data.sectionId,
-    seatNum: data.seatNum,
+    seatNum: data.seatNum || null,
     studentName,
     studentNumber,
     massarNumber,
@@ -7054,7 +7297,36 @@ export function getPositiveParticipationsBySection(sectionId: string, teacherId?
     params.push(teacherId);
   }
   query += ' ORDER BY created_at DESC';
-  return db.prepare(query).all(...params);
+  const participations = db.prepare(query).all(...params) as any[];
+
+  // Dynamically resolve each participation's CURRENT seat based on where the student is currently sitting
+  const currentSeats = teacherId
+    ? db.prepare(`
+        SELECT seat_num, student_name, student_number, massar_number
+        FROM teacher_seat_overrides
+        WHERE teacher_id = ? AND section_id = ? AND student_name != ''
+        UNION
+        SELECT seat_num, student_name, student_number, massar_number
+        FROM seats
+        WHERE section_id = ? AND student_name != '' AND seat_num NOT IN (
+          SELECT seat_num FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ?
+        )
+      `).all(teacherId, sectionId, sectionId, teacherId, sectionId) as any[]
+    : db.prepare(`
+        SELECT seat_num, student_name, student_number, massar_number
+        FROM seats
+        WHERE section_id = ? AND student_name != ''
+      `).all(sectionId) as any[];
+
+  return participations.map((p) => {
+    const matchedSeat = currentSeats.find((s) =>
+      matchStudent(s.student_name, s.student_number, s.massar_number, p.studentName, p.studentNumber, p.massarNumber)
+    );
+    return {
+      ...p,
+      seatNum: matchedSeat ? matchedSeat.seat_num : null
+    };
+  });
 }
 
 
