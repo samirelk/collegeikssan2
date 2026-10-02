@@ -166,6 +166,37 @@ CREATE TABLE IF NOT EXISTS `notes` (
   FOREIGN KEY (`section_id`) REFERENCES `sections`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS `academic_years` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `name` VARCHAR(32) NOT NULL UNIQUE,
+  `start_date` DATE NOT NULL,
+  `end_date` DATE NOT NULL,
+  `is_current` TINYINT(1) NOT NULL DEFAULT 0,
+  `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+  `notes` TEXT DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `archived_at` DATETIME DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `section_assignments` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `teacher_id` VARCHAR(64) NOT NULL,
+  `section_id` VARCHAR(64) NOT NULL,
+  `status` VARCHAR(32) NOT NULL DEFAULT 'pending',
+  `request_note` TEXT DEFAULT NULL,
+  `requested_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `reviewed_at` DATETIME DEFAULT NULL,
+  `reviewed_by` VARCHAR(64) DEFAULT NULL,
+  `academic_year` VARCHAR(32) DEFAULT NULL,
+  `subject` VARCHAR(64) DEFAULT 'الرياضيات',
+  INDEX `idx_sa_teacher` (`teacher_id`),
+  INDEX `idx_sa_section` (`section_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `academic_years` (`id`, `name`, `start_date`, `end_date`, `is_current`, `is_archived`, `notes`)
+VALUES ('ay_2026_2027', '2026/2027', '2026-09-01', '2027-07-30', 1, 0, 'الموسم الدراسي الافتراضي')
+ON DUPLICATE KEY UPDATE `name`=VALUES(`name`);
+
 INSERT INTO `app_settings` (`key_name`, `value`) VALUES
 ('institution', 'الثانوية الإعدادية ايكسان'),
 ('year', '2026/2027'),

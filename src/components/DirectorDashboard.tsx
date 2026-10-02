@@ -43,6 +43,7 @@ import { AdminDirectorsManagement } from './AdminDirectorsManagement';
 import { DailyArchiveModal } from './DailyArchiveModal';
 import { AcademicYearsManagement } from './AcademicYearsManagement';
 import { ViolationTypesManagement } from './ViolationTypesManagement';
+import { safeApiFetch } from '../utils/apiClient';
 import { TeacherExcelImportModal } from './TeacherExcelImportModal';
 import { DirectorPrintModal } from './DirectorPrintModal';
 
@@ -161,11 +162,11 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         'x-user-role': currentUser.role
       };
       const [analyticsRes, teachersRes] = await Promise.all([
-        fetch('/api/director/analytics', { headers: authHeaderOnly }).then((r) => r.json()),
-        fetch('/api/auth/teachers', { headers: authHeaderOnly }).then((r) => r.json())
+        safeApiFetch('/api/director/analytics', { headers: authHeaderOnly }).catch(() => ({ success: true })),
+        safeApiFetch('/api/auth/teachers', { headers: authHeaderOnly }).catch(() => ({ success: true, teachers: [] }))
       ]);
 
-      if (analyticsRes.success) {
+      if (analyticsRes && analyticsRes.success) {
         setAnalytics({
           topViolations: analyticsRes.topViolations || [],
           topAbsences: analyticsRes.topAbsences || [],
@@ -182,7 +183,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         });
       }
 
-      if (teachersRes.success && Array.isArray(teachersRes.teachers)) {
+      if (teachersRes && teachersRes.success && Array.isArray(teachersRes.teachers)) {
         setTeachers(teachersRes.teachers);
       }
     } catch (err: any) {

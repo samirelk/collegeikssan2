@@ -14,6 +14,7 @@ import {
   CalendarDays
 } from 'lucide-react';
 import { AcademicYearItem, User as UserType } from '../types';
+import { safeApiFetch } from '../utils/apiClient';
 
 interface AcademicYearsManagementProps {
   currentUser: UserType;
@@ -58,15 +59,14 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
     setIsLoading(true);
     setErrorMessage(null);
     try {
-      const res = await fetch('/api/academic-years');
-      const data = await res.json();
-      if (data.success) {
+      const data = await safeApiFetch('/api/academic-years');
+      if (data && data.success) {
         setAcademicYears(data.academicYears || []);
       } else {
-        setErrorMessage(data.error || 'تعذر تحميل قائمة المواسم الدراسية');
+        setErrorMessage(data?.error || 'تعذر تحميل قائمة المواسم الدراسية');
       }
-    } catch {
-      setErrorMessage('خطأ في الاتصال بالخادم لتحميل المواسم الدراسية');
+    } catch (err: any) {
+      setErrorMessage(err.message || 'خطأ في الاتصال بالخادم لتحميل المواسم الدراسية');
     } finally {
       setIsLoading(false);
     }
@@ -102,7 +102,7 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
     setIsSubmitting(true);
 
     try {
-      const res = await fetch('/api/academic-years', {
+      const data = await safeApiFetch('/api/academic-years', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -114,9 +114,8 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
         })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'تعذر إضافة الموسم الدراسي');
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'تعذر إضافة الموسم الدراسي');
       }
 
       setAcademicYears(data.academicYears || []);
@@ -139,11 +138,10 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
     setErrorMessage(null);
     setSuccessMessage(null);
     try {
-      const res = await fetch(`/api/academic-years/${year.id}/set-current`, {
+      const data = await safeApiFetch(`/api/academic-years/${year.id}/set-current`, {
         method: 'PUT'
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'تعذر تغيير الموسم الدراسي الحالي');
+      if (!data || !data.success) throw new Error(data?.error || 'تعذر تغيير الموسم الدراسي الحالي');
 
       setAcademicYears(data.academicYears || []);
       setSuccessMessage(`تم تفعيل الموسم الدراسي (${year.name}) كموسم نشط للمؤسسة`);
@@ -161,11 +159,10 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
     setIsArchiving(true);
     setErrorMessage(null);
     try {
-      const res = await fetch(`/api/academic-years/${archiveTarget.id}/archive`, {
+      const data = await safeApiFetch(`/api/academic-years/${archiveTarget.id}/archive`, {
         method: 'PUT'
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'تعذر أرشفة الموسم الدراسي');
+      if (!data || !data.success) throw new Error(data?.error || 'تعذر أرشفة الموسم الدراسي');
 
       setAcademicYears(data.academicYears || []);
       setSuccessMessage(`تمت أرشفة الموسم الدراسي (${archiveTarget.name}) بنجاح وحفظ كافة بياناته.`);
@@ -182,11 +179,10 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
     setActionLoadingId(year.id);
     setErrorMessage(null);
     try {
-      const res = await fetch(`/api/academic-years/${year.id}/unarchive`, {
+      const data = await safeApiFetch(`/api/academic-years/${year.id}/unarchive`, {
         method: 'PUT'
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'تعذر إلغاء الأرشفة');
+      if (!data || !data.success) throw new Error(data?.error || 'تعذر إلغاء الأرشفة');
 
       setAcademicYears(data.academicYears || []);
       setSuccessMessage(`تم إلغاء أرشفة الموسم الدراسي (${year.name})`);
@@ -203,11 +199,10 @@ export const AcademicYearsManagement: React.FC<AcademicYearsManagementProps> = (
     setIsDeleting(true);
     setErrorMessage(null);
     try {
-      const res = await fetch(`/api/academic-years/${deleteTarget.id}`, {
+      const data = await safeApiFetch(`/api/academic-years/${deleteTarget.id}`, {
         method: 'DELETE'
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'تعذر حذف الموسم الدراسي');
+      if (!data || !data.success) throw new Error(data?.error || 'تعذر حذف الموسم الدراسي');
 
       setAcademicYears(data.academicYears || []);
       setSuccessMessage(`تم حذف الموسم الدراسي (${deleteTarget.name}) بنجاح`);

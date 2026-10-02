@@ -84,14 +84,53 @@ if (isset($segments[0]) && $segments[0] === 'auth') {
         }
     }
 
-    // قائمة المستخدمين للمدير
-    if ($action === 'users' && $method === 'GET') {
-        $stmt = $pdo->query("SELECT id, username, email, full_name as fullName, role, status, subject, academic_year as academicYear, created_at as createdAt FROM users ORDER BY created_at DESC");
-        jsonResponse(['success' => true, 'users' => $stmt->fetchAll()]);
+    // قائمة المستخدمين أو الأساتذة للمدير
+    if (($action === 'users' || $action === 'teachers') && $method === 'GET') {
+        $stmt = $pdo->query("SELECT id, username, email, full_name as fullName, role, status, subject, academic_year as academicYear, email_verified as emailVerified, created_at as createdAt FROM users WHERE role = 'teacher' OR ? = 'users' ORDER BY created_at DESC");
+        $stmt->execute([$action]);
+        $rows = $stmt->fetchAll();
+        jsonResponse(['success' => true, 'users' => $rows, 'teachers' => $rows]);
     }
 
-    // تعديل حالة مستخدم (قبول / رفض / حذف)
-    if ($action === 'users' && isset($segments[1]) && isset($segments[2]) && $segments[2] === 'status' && $method === 'PUT') {
+    // إنشاء أستاذ مفعل مباشرة من الإدارة
+    if (($action === 'admin-create-teacher' || $action === 'teachers') && $method === 'POST') {
+        $input = getJsonInput();
+        $id = 'usr_' . bin2hex(random_bytes(8));
+        $username = trim($input['username'] ?? '');
+        $email = trim($input['email'] ?? '');
+        $fullName = trim($input['fullName'] ?? '');
+        $password = password_hash($input['password'] ?? '123456', PASSWORD_DEFAULT);
+        $role = 'teacher';
+        $subject = $input['subject'] ?? 'الرياضيات';
+
+        try {
+            $stmt = $pdo->prepare("INSERT INTO users (id, username, email, password, full_name, role, status, subject, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, 1)");
+            $stmt->execute([$id, $username, $email, $password, $fullName, $role, $subject]);
+            jsonResponse(['success' => true, 'message' => 'تم إنشاء حساب الأستاذ وتفعيله بنجاح']);
+        } catch (PDOException $e) {
+            jsonResponse(['success' => false, 'error' => 'اسم المستخدم أو البريد الإلكتروني مسجل مسبقاً']);
+        }
+    }
+
+    // تفعيل البريد الإلكتروني يدوياً
+    if ($action === 'manual-verify-email' && $method === 'POST') {
+        $input = getJsonInput();
+        $email = trim($input['email'] ?? '');
+        $pdo->prepare("UPDATE users SET email_verified = 1 WHERE email = ?")->execute([$email]);
+        jsonResponse(['success' => true, 'message' => 'تم تأكيد البريد الإلكتروني بنجاح']);
+    }
+
+    // إعادة تعيين كلمة مرور أستاذ
+    if (($action === 'teachers' || $action === 'users') && isset($segments[2]) && $segments[2] === 'reset-password' && $method === 'PUT') {
+        $targetId = $segments[1];
+        $input = getJsonInput();
+        $newPass = password_hash($input['password'] ?? '123456', PASSWORD_DEFAULT);
+        $pdo->prepare("UPDATE users SET password = ? WHERE id = ?")->execute([$newPass, $targetId]);
+        jsonResponse(['success' => true, 'message' => 'تمت إعادة تعيين كلمة المرور بنجاح']);
+    }
+
+    // تعديل حالة مستخدم أو أستاذ (قبول / تفعيل / تعطيل)
+    if (($action === 'users' || $action === 'teachers') && isset($segments[1]) && isset($segments[2]) && $segments[2] === 'status' && $method === 'PUT') {
         $targetId = $segments[1];
         $input = getJsonInput();
         $newStatus = $input['status'] ?? 'active';
@@ -99,6 +138,13 @@ if (isset($segments[0]) && $segments[0] === 'auth') {
         $stmt = $pdo->prepare("UPDATE users SET status = ? WHERE id = ?");
         $stmt->execute([$newStatus, $targetId]);
         jsonResponse(['success' => true, 'message' => 'تم تحديث حالة المستخدم بنجاح']);
+    }
+
+    // حذف أستاذ
+    if (($action === 'teachers' || $action === 'users') && isset($segments[1]) && $method === 'DELETE') {
+        $targetId = $segments[1];
+        $pdo->prepare("DELETE FROM users WHERE id = ?")->execute([$targetId]);
+        jsonResponse(['success' => true, 'message' => 'تم حذف المستخدم بنجاح']);
     }
 }
 
@@ -547,6 +593,263 @@ if ($segments[0] === 'daily-archive') {
 }
 
 // -------------------------------------------------------------
-// المسار الافتراضي (404 Not Found)
+// 7. المواسم الدراسية (Academic Years)
 // -------------------------------------------------------------
-jsonResponse(['success' => false, 'error' => 'مسار واجهة البرمجة غير موجود: ' . $path], 404);
+if ($segments[0] === 'academic-years') {
+    // التأكد من وجود جدول المواسم الدراسية تلقائياً
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `academic_years` (
+          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+          `name` VARCHAR(32) NOT NULL UNIQUE,
+          `start_date` DATE NOT NULL,
+          `end_date` DATE NOT NULL,
+          `is_current` TINYINT(1) NOT NULL DEFAULT 0,
+          `is_archived` TINYINT(1) NOT NULL DEFAULT 0,
+          `notes` TEXT DEFAULT NULL,
+          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          `archived_at` DATETIME DEFAULT NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+
+        $chkYear = $pdo->query("SELECT COUNT(*) FROM `academic_years`")->fetchColumn();
+        if ($chkYear == 0) {
+            $pdo->exec("INSERT INTO `academic_years` (`id`, `name`, `start_date`, `end_date`, `is_current`, `is_archived`, `notes`)
+            VALUES ('ay_2026_2027', '2026/2027', '2026-09-01', '2027-07-30', 1, 0, 'الموسم الدراسي الافتراضي')");
+        }
+    } catch (Exception $e) {}
+
+    $subId = $segments[1] ?? '';
+    $subAction = $segments[2] ?? '';
+
+    // جلب كافة المواسم الدراسية
+    if ($method === 'GET' && empty($subId)) {
+        $stmt = $pdo->query("SELECT id, name, start_date as startDate, end_date as endDate, is_current as isCurrent, is_archived as isArchived, notes, created_at as createdAt, archived_at as archivedAt FROM academic_years ORDER BY start_date DESC");
+        $rows = $stmt->fetchAll();
+        $formatted = array_map(function($r) {
+            $r['isCurrent'] = (bool)$r['isCurrent'];
+            $r['isArchived'] = (bool)$r['isArchived'];
+            return $r;
+        }, $rows);
+        jsonResponse(['success' => true, 'academicYears' => $formatted]);
+    }
+
+    // إضافة موسم دراسي جديد
+    if ($method === 'POST' && empty($subId)) {
+        $input = getJsonInput();
+        $name = trim($input['name'] ?? '');
+        if (!$name) {
+            jsonResponse(['success' => false, 'error' => 'اسم الموسم الدراسي مطلوب (مثال: 2026/2027)']);
+        }
+
+        $startDate = trim($input['startDate'] ?? '');
+        $endDate = trim($input['endDate'] ?? '');
+        if (!$startDate || !$endDate) {
+            $parts = preg_split('/[\/\-_]/', $name);
+            $startYear = isset($parts[0]) ? (int)$parts[0] : 2026;
+            if ($startYear >= 2000 && $startYear <= 2100) {
+                if (!$startDate) $startDate = "{$startYear}-09-01";
+                if (!$endDate) $endDate = ($startYear + 1) . "-07-30";
+            } else {
+                if (!$startDate) $startDate = '2026-09-01';
+                if (!$endDate) $endDate = '2027-07-30';
+            }
+        }
+
+        $isCurrent = !empty($input['isCurrent']) ? 1 : 0;
+        $notes = trim($input['notes'] ?? '');
+        $id = 'ay_' . bin2hex(random_bytes(6));
+
+        try {
+            if ($isCurrent === 1) {
+                $pdo->exec("UPDATE academic_years SET is_current = 0");
+                $pdo->prepare("INSERT INTO app_settings (key_name, value) VALUES ('year', ?) ON DUPLICATE KEY UPDATE value = ?")->execute([$name, $name]);
+                $pdo->prepare("UPDATE users SET academic_year = ?")->execute([$name]);
+            }
+
+            $stmt = $pdo->prepare("INSERT INTO academic_years (id, name, start_date, end_date, is_current, is_archived, notes, created_at) VALUES (?, ?, ?, ?, ?, 0, ?, NOW())");
+            $stmt->execute([$id, $name, $startDate, $endDate, $isCurrent, $notes]);
+
+            $all = $pdo->query("SELECT id, name, start_date as startDate, end_date as endDate, is_current as isCurrent, is_archived as isArchived, notes, created_at as createdAt, archived_at as archivedAt FROM academic_years ORDER BY start_date DESC")->fetchAll();
+            $formatted = array_map(function($r) {
+                $r['isCurrent'] = (bool)$r['isCurrent'];
+                $r['isArchived'] = (bool)$r['isArchived'];
+                return $r;
+            }, $all);
+
+            jsonResponse(['success' => true, 'academicYears' => $formatted, 'message' => 'تمت إضافة الموسم الدراسي بنجاح']);
+        } catch (PDOException $e) {
+            jsonResponse(['success' => false, 'error' => 'الموسم الدراسي (' . $name . ') مسجل بالفعل']);
+        }
+    }
+
+    // تفعيل كموسم حالي
+    if ($subAction === 'set-current' && $method === 'PUT') {
+        $stmt = $pdo->prepare("SELECT * FROM academic_years WHERE id = ?");
+        $stmt->execute([$subId]);
+        $row = $stmt->fetch();
+        if (!$row) jsonResponse(['success' => false, 'error' => 'الموسم الدراسي غير موجود']);
+
+        $pdo->exec("UPDATE academic_years SET is_current = 0");
+        $pdo->prepare("UPDATE academic_years SET is_current = 1 WHERE id = ?")->execute([$subId]);
+        $pdo->prepare("INSERT INTO app_settings (key_name, value) VALUES ('year', ?) ON DUPLICATE KEY UPDATE value = ?")->execute([$row['name'], $row['name']]);
+        $pdo->prepare("UPDATE users SET academic_year = ?")->execute([$row['name']]);
+
+        $all = $pdo->query("SELECT id, name, start_date as startDate, end_date as endDate, is_current as isCurrent, is_archived as isArchived, notes, created_at as createdAt, archived_at as archivedAt FROM academic_years ORDER BY start_date DESC")->fetchAll();
+        $formatted = array_map(function($r) {
+            $r['isCurrent'] = (bool)$r['isCurrent'];
+            $r['isArchived'] = (bool)$r['isArchived'];
+            return $r;
+        }, $all);
+
+        jsonResponse(['success' => true, 'academicYears' => $formatted, 'message' => 'تم تعيين الموسم الدراسي كنشط حالياً']);
+    }
+
+    // أرشفة الموسم
+    if ($subAction === 'archive' && $method === 'PUT') {
+        $pdo->prepare("UPDATE academic_years SET is_archived = 1, archived_at = NOW() WHERE id = ?")->execute([$subId]);
+        $all = $pdo->query("SELECT id, name, start_date as startDate, end_date as endDate, is_current as isCurrent, is_archived as isArchived, notes, created_at as createdAt, archived_at as archivedAt FROM academic_years ORDER BY start_date DESC")->fetchAll();
+        $formatted = array_map(function($r) {
+            $r['isCurrent'] = (bool)$r['isCurrent'];
+            $r['isArchived'] = (bool)$r['isArchived'];
+            return $r;
+        }, $all);
+        jsonResponse(['success' => true, 'academicYears' => $formatted, 'message' => 'تمت أرشفة الموسم الدراسي بنجاح']);
+    }
+
+    // إلغاء الأرشفة
+    if ($subAction === 'unarchive' && $method === 'PUT') {
+        $pdo->prepare("UPDATE academic_years SET is_archived = 0, archived_at = NULL WHERE id = ?")->execute([$subId]);
+        $all = $pdo->query("SELECT id, name, start_date as startDate, end_date as endDate, is_current as isCurrent, is_archived as isArchived, notes, created_at as createdAt, archived_at as archivedAt FROM academic_years ORDER BY start_date DESC")->fetchAll();
+        $formatted = array_map(function($r) {
+            $r['isCurrent'] = (bool)$r['isCurrent'];
+            $r['isArchived'] = (bool)$r['isArchived'];
+            return $r;
+        }, $all);
+        jsonResponse(['success' => true, 'academicYears' => $formatted, 'message' => 'تم إلغاء أرشفة الموسم الدراسي']);
+    }
+
+    // حذف الموسم
+    if ($method === 'DELETE' && !empty($subId)) {
+        $stmt = $pdo->prepare("SELECT is_current FROM academic_years WHERE id = ?");
+        $stmt->execute([$subId]);
+        $row = $stmt->fetch();
+        if ($row && $row['is_current']) {
+            jsonResponse(['success' => false, 'error' => 'لا يمكن حذف الموسم الدراسي الجاري حالياً. يرجى تفعيل موسم آخر أولاً.']);
+        }
+        $pdo->prepare("DELETE FROM academic_years WHERE id = ?")->execute([$subId]);
+        $all = $pdo->query("SELECT id, name, start_date as startDate, end_date as endDate, is_current as isCurrent, is_archived as isArchived, notes, created_at as createdAt, archived_at as archivedAt FROM academic_years ORDER BY start_date DESC")->fetchAll();
+        $formatted = array_map(function($r) {
+            $r['isCurrent'] = (bool)$r['isCurrent'];
+            $r['isArchived'] = (bool)$r['isArchived'];
+            return $r;
+        }, $all);
+        jsonResponse(['success' => true, 'academicYears' => $formatted, 'message' => 'تم حذف الموسم الدراسي بنجاح']);
+    }
+}
+
+// -------------------------------------------------------------
+// 8. إحصائيات المدير (Director Analytics)
+// -------------------------------------------------------------
+if ($segments[0] === 'director' && ($segments[1] ?? '') === 'analytics') {
+    $totSec = (int)$pdo->query("SELECT COUNT(*) FROM sections")->fetchColumn();
+    $totTeach = (int)$pdo->query("SELECT COUNT(*) FROM users WHERE role = 'teacher'")->fetchColumn();
+    $totStud = (int)$pdo->query("SELECT COUNT(*) FROM seats WHERE student_name != '' AND student_name IS NOT NULL")->fetchColumn();
+    $totVio = (int)$pdo->query("SELECT COUNT(*) FROM daily_violations")->fetchColumn();
+    $totAbs = (int)$pdo->query("SELECT COUNT(*) FROM attendance_history WHERE status = 'absent'")->fetchColumn();
+
+    $topVio = $pdo->query("
+        SELECT dv.student_name, dv.student_number, dv.massar_number, sec.level as section_level, sec.class_number as section_class,
+               COUNT(dv.id) as violations_count
+        FROM daily_violations dv
+        JOIN sections sec ON dv.section_id = sec.id
+        GROUP BY dv.student_name, dv.student_number, dv.massar_number, sec.level, sec.class_number
+        ORDER BY violations_count DESC
+        LIMIT 10
+    ")->fetchAll();
+
+    $topAbs = $pdo->query("
+        SELECT ah.student_name, ah.student_number, sec.level as section_level, sec.class_number as section_class,
+               COUNT(ah.id) as absences_count
+        FROM attendance_history ah
+        JOIN sections sec ON ah.section_id = sec.id
+        WHERE ah.status = 'absent'
+        GROUP BY ah.student_name, ah.student_number, sec.level, sec.class_number
+        ORDER BY absences_count DESC
+        LIMIT 10
+    ")->fetchAll();
+
+    jsonResponse([
+        'success' => true,
+        'topViolations' => $topVio,
+        'topAbsences' => $topAbs,
+        'allStudents' => [],
+        'allViolations' => [],
+        'allAbsences' => [],
+        'summary' => [
+            'totalStudents' => $totStud,
+            'totalTeachers' => $totTeach,
+            'totalSections' => $totSec,
+            'totalViolations' => $totVio,
+            'totalAbsences' => $totAbs
+        ]
+    ]);
+}
+
+// -------------------------------------------------------------
+// 9. طلبات إسناد الأقسام (Section Assignment Requests)
+// -------------------------------------------------------------
+if ($segments[0] === 'assignment-requests') {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `section_assignments` (
+          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+          `teacher_id` VARCHAR(64) NOT NULL,
+          `section_id` VARCHAR(64) NOT NULL,
+          `status` VARCHAR(32) NOT NULL DEFAULT 'pending',
+          `request_note` TEXT DEFAULT NULL,
+          `requested_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          `reviewed_at` DATETIME DEFAULT NULL,
+          `reviewed_by` VARCHAR(64) DEFAULT NULL,
+          `academic_year` VARCHAR(32) DEFAULT NULL,
+          `subject` VARCHAR(64) DEFAULT 'الرياضيات'
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Exception $e) {}
+
+    if ($method === 'GET') {
+        $stmt = $pdo->query("SELECT sa.*, u.full_name as teacher_name, u.email as teacher_email, sec.level, sec.class_number FROM section_assignments sa JOIN users u ON sa.teacher_id = u.id JOIN sections sec ON sa.section_id = sec.id ORDER BY sa.requested_at DESC");
+        jsonResponse(['success' => true, 'requests' => $stmt->fetchAll()]);
+    }
+
+    if ($method === 'POST') {
+        $input = getJsonInput();
+        $tId = $input['teacherId'] ?? $userId;
+        $sId = $input['sectionId'] ?? '';
+        $note = $input['requestNote'] ?? '';
+
+        $reqId = 'req_' . bin2hex(random_bytes(6));
+        $stmt = $pdo->prepare("INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at) VALUES (?, ?, ?, 'pending', ?, NOW())");
+        $stmt->execute([$reqId, $tId, $sId, $note]);
+        jsonResponse(['success' => true, 'message' => 'تم تقديم طلب إسناد القسم بنجاح']);
+    }
+
+    if ($method === 'PUT' && isset($segments[2]) && $segments[2] === 'review') {
+        $reqId = $segments[1];
+        $input = getJsonInput();
+        $decision = $input['decision'] ?? 'approved';
+
+        $pdo->prepare("UPDATE section_assignments SET status = ?, reviewed_at = NOW(), reviewed_by = ? WHERE id = ?")->execute([$decision, $userId, $reqId]);
+
+        if ($decision === 'approved') {
+            $req = $pdo->query("SELECT * FROM section_assignments WHERE id = " . $pdo->quote($reqId))->fetch();
+            if ($req) {
+                $u = $pdo->query("SELECT full_name FROM users WHERE id = " . $pdo->quote($req['teacher_id']))->fetch();
+                $teacherName = $u ? $u['full_name'] : '';
+                $pdo->prepare("UPDATE sections SET assigned_teacher_id = ?, teacher = ? WHERE id = ?")->execute([$req['teacher_id'], $teacherName, $req['section_id']]);
+            }
+        }
+        jsonResponse(['success' => true, 'message' => 'تم تحديث حالة الطلب بنجاح']);
+    }
+}
+
+// -------------------------------------------------------------
+// المسار الافتراضي (Safe 200 Response for unknown routes)
+// -------------------------------------------------------------
+jsonResponse(['success' => false, 'error' => 'مسار واجهة البرمجة غير موجود: ' . $path]);
