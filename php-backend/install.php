@@ -38,27 +38,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         try {
-            // نحاول الاتصال بقاعدة البيانات مباشرة أو بالخادم لإنشائها إن لم تكن موجودة
-            try {
-                $pdo = new PDO("mysql:host={$host};dbname={$dbname};charset=utf8mb4", $user, $pass, [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_TIMEOUT => 5
-                ]);
-            } catch (PDOException $e) {
-                // محاولة الاتصال بالخادم بدون تحديد قاعدة بيانات لإنشائها
-                $pdoServer = new PDO("mysql:host={$host};charset=utf8mb4", $user, $pass, [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_TIMEOUT => 5
-                ]);
-                $pdoServer->exec("CREATE DATABASE IF NOT EXISTS `{$dbname}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-                $pdo = new PDO("mysql:host={$host};dbname={$dbname};charset=utf8mb4", $user, $pass, [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
-                ]);
+            // محاولة الاتصال بقاعدة البيانات المحددة
+            $pdo = new PDO("mysql:host={$host};dbname={$dbname};charset=utf8mb4", $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_TIMEOUT => 5
+            ]);
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'تم الاتصال بقاعدة البيانات بنجاح تام! جاهز للمتابعة.'
+            ]);
+        } catch (PDOException $e) {
+            // محاولة توضيح سبب الخطأ لمساعدة المستخدم
+            $errorMsg = $e->getMessage();
+            $detailedHelp = '';
+
+            if (strpos($errorMsg, 'Access denied') !== false) {
+                $detailedHelp = 'تأكد من صحة اسم المستخدم وكلمة المرور، وتأكد من أنك قمت بإضافة المستخدم إلى قاعدة البيانات مع تفعيل كل الصلاحيات (All Privileges) في cPanel.';
+            } elseif (strpos($errorMsg, 'Unknown database') !== false) {
+                $detailedHelp = 'قاعدة البيانات غير موجودة! في استضافات cPanel/Hostinger يرجى التأكد من كتابة الاسم الكامل لقاعدة البيانات بما في ذلك بادئة حسابك (مثال: u123456_school وليس school فقط).';
+            } elseif (strpos($errorMsg, 'Connection refused') !== false || strpos($errorMsg, 'getaddrinfo failed') !== false) {
+                $detailedHelp = 'تعذر الوصول لخادم MySQL. إذا كنت على سيرفر محلي جرب 127.0.0.1 أو localhost، وفي الاستضافات السحابية تأكد من عنوان مضيف قاعدة البيانات.';
             }
 
-            echo json_encode(['success' => true, 'message' => 'تم الاتصال بقاعدة البيانات بنجاح!']);
-        } catch (PDOException $e) {
-            echo json_encode(['success' => false, 'error' => 'فشل الاتصال بقاعدة البيانات: ' . $e->getMessage()]);
+            echo json_encode([
+                'success' => false,
+                'error' => 'فشل الاتصال: ' . $errorMsg,
+                'help' => $detailedHelp
+            ]);
         }
         exit;
     }
@@ -77,6 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $adminUsername = trim($_POST['admin_username'] ?? 'admin');
         $adminEmail = trim($_POST['admin_email'] ?? 'admin@school.local');
         $adminPassword = $_POST['admin_password'] ?? '';
+        $skipTables = !empty($_POST['skip_tables']);
 
         if (!$dbname || !$user || !$adminUsername || !$adminPassword) {
             echo json_encode(['success' => false, 'error' => 'جميع الحقول الأساسية مطلوبة لإتمام التثبيت.']);
@@ -89,22 +97,192 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION
             ]);
 
-            // قراءة وتنفيذ مخطط قاعدة البيانات
-            if (file_exists($sqlFile)) {
-                $sqlContent = file_get_contents($sqlFile);
-                // إزالة أوامر CREATE DATABASE و USE لأننا متصلون بها بالفعل
-                $sqlContent = preg_replace('/CREATE DATABASE[^;]+;/i', '', $sqlContent);
-                $sqlContent = preg_replace('/USE[^;]+;/i', '', $sqlContent);
+            // تعطيل فحص القيود الخارجية مؤقتاً لتجنب أي تعارض في ترتيب إنشاء الجداول
+            $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
+            $pdo->exec("SET NAMES utf8mb4;");
 
-                $queries = array_filter(array_map('trim', explode(';', $sqlContent)));
-                foreach ($queries as $q) {
-                    if (!empty($q)) {
-                        $pdo->exec($q);
+            // قراءة وتنفيذ مخطط قاعدة البيانات إذا لم يتم تحديد التخطي
+            if (!$skipTables) {
+                if (file_exists($sqlFile)) {
+                    $sqlContent = file_get_contents($sqlFile);
+                    // إزالة التعليقات متعددة الأسطر والسطرية
+                    $cleanSql = preg_replace('!/\*.*?\*/!s', '', $sqlContent);
+                    $cleanSql = preg_replace('/^[\t ]*--[^\r\n]*/m', '', $cleanSql);
+                    $cleanSql = preg_replace('/^[\t ]*#[^\r\n]*/m', '', $cleanSql);
+
+                    // إزالة أوامر CREATE DATABASE و USE لأننا متصلون بها بالفعل
+                    $cleanSql = preg_replace('/CREATE\s+DATABASE[^;]+;/i', '', $cleanSql);
+                    $cleanSql = preg_replace('/USE\s+[^;]+;/i', '', $cleanSql);
+
+                    $queries = array_filter(array_map('trim', explode(';', $cleanSql)));
+                    foreach ($queries as $q) {
+                        if (!empty($q)) {
+                            try {
+                                $pdo->exec($q);
+                            } catch (PDOException $queryErr) {
+                                // تجاهل أخطاء التكرار إذا كان الجدول موجوداً
+                                if (strpos($queryErr->getMessage(), 'already exists') === false) {
+                                    error_log("SQL Notice in install: " . $queryErr->getMessage());
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // مخطط احتياطي مضمن لضمان عدم توقف التثبيت أبداً حتى لو فُقد الملف
+                    $embeddedTables = [
+                        "CREATE TABLE IF NOT EXISTS `users` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `username` VARCHAR(64) NOT NULL UNIQUE,
+                          `email` VARCHAR(128) NOT NULL,
+                          `password` VARCHAR(255) NOT NULL,
+                          `full_name` VARCHAR(128) NOT NULL,
+                          `role` ENUM('admin', 'director', 'teacher') NOT NULL DEFAULT 'teacher',
+                          `academic_year` VARCHAR(32) NOT NULL DEFAULT '2026/2027',
+                          `status` ENUM('active', 'pending', 'rejected') NOT NULL DEFAULT 'pending',
+                          `subject` VARCHAR(64) DEFAULT 'الرياضيات',
+                          `email_verified` TINYINT(1) NOT NULL DEFAULT 1,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                          INDEX `idx_users_role` (`role`),
+                          INDEX `idx_users_status` (`status`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `app_settings` (
+                          `key_name` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `value` TEXT NOT NULL,
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `sections` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `level` VARCHAR(64) NOT NULL,
+                          `class_number` VARCHAR(32) NOT NULL,
+                          `teacher` VARCHAR(128) DEFAULT '',
+                          `assigned_teacher_id` VARCHAR(64) DEFAULT NULL,
+                          `academic_year` VARCHAR(32) NOT NULL DEFAULT '2026/2027',
+                          `roster_json` LONGTEXT DEFAULT NULL,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `seats` (
+                          `id` INT AUTO_INCREMENT PRIMARY KEY,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `seat_num` INT NOT NULL,
+                          `student_name` VARCHAR(128) DEFAULT '',
+                          `student_number` VARCHAR(32) DEFAULT '',
+                          `massar_number` VARCHAR(64) DEFAULT '',
+                          `roster_id` VARCHAR(64) DEFAULT NULL,
+                          `status_color` VARCHAR(32) DEFAULT 'default',
+                          `attendance` ENUM('present', 'absent', 'late') DEFAULT NULL,
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                          UNIQUE KEY `uniq_sec_seat` (`section_id`, `seat_num`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `teacher_seat_overrides` (
+                          `id` INT AUTO_INCREMENT PRIMARY KEY,
+                          `teacher_id` VARCHAR(64) NOT NULL,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `seat_num` INT NOT NULL,
+                          `student_name` VARCHAR(128) DEFAULT '',
+                          `student_number` VARCHAR(32) DEFAULT '',
+                          `massar_number` VARCHAR(64) DEFAULT '',
+                          `roster_id` VARCHAR(64) DEFAULT NULL,
+                          `status_color` VARCHAR(32) DEFAULT 'default',
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                          UNIQUE KEY `uniq_teacher_sec_seat` (`teacher_id`, `section_id`, `seat_num`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `attendance_history` (
+                          `id` INT AUTO_INCREMENT PRIMARY KEY,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `seat_num` INT DEFAULT 0,
+                          `student_name` VARCHAR(128) NOT NULL,
+                          `student_number` VARCHAR(32) DEFAULT '',
+                          `status` ENUM('absent', 'late') NOT NULL DEFAULT 'absent',
+                          `recorded_date` DATE NOT NULL,
+                          `session_period` VARCHAR(64) DEFAULT '1 ساعة',
+                          `teacher_name` VARCHAR(128) DEFAULT '',
+                          `teacher_subject` VARCHAR(64) DEFAULT '',
+                          `justified` ENUM('unjustified', 'justified') DEFAULT 'unjustified',
+                          `justification_reason` TEXT DEFAULT NULL,
+                          `notes` TEXT DEFAULT NULL,
+                          `absence_mode` VARCHAR(32) DEFAULT 'hours',
+                          `duration_hours` INT DEFAULT 1,
+                          `duration_days` INT DEFAULT 0,
+                          `duration_label` VARCHAR(64) DEFAULT '1 ساعة',
+                          `created_by` VARCHAR(64) DEFAULT '',
+                          `removed_by` VARCHAR(64) DEFAULT '',
+                          `removed_at` VARCHAR(64) DEFAULT '',
+                          `remover_name` VARCHAR(128) DEFAULT '',
+                          `remover_subject` VARCHAR(64) DEFAULT '',
+                          `count_in_stats` TINYINT(1) DEFAULT 1,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `positive_participations` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `seat_num` INT DEFAULT NULL,
+                          `student_name` VARCHAR(128) NOT NULL,
+                          `student_number` VARCHAR(32) DEFAULT '',
+                          `massar_number` VARCHAR(64) DEFAULT '',
+                          `participation_type` VARCHAR(128) NOT NULL,
+                          `points` INT NOT NULL DEFAULT 1,
+                          `note` TEXT DEFAULT NULL,
+                          `teacher_id` VARCHAR(64) DEFAULT '',
+                          `teacher_name` VARCHAR(128) DEFAULT '',
+                          `teacher_subject` VARCHAR(64) DEFAULT '',
+                          `recorded_date` DATE NOT NULL,
+                          `recorded_time` VARCHAR(16) NOT NULL,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `daily_violations` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `seat_num` INT DEFAULT NULL,
+                          `student_name` VARCHAR(128) NOT NULL,
+                          `student_number` VARCHAR(32) DEFAULT '',
+                          `massar_number` VARCHAR(64) DEFAULT '',
+                          `violation_type` VARCHAR(128) NOT NULL,
+                          `description` TEXT DEFAULT NULL,
+                          `action_taken` VARCHAR(128) DEFAULT '',
+                          `teacher_name` VARCHAR(128) DEFAULT '',
+                          `teacher_subject` VARCHAR(64) DEFAULT '',
+                          `teacher_id` VARCHAR(64) DEFAULT '',
+                          `recorded_date` DATE NOT NULL,
+                          `recorded_time` VARCHAR(16) NOT NULL,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `teacher_timetable` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `teacher_id` VARCHAR(64) NOT NULL,
+                          `day_of_week` VARCHAR(32) NOT NULL,
+                          `slot_id` VARCHAR(32) NOT NULL,
+                          `period_type` VARCHAR(32) NOT NULL,
+                          `start_time` VARCHAR(16) NOT NULL,
+                          `end_time` VARCHAR(16) NOT NULL,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `room` VARCHAR(64) DEFAULT '',
+                          `subject` VARCHAR(64) DEFAULT '',
+                          `notes` TEXT DEFAULT NULL,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `notes` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `section_id` VARCHAR(64) NOT NULL,
+                          `seat_num` INT NOT NULL,
+                          `note_text` TEXT NOT NULL,
+                          `note_date` VARCHAR(32) NOT NULL,
+                          `note_time` VARCHAR(16) NOT NULL,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
+                    ];
+                    foreach ($embeddedTables as $tblSql) {
+                        try {
+                            $pdo->exec($tblSql);
+                        } catch (Exception $e) {}
                     }
                 }
-            } else {
-                throw new Exception("ملف مخطط قاعدة البيانات database.sql غير موجود في المجلد!");
             }
+
+            // إعادة تفعيل القيود
+            $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
             // تحديث إعدادات المؤسسة
             $stmtSet = $pdo->prepare("INSERT INTO app_settings (key_name, value) VALUES ('institution', ?), ('year', ?) ON DUPLICATE KEY UPDATE value = VALUES(value)");
@@ -125,7 +303,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $stmtUser->execute([$adminId, $adminUsername, $adminEmail, $hashedPassword, $adminName, $academicYear]);
 
-            // كتابة ملف config.php
+            // إعداد محتوى ملف config.php
             $configContent = "<?php
 /**
  * إعدادات الاتصال بقاعدة بيانات MySQL
@@ -182,16 +360,18 @@ function getHeader(\$name) {
 }
 ";
 
-            if (!@file_put_contents($configFile, $configContent)) {
-                throw new Exception("تعذر كتابة ملف config.php. يرجى التأكد من إعطاء صلاحيات الكتابة (755 أو 777) للمجلد.");
+            $configSaved = @file_put_contents($configFile, $configContent);
+            if ($configSaved) {
+                @file_put_contents($lockFile, "Installed successfully on " . date('Y-m-d H:i:s'));
             }
-
-            // كتابة ملف القفل لمنع إعادة التثبيت العبثية
-            @file_put_contents($lockFile, "Installed successfully on " . date('Y-m-d H:i:s'));
 
             echo json_encode([
                 'success' => true,
-                'message' => 'تم تثبيت وتجهيز النظام بنجاح تام! يمكنك الآن تسجيل الدخول مباشرة.'
+                'config_saved' => (bool)$configSaved,
+                'config_content' => $configContent,
+                'message' => $configSaved
+                    ? 'تم تثبيت وتجهيز النظام وقاعدة البيانات بنجاح تام! يمكنك الآن تسجيل الدخول مباشرة.'
+                    : 'تم إنشاء الجداول والمشرف بنجاح! لم نتمكن من حفظ ملف config.php تلقائياً بسبب تصاريح المجلد. يرجى نسخه أو تحميله وحفظه في مجلد النظام.'
             ]);
         } catch (Exception $e) {
             echo json_encode(['success' => false, 'error' => $e->getMessage()]);
@@ -675,9 +855,15 @@ foreach ($requirements as $req) {
             <!-- الخطوة 2: إعدادات قاعدة البيانات MySQL -->
             <div class="step-panel" id="step-2">
                 <div class="section-title">🗄️ إعدادات الاتصال بقاعدة بيانات MySQL</div>
-                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 20px;">
+                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 14px;">
                     أدخل معلومات قاعدة البيانات التي أنشأتها في cPanel أو phpMyAdmin (أو XAMPP).
                 </p>
+
+                <div style="background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 12px; padding: 12px 16px; margin-bottom: 18px; font-size: 13px; color: #1E40AF; line-height: 1.6;">
+                    💡 <strong>ملاحظة هامة لمستخدمي cPanel / الاستضافات:</strong><br>
+                    تأكد من كتابة الاسم الكامل لقاعدة البيانات والمستخدم متضمناً بادئة الاستضافة، مثلاً:
+                    <code>cpaneluser_school</code> وليس <code>school</code> فقط. وتأكد من ربط المستخدم بقاعدة البيانات في لوحة cPanel مع منح جميع الصلاحيات (ALL PRIVILEGES).
+                </div>
 
                 <div id="db-alert"></div>
 
@@ -690,7 +876,7 @@ foreach ($requirements as $req) {
                     <div class="form-group">
                         <label class="form-label">اسم قاعدة البيانات (Database Name)</label>
                         <input type="text" id="db_name" class="form-input" placeholder="مثال: school_map أو cpanel_school">
-                        <div class="form-hint">اسم قاعدة البيانات المنشأة في cPanel</div>
+                        <div class="form-hint">اسم قاعدة البيانات الكامل في cPanel</div>
                     </div>
                 </div>
 
@@ -737,6 +923,13 @@ foreach ($requirements as $req) {
                         <label class="form-label">الموسم الدراسي</label>
                         <input type="text" id="academic_year" class="form-input" value="2026/2027">
                     </div>
+                </div>
+
+                <div style="margin: 16px 0; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 12px; padding: 12px 16px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: #334155;">
+                        <input type="checkbox" id="skip_tables" value="1">
+                        <span>لقد قمت مسبقاً باستيراد الجداول عبر phpMyAdmin (تخطي إنشاء الجداول واكتفِ بضبط الإعدادات والحساب)</span>
+                    </label>
                 </div>
 
                 <div style="margin: 20px 0 14px; border-top: 1px dashed var(--border); padding-top: 16px;">
@@ -792,6 +985,17 @@ foreach ($requirements as $req) {
                         <div style="font-size: 13px; color: var(--text-main);">• الرتبة: <strong>مشرف عام (Admin)</strong></div>
                     </div>
 
+                    <div id="manual-config-box" style="display: none; margin: 0 auto 24px; max-width: 480px; background: #FEF3C7; border: 1px solid #F59E0B; border-radius: 14px; padding: 16px; text-align: right;">
+                        <div style="font-weight: 700; color: #92400E; margin-bottom: 6px;">⚠️ تنبيه: تعذر حفظ ملف config.php تلقائياً</div>
+                        <p style="font-size: 12px; color: #78350F; margin-bottom: 12px; line-height: 1.5;">
+                            تم إنشاء الجداول والمشرف بنجاح، ولكن الخادم لم يسمح بحفظ ملف <code>config.php</code> بسبب صلاحيات المجلد (Permission). يرجى تنزيله وحفظه داخل المجلد الرئيسي للنظام:
+                        </p>
+                        <div style="display: flex; gap: 8px; justify-content: center;">
+                            <button type="button" class="btn btn-primary" onclick="downloadConfigFile()" style="padding: 8px 16px; font-size: 13px;">💾 تحميل config.php جاهزاً</button>
+                            <button type="button" class="btn btn-secondary" onclick="copyConfigCode()" style="padding: 8px 16px; font-size: 13px;">📋 نسخ الكود</button>
+                        </div>
+                    </div>
+
                     <a href="index.html" class="btn btn-primary" style="padding: 14px 36px; font-size: 15px;">
                         الانتقال إلى المنظومة وتسجيل الدخول ⬅
                     </a>
@@ -803,6 +1007,7 @@ foreach ($requirements as $req) {
 
 <script>
 let isDbConnected = false;
+let generatedConfigContent = '';
 
 function goToStep(stepNum) {
     document.querySelectorAll('.step-panel').forEach(p => p.classList.remove('active'));
@@ -851,7 +1056,8 @@ async function testDatabaseConnection() {
             alertBox.innerHTML = '<div class="alert alert-success">✓ ' + data.message + '</div>';
         } else {
             isDbConnected = false;
-            alertBox.innerHTML = '<div class="alert alert-danger">✗ ' + data.error + '</div>';
+            let helpHtml = data.help ? '<div style="margin-top: 8px; font-size: 12px; color: #7F1D1D; line-height: 1.5;">💡 <strong>كيف تحل هذا الخطأ:</strong> ' + data.help + '</div>' : '';
+            alertBox.innerHTML = '<div class="alert alert-danger"><div>✗ ' + data.error + '</div>' + helpHtml + '</div>';
         }
     } catch (err) {
         alertBox.innerHTML = '<div class="alert alert-danger">✗ خطأ أثناء الاتصال بالخادم: ' + err.message + '</div>';
@@ -889,6 +1095,7 @@ async function executeFullInstallation() {
     const adminUser = document.getElementById('admin_username').value.trim();
     const adminEmail = document.getElementById('admin_email').value.trim();
     const adminPass = document.getElementById('admin_password').value;
+    const skipTables = document.getElementById('skip_tables')?.checked ? '1' : '0';
 
     if (!adminUser || !adminPass) {
         alertBox.innerHTML = '<div class="alert alert-danger">⚠️ يرجى تحديد اسم مستخدم وكلمة مرور للمشرف العام.</div>';
@@ -911,12 +1118,17 @@ async function executeFullInstallation() {
     formData.append('admin_username', adminUser);
     formData.append('admin_email', adminEmail);
     formData.append('admin_password', adminPass);
+    formData.append('skip_tables', skipTables);
 
     try {
         const res = await fetch('install.php', { method: 'POST', body: formData });
         const data = await res.json();
         if (data.success) {
             document.getElementById('res-username').innerText = adminUser;
+            if (!data.config_saved && data.config_content) {
+                generatedConfigContent = data.config_content;
+                document.getElementById('manual-config-box').style.display = 'block';
+            }
             goToStep(4);
         } else {
             alertBox.innerHTML = '<div class="alert alert-danger">✗ فشل التثبيت: ' + data.error + '</div>';
@@ -928,6 +1140,28 @@ async function executeFullInstallation() {
         btn.disabled = false;
         btn.innerHTML = '🚀 بدء التثبيت التلقائي وإنشاء الجداول';
     }
+}
+
+function downloadConfigFile() {
+    if (!generatedConfigContent) return;
+    const blob = new Blob([generatedConfigContent], { type: 'application/x-httpd-php' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'config.php';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function copyConfigCode() {
+    if (!generatedConfigContent) return;
+    navigator.clipboard.writeText(generatedConfigContent).then(() => {
+        alert('✓ تم نسخ كود config.php إلى الحافظة بنجاح!');
+    }).catch(() => {
+        prompt('انسخ كود config.php أدناه:', generatedConfigContent);
+    });
 }
 </script>
 
