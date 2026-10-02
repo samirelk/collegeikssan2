@@ -14,7 +14,8 @@ import {
   Sparkles,
   Home,
   Building2,
-  Calendar
+  Calendar,
+  UserX
 } from 'lucide-react';
 import { AppSettings, DbStats, User as UserType } from '../types';
 
@@ -141,17 +142,17 @@ export const Topbar: React.FC<TopbarProps> = ({
           </button>
         )}
 
-        {/* Teachers use the global archive button; admin/director have it in their dashboard tabs. */}
+        {/* For teachers: Current active absences monitor. Director/Admin have full archive in dashboard */}
         {currentUser?.role !== 'admin' && currentUser?.role !== 'director' && (
           <button
             type="button"
             id="btn-nav-daily-archive"
             onClick={onOpenDailyArchiveModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-xs active:scale-[0.98] bg-[#FFFBEB] hover:bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]"
-            title="أرشيف الغيابات والمخالفات اليومي والتقارير الرسمية"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-xs active:scale-[0.98] bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200"
+            title="مراقبة التلاميذ الغائبين حالياً في الفصول والأقسام"
           >
-            <Calendar className="w-4 h-4 text-[#D97706]" />
-            <span>الأرشيف اليومي</span>
+            <UserX className="w-4 h-4 text-rose-600" />
+            <span>الغيابات الحالية</span>
           </button>
         )}
 

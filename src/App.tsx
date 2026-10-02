@@ -35,6 +35,46 @@ import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { DbInfoModal } from './components/DbInfoModal';
 import { TeacherTimetable } from './components/TeacherTimetable';
 
+function normalizeArabicText(str?: string): string {
+  if (!str) return '';
+  return str
+    .trim()
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670]/g, '')
+    .replace(/\u0640/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/\s+/g, ' ');
+}
+
+function matchClientStudent(
+  targetName?: string,
+  targetNum?: string,
+  targetMassar?: string,
+  recordName?: string,
+  recordNum?: string,
+  recordMassar?: string
+): boolean {
+  if (!targetName && !recordName) return false;
+  const tName = normalizeArabicText(targetName);
+  const rName = normalizeArabicText(recordName);
+  if (!tName && !rName) return false;
+
+  const tMassar = (targetMassar || '').trim().toUpperCase();
+  const rMassar = (recordMassar || '').trim().toUpperCase();
+  if (tMassar && rMassar && tMassar === rMassar) return true;
+
+  if (tName && rName && tName === rName) return true;
+
+  if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
+    const tNum = String(targetNum || '').trim();
+    const rNum = String(recordNum || '').trim();
+    if (!tNum || !rNum || tNum === rNum) return true;
+  }
+  return false;
+}
+
 export default function App() {
   // Independent Admin Route State (/admin) (Order #1)
   const [isAdminRoute, setIsAdminRoute] = useState<boolean>(() => {
@@ -115,6 +155,10 @@ export default function App() {
   // Positive Participation Modal state
   const [activePositiveParticipationModal, setActivePositiveParticipationModal] = useState<{
     seatNum: number;
+    studentName: string;
+    studentNumber?: string;
+    massarNumber?: string;
+    rosterId?: string | null;
   } | null>(null);
   const [studentHistory, setStudentHistory] = useState<{
     absences: Array<{
@@ -230,6 +274,11 @@ export default function App() {
           } : {}
         }).then((r) => r.json())
       ]);
+
+      if (settingsRes.installed === false && settingsRes.redirect) {
+        window.location.href = settingsRes.redirect;
+        return;
+      }
 
       if (settingsRes.success && settingsRes.settings) {
         setSettings(settingsRes.settings);
@@ -538,45 +587,6 @@ export default function App() {
     };
   }, [activeSectionId]);
 
-function normalizeArabicText(str?: string): string {
-  if (!str) return '';
-  return str
-    .trim()
-    .toLowerCase()
-    .replace(/[\u064B-\u065F\u0670]/g, '')
-    .replace(/\u0640/g, '')
-    .replace(/[أإآٱ]/g, 'ا')
-    .replace(/ة/g, 'ه')
-    .replace(/ى/g, 'ي')
-    .replace(/\s+/g, ' ');
-}
-
-function matchClientStudent(
-  targetName: string,
-  targetNum?: string,
-  targetMassar?: string,
-  recordName?: string,
-  recordNum?: string,
-  recordMassar?: string
-): boolean {
-  const tName = normalizeArabicText(targetName);
-  const rName = normalizeArabicText(recordName);
-  if (!tName && !rName) return false;
-
-  const tMassar = (targetMassar || '').trim().toUpperCase();
-  const rMassar = (recordMassar || '').trim().toUpperCase();
-  if (tMassar && rMassar && tMassar === rMassar) return true;
-
-  if (tName && rName && tName === rName) return true;
-
-  if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
-    const tNum = String(targetNum || '').trim();
-    const rNum = String(recordNum || '').trim();
-    if (!tNum || !rNum || tNum === rNum) return true;
-  }
-  return false;
-}
-
   // 6. Update Seat (Name / Number / Roster Link / Status Color / Attendance)
   const handleSeatChange = (
     sectionId: string,
@@ -586,16 +596,15 @@ function matchClientStudent(
   ) => {
     if (field === 'attendance') {
       const currentSeat = sections.find((sec) => sec.id === sectionId)?.seats.find((st) => st.seat === seatNum);
-      if (value === 'absent' && currentSeat?.attendance !== 'absent') {
-        const confirmed = window.confirm('هل تريد تأكيد تسجيل غياب هذا التلميذ؟');
-        if (!confirmed) return;
-      }
-      if (value === null || value === 'present') {
-        const isRemovingAbsence = currentSeat?.attendance === 'absent';
-        if (isRemovingAbsence) {
-          const confirmed = window.confirm('هل تريد إزالة غياب هذا التلميذ؟');
-          if (!confirmed) return;
-        }
+      const studentName = currentSeat?.name?.trim() || `المقعد ${seatNum}`;
+      if (value === 'absent') {
+        showToast(`تم تسجيل غياب: ${studentName}`);
+      } else if (value === 'present') {
+        showToast(`تم تسجيل حضور: ${studentName}`);
+      } else if (value === 'late') {
+        showToast(`تم تسجيل تأخر: ${studentName}`);
+      } else if (value === null) {
+        showToast(`تم إلغاء تحديد الحالة لـ ${studentName}`);
       }
     }
 
@@ -1067,6 +1076,12 @@ function matchClientStudent(
   }) => {
     if (!activeSectionId || !activePositiveParticipationModal) return;
 
+    const studentName = (activePositiveParticipationModal.studentName || '').trim();
+    if (!studentName) {
+      showToast('لا يمكن تسجيل مشاركة إيجابية لمقعد فارغ بدون تلميذ');
+      return;
+    }
+
     try {
       const res = await fetch(
         `/api/sections/${activeSectionId}/seats/${activePositiveParticipationModal.seatNum}/positive-participations`,
@@ -1077,6 +1092,10 @@ function matchClientStudent(
             ...(currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {})
           },
           body: JSON.stringify({
+            studentName,
+            studentNumber: activePositiveParticipationModal.studentNumber || '',
+            massarNumber: activePositiveParticipationModal.massarNumber || '',
+            seatNum: activePositiveParticipationModal.seatNum,
             participationType: data.participationType,
             points: data.points,
             note: data.note,
@@ -1097,8 +1116,20 @@ function matchClientStudent(
             return {
               ...sec,
               seats: sec.seats.map((st) => {
-                if (st.seat !== activePositiveParticipationModal.seatNum) return st;
-                const currentPos = st.positiveParticipations || [];
+                const isTargetStudent = matchClientStudent(
+                  st.name,
+                  st.number,
+                  st.massarNumber,
+                  added.studentName,
+                  added.studentNumber,
+                  added.massarNumber
+                );
+                if (!isTargetStudent) return st;
+
+                // Clean out any stale participations that don't belong to this student
+                const currentPos = (st.positiveParticipations || []).filter((p) =>
+                  matchClientStudent(st.name, st.number, st.massarNumber, p.studentName, p.studentNumber, p.massarNumber)
+                );
                 const updatedPos = [added, ...currentPos];
                 const updatedCount = updatedPos.reduce((sum, p) => sum + (p.points || 1), 0);
                 return {
@@ -1111,7 +1142,7 @@ function matchClientStudent(
           })
         );
 
-        showToast(`تم تسجيل المشاركة الإيجابية (${added.participationType}) بنجاح ⭐`);
+        showToast(`تم تسجيل المشاركة الإيجابية للتلميذ (${added.studentName}) بنجاح ⭐`);
       } else {
         throw new Error(resData.error || 'فشل حفظ المشاركة الإيجابية');
       }
@@ -1142,7 +1173,16 @@ function matchClientStudent(
             return {
               ...sec,
               seats: sec.seats.map((st) => {
-                if (st.seat !== activePositiveParticipationModal.seatNum) return st;
+                const isTargetStudent = matchClientStudent(
+                  st.name,
+                  st.number,
+                  st.massarNumber,
+                  activePositiveParticipationModal.studentName,
+                  activePositiveParticipationModal.studentNumber,
+                  activePositiveParticipationModal.massarNumber
+                );
+                if (!isTargetStudent) return st;
+
                 const updatedPos = (st.positiveParticipations || []).filter((p) => p.id !== participationId);
                 const updatedCount = updatedPos.reduce((sum, p) => sum + (p.points || 1), 0);
                 return {
@@ -2249,7 +2289,19 @@ function matchClientStudent(
                                 roster={activeSection.roster}
                                 onSeatChange={handleSeatChange}
                                 onOpenNotes={() => openStudentRecord(seat1)}
-                                onOpenPositiveParticipation={() => setActivePositiveParticipationModal({ seatNum: seat1.seat })}
+                                onOpenPositiveParticipation={() => {
+                                  if (!seat1.name || !seat1.name.trim()) {
+                                    showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
+                                    return;
+                                  }
+                                  setActivePositiveParticipationModal({
+                                    seatNum: seat1.seat,
+                                    studentName: seat1.name.trim(),
+                                    studentNumber: seat1.number || '',
+                                    massarNumber: seat1.massarNumber || '',
+                                    rosterId: seat1.rosterId || null
+                                  });
+                                }}
                                 isDragging={draggingSeat === seat1.seat}
                                 isDropTarget={dropTargetSeat === seat1.seat}
                                 isSelectedForSwap={swapSourceSeat === seat1.seat}
@@ -2281,7 +2333,19 @@ function matchClientStudent(
                                 roster={activeSection.roster}
                                 onSeatChange={handleSeatChange}
                                 onOpenNotes={() => openStudentRecord(seat2)}
-                                onOpenPositiveParticipation={() => setActivePositiveParticipationModal({ seatNum: seat2.seat })}
+                                onOpenPositiveParticipation={() => {
+                                  if (!seat2.name || !seat2.name.trim()) {
+                                    showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
+                                    return;
+                                  }
+                                  setActivePositiveParticipationModal({
+                                    seatNum: seat2.seat,
+                                    studentName: seat2.name.trim(),
+                                    studentNumber: seat2.number || '',
+                                    massarNumber: seat2.massarNumber || '',
+                                    rosterId: seat2.rosterId || null
+                                  });
+                                }}
                                 isDragging={draggingSeat === seat2.seat}
                                 isDropTarget={dropTargetSeat === seat2.seat}
                                 isSelectedForSwap={swapSourceSeat === seat2.seat}
@@ -3348,6 +3412,15 @@ function SeatCard({
               </span>
             )}
           </div>
+          {!seat.attendance && seat.previousSessionAbsence && (
+            <div
+              className="mb-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-900 border border-amber-300 flex items-center justify-between truncate"
+              title={`تغيب في حصة سابقة اليوم (${seat.previousSessionAbsence.sessionPeriod || ''} - الأستاذ: ${seat.previousSessionAbsence.teacherName || ''})`}
+            >
+              <span>⚠️ غائب في حصة سابقة</span>
+              <span className="text-[8px] text-amber-700 font-mono">({seat.previousSessionAbsence.sessionPeriod || 'سابقة'})</span>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-1">
             <button
               type="button"
@@ -3392,9 +3465,15 @@ function SeatCard({
       {/* Actions: Positive Participation & Violations */}
       <div className="grid grid-cols-2 gap-1 mt-2">
         {(() => {
-          const positivePoints = seat.positiveParticipationCount !== undefined
-            ? seat.positiveParticipationCount
-            : (seat.positiveParticipations ? seat.positiveParticipations.reduce((sum, p) => sum + (p.points || 1), 0) : 0);
+          const hasStudentName = Boolean(seat.name && seat.name.trim());
+          const matchingParticipations = (seat.positiveParticipations || []).filter((p) =>
+            hasStudentName && matchClientStudent(seat.name, seat.number, seat.massarNumber, p.studentName, p.studentNumber, p.massarNumber)
+          );
+          const positivePoints = hasStudentName
+            ? (matchingParticipations.length > 0
+                ? matchingParticipations.reduce((sum, p) => sum + (p.points || 1), 0)
+                : (seat.positiveParticipationCount || 0))
+            : 0;
 
           return (
             <button
@@ -3406,7 +3485,7 @@ function SeatCard({
                   : '!bg-emerald-50/50 hover:!bg-emerald-100/60 !text-emerald-800 border !border-dashed !border-emerald-300'
               }`}
               onClick={onOpenPositiveParticipation || onOpenNotes}
-              title="تسجيل مشاركة إيجابية ونقاط تميز للتلميذ"
+              title={hasStudentName ? `تسجيل مشاركة إيجابية للتلميذ (${seat.name})` : 'مقعد شاغر بدون تلميذ'}
             >
               <span>⭐ مشاركة</span>
               {positivePoints > 0 && (

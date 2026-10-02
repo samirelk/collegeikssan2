@@ -72,6 +72,7 @@ async function syncUsersFromFirestore(db: any) {
     console.log(`📥 [FirestoreSync] Found ${firestoreUsers.length} users in Firestore. Syncing to local SQLite...`);
 
     const selectStmt = db.prepare('SELECT id, password, email_verified, status FROM users WHERE id = ?');
+    const tombstoneStmt = db.prepare("SELECT 1 FROM deleted_tombstones WHERE type = 'user' AND item_id = ?");
     const updateStmt = db.prepare(`
       UPDATE users 
       SET username = ?, email = ?, password = ?, full_name = ?, role = ?, academic_year = ?, 
@@ -87,10 +88,17 @@ async function syncUsersFromFirestore(db: any) {
 
     for (const u of firestoreUsers) {
       if (!u.id || !u.username) continue;
+
+      // Check if user was deleted locally
+      try {
+        if (tombstoneStmt.get(u.id)) {
+          deleteDoc('users', u.id).catch(() => {});
+          continue;
+        }
+      } catch {}
+
       const existing = selectStmt.get(u.id) as any;
-      const pwd = (existing?.password && existing.password !== 'password123')
-        ? existing.password
-        : (u.password || existing?.password || u.passwordHash || 'password123');
+      const pwd = existing?.password || u.password || u.passwordHash || 'password123';
       const now = new Date().toISOString();
       const isEmailVerified = Boolean(u.emailVerified || u.email_verified || existing?.email_verified);
       const userStatus = (existing?.status === 'active' || u.status === 'active') ? 'active' : (u.status || existing?.status || 'active');
@@ -218,6 +226,7 @@ async function syncSectionsFromFirestore(db: any) {
     `);
 
     const checkSeatsCountStmt = db.prepare('SELECT COUNT(*) as c FROM seats WHERE section_id = ?');
+    const secTombstoneStmt = db.prepare("SELECT 1 FROM deleted_tombstones WHERE type = 'section' AND item_id = ?");
     const insertInitialSeat = db.prepare(`
       INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 'default', NULL, ?)
@@ -225,6 +234,15 @@ async function syncSectionsFromFirestore(db: any) {
 
     for (const s of sections) {
       if (!s.id) continue;
+
+      // Check if section was deleted locally
+      try {
+        if (secTombstoneStmt.get(s.id)) {
+          deleteDoc('sections', s.id).catch(() => {});
+          continue;
+        }
+      } catch {}
+
       const rosterJson = typeof s.roster === 'string' ? s.roster : JSON.stringify(s.roster || []);
       insertSec.run(
         s.id,
@@ -311,8 +329,9 @@ async function syncAttendanceFromFirestore(db: any) {
       INSERT OR REPLACE INTO attendance_history (
         id, section_id, seat_num, student_name, student_number,
         status, recorded_date, session_period, teacher_name, teacher_subject,
-        justified, justification_reason, notes, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        justified, justification_reason, notes, created_at,
+        absence_mode, duration_hours, duration_days, duration_label
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
@@ -325,6 +344,9 @@ async function syncAttendanceFromFirestore(db: any) {
           continue;
         }
 
+        const fallbackDate = a.createdAt ? String(a.createdAt).slice(0, 10) : new Date().toISOString().slice(0, 10);
+        const recordedDate = a.date || a.recordedDate || fallbackDate;
+
         insertStmt.run(
           a.id,
           a.sectionId,
@@ -332,14 +354,18 @@ async function syncAttendanceFromFirestore(db: any) {
           a.studentName || '',
           a.studentNumber || '',
           a.status || 'absent',
-          a.date || a.recordedDate || new Date().toISOString().slice(0, 10),
+          recordedDate,
           a.session || a.sessionPeriod || 'كامل اليوم',
           a.teacherName || '',
           a.teacherSubject || '',
           a.isJustified ? 'justified' : (a.justified || 'unjustified'),
           a.justificationReason || '',
           a.notes || '',
-          a.createdAt || new Date().toISOString()
+          a.createdAt || new Date().toISOString(),
+          a.absenceMode || 'hours',
+          Number(a.durationHours || 1),
+          Number(a.durationDays || 0),
+          a.durationLabel || ''
         );
       } catch (rowErr: any) {
         console.warn(`[FirestoreSync] Skipping attendance record ${a.id}: ${rowErr?.message}`);

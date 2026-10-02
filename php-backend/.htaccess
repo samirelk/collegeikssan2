@@ -1,0 +1,22 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+
+  # 1. التوجيه التلقائي لمعالج التثبيت عند أول دخول للموقع (إذا لم يتم التثبيت بعد)
+  RewriteCond %{REQUEST_URI} !^/install\.php
+  RewriteCond %{REQUEST_URI} !^/api/
+  RewriteCond %{REQUEST_URI} !\.(css|js|png|jpg|jpeg|svg|ico|woff|woff2)$ [NC]
+  RewriteCond %{DOCUMENT_ROOT}/installed.lock !-f
+  RewriteRule ^(.*)$ install.php [R=302,L]
+
+  # 2. توجيه جميع طلبات API إلى سكربت PHP
+  RewriteRule ^api/(.*)$ api/index.php [QSA,L]
+
+  # 3. السماح للملفات والمجلدات الثابتة بالمرور المباشر (CSS, JS, Images)
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+
+  # 4. توجيه جميع صفحات الواجهة الأمامية React إلى index.html
+  RewriteRule ^ index.html [L]
+</IfModule>

@@ -21,7 +21,8 @@ import {
   Filter,
   Layers,
   BookOpen,
-  Edit3
+  Edit3,
+  Download
 } from 'lucide-react';
 import { User as UserType, TeacherItem, TEACHER_SUBJECTS, TeacherSubject, AppSettings } from '../types';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
@@ -644,7 +645,7 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
                 </div>
               </div>
 
-              <div className="mt-6 flex items-center gap-3">
+              <div className="mt-6 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={onOpenDbModal}
@@ -653,6 +654,16 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
                   <Database className="w-4 h-4 text-[#C98A3C]" />
                   <span>فتح نافذة النسخ الاحتياطي والاسترجاع</span>
                 </button>
+
+                <a
+                  href="/api/export-php-package"
+                  download="echsa_php_mysql_complete_package.tar.gz"
+                  className="px-5 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-2 no-underline"
+                  title="تحميل حزمة PHP & MySQL الكاملة للاستضافة على cPanel / XAMPP / InfinityFree"
+                >
+                  <Download className="w-4 h-4 text-amber-200" />
+                  <span>تصدير حزمة PHP & MySQL للاستضافات المجانية (cPanel / XAMPP)</span>
+                </a>
               </div>
             </div>
           </div>

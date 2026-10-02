@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import {
   initDatabase,
@@ -63,6 +64,7 @@ import {
   getStudentHistory,
   addDailyAbsence,
   updateDailyAbsence,
+  resolveDailyAbsence,
   deleteDailyAbsence,
   batchImportDailyAbsences,
   addDailyViolation,
@@ -724,6 +726,22 @@ async function startServer() {
     try {
       const result = seedTenSections();
       res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 6f. Download PHP & MySQL Complete Package
+  app.get('/api/export-php-package', (req, res) => {
+    try {
+      const filePath = path.join(process.cwd(), 'public', 'echsa_php_mysql_complete_package.tar.gz');
+      if (fs.existsSync(filePath)) {
+        res.setHeader('Content-Disposition', 'attachment; filename="echsa_php_mysql_complete_package.tar.gz"');
+        res.setHeader('Content-Type', 'application/gzip');
+        fs.createReadStream(filePath).pipe(res);
+      } else {
+        res.status(404).json({ success: false, error: 'ملف الحزمة غير موجود حالياً' });
+      }
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -1603,6 +1621,27 @@ async function startServer() {
         notes
       });
       res.json({ success: true, message: 'تم تحديث سجل الغياب بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Resolve an active absence (mark as ended/attended while preserving in archive)
+  app.post('/api/daily-archive/absences/:id/resolve', (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || '';
+      const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || 'director';
+      const actorName = req.body?.actorName || '';
+      const actorSubject = req.body?.actorSubject || '';
+
+      const result = resolveDailyAbsence(id, {
+        id: actorId,
+        role: actorRole,
+        name: actorName,
+        subject: actorSubject
+      });
+      res.json(result);
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }

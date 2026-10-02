@@ -61,7 +61,50 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  const participations: PositiveParticipationItem[] = seat.positiveParticipations || [];
+  const normalizeText = (str?: string): string => {
+    if (!str) return '';
+    return str
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670]/g, '')
+      .replace(/\u0640/g, '')
+      .replace(/[أإآٱ]/g, 'ا')
+      .replace(/ة/g, 'ه')
+      .replace(/ى/g, 'ي')
+      .replace(/\s+/g, ' ');
+  };
+
+  const matchesCurrentStudent = (
+    studentName?: string,
+    studentNumber?: string,
+    massarNumber?: string,
+    partName?: string,
+    partNum?: string,
+    partMassar?: string
+  ): boolean => {
+    const sName = normalizeText(studentName);
+    const pName = normalizeText(partName);
+    if (!sName && !pName) return false;
+
+    const sMassar = (massarNumber || '').trim().toUpperCase();
+    const pMassar = (partMassar || '').trim().toUpperCase();
+    if (sMassar && pMassar && sMassar === pMassar) return true;
+
+    if (sName && pName && sName === pName) return true;
+    if (sName && pName && (sName.includes(pName) || pName.includes(sName))) {
+      const sNum = String(studentNumber || '').trim();
+      const pNum = String(partNum || '').trim();
+      if (!sNum || !pNum || sNum === pNum) return true;
+    }
+    return false;
+  };
+
+  const studentDisplayName = seat.name && seat.name.trim() ? seat.name.trim() : `المقعد رقم ${seat.seat}`;
+
+  const participations: PositiveParticipationItem[] = (seat.positiveParticipations || []).filter((p) => {
+    if (!seat.name || !seat.name.trim()) return false;
+    return matchesCurrentStudent(seat.name, seat.number, seat.massarNumber, p.studentName, p.studentNumber, p.massarNumber);
+  });
   const totalPoints = participations.reduce((acc, p) => acc + (p.points || 1), 0);
 
   const handleSelectPreset = (item: typeof PRESET_TYPES[0]) => {
@@ -105,8 +148,6 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
       setDeletingId(null);
     }
   };
-
-  const studentDisplayName = seat.name && seat.name.trim() ? seat.name : `المقعد رقم ${seat.seat}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-1.5 sm:p-4 overflow-y-auto">

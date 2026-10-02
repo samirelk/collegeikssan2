@@ -237,6 +237,11 @@ export interface SeatItem {
   rosterId: string | null;
   statusColor?: SeatStatusColor;
   attendance?: SeatAttendance;
+  previousSessionAbsence?: {
+    teacherName?: string;
+    sessionPeriod?: string;
+    status?: 'absent' | 'late';
+  } | null;
   seatNum?: number;
   studentName?: string;
   studentNumber?: string;

@@ -117,7 +117,9 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Search & Inner Filter
+  const isTeacher = currentUser?.role === 'teacher';
   const [searchQuery, setSearchQuery] = useState('');
+  const [absenceScope, setAbsenceScope] = useState<'current_active' | 'all_archive'>('current_active');
   const [absenceStatusFilter, setAbsenceStatusFilter] = useState<'all' | 'absent' | 'late' | 'justified' | 'unjustified'>('all');
   const [violationCategoryFilter, setViolationCategoryFilter] = useState<string>('all');
 
@@ -378,12 +380,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
   // Handle Delete Absence
   const handleDeleteAbsence = async (id: number, name: string) => {
-    if (!confirm(`هل أنت متأكد من حذف سجل غياب التلميذ (${name})؟`)) return;
     try {
       const res = await fetch(`/api/daily-archive/absences/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg('تم حذف السجل بنجاح');
+        setSuccessMsg(`تم حذف سجل غياب (${name}) بنجاح`);
         fetchArchiveData(selectedDate);
       } else {
         alert(data.error || 'تعذر الحذف');
@@ -395,12 +396,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
   // Handle Delete Violation
   const handleDeleteViolation = async (id: string, name: string) => {
-    if (!confirm(`هل أنت متأكد من حذف مخالفة التلميذ (${name})؟`)) return;
     try {
       const res = await fetch(`/api/daily-archive/violations/${id}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
-        setSuccessMsg('تم حذف سجل المخالفة بنجاح');
+        setSuccessMsg(`تم حذف سجل مخالفة (${name}) بنجاح`);
         fetchArchiveData(selectedDate);
       } else {
         alert(data.error || 'تعذر الحذف');
@@ -410,9 +410,43 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     }
   };
 
+  // Handle Resolve Active Absence (إنهاء حالة الغياب الحالي وتوثيقها في الأرشيف)
+  const handleResolveAbsence = async (id: number, name: string) => {
+    try {
+      const res = await fetch(`/api/daily-archive/absences/${id}/resolve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUser?.id || '',
+          'x-user-role': currentUser?.role || 'director'
+        },
+        body: JSON.stringify({
+          actorId: currentUser?.id || '',
+          actorRole: currentUser?.role || 'director',
+          actorName: currentUser?.fullName || '',
+          actorSubject: currentUser?.subject || ''
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMsg(`تم رفع الغياب الحالي للتلميذ (${name}) وتوثيقه في الأرشيف كغياب مسوّى`);
+        fetchArchiveData(selectedDate);
+      } else {
+        alert(data.error || 'تعذر رفع الغياب');
+      }
+    } catch (err: any) {
+      alert(err.message || 'خطأ في الاتصال');
+    }
+  };
+
   // Filtered Absences
   const filteredAbsences = useMemo(() => {
     return absences.filter(item => {
+      // Scope filter: current active vs full archive
+      if (absenceScope === 'current_active' && item.removedAt) {
+        return false;
+      }
+
       // Query filter
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
@@ -430,7 +464,10 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
       return true;
     });
-  }, [absences, searchQuery, absenceStatusFilter]);
+  }, [absences, searchQuery, absenceStatusFilter, absenceScope]);
+
+  const activeAbsencesCount = useMemo(() => absences.filter(a => !a.removedAt).length, [absences]);
+  const resolvedAbsencesCount = useMemo(() => absences.filter(a => !!a.removedAt).length, [absences]);
 
   // Filtered Violations
   const filteredViolations = useMemo(() => {
@@ -483,20 +520,24 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           {/* Title & Date Details */}
           <div>
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-700 flex items-center justify-center font-bold">
-                <Calendar className="w-5 h-5 text-amber-600" />
+              <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold ${
+                isTeacher ? 'bg-rose-500/10 text-rose-700' : 'bg-amber-500/10 text-amber-700'
+              }`}>
+                {isTeacher ? <UserX className="w-5 h-5 text-rose-600" /> : <Calendar className="w-5 h-5 text-amber-600" />}
               </div>
               <div>
                 <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-                  <span>أرشيف الغيابات والمخالفات اليومي</span>
+                  <span>{isTeacher ? 'الغيابات الحالية (قيد الغياب الآن)' : 'أرشيف الغيابات والمخالفات اليومي'}</span>
                   {selectedDate === todayStr && (
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">
-                      اليوم
+                    <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      isTeacher ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
+                    }`}>
+                      {isTeacher ? 'اليوم' : 'اليوم'}
                     </span>
                   )}
                 </h2>
                 <p className="text-sm font-medium text-slate-500 mt-0.5">
-                  {formattedArabicDate}
+                  {isTeacher ? 'مراقبة فورية للمتغيبين حالياً في حصصك وأقسامك الدراسية' : formattedArabicDate}
                 </p>
               </div>
             </div>
@@ -729,11 +770,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
             }`}
           >
             <UserX className="w-4 h-4 text-rose-600" />
-            <span>سجل الغيابات والتأخرات اليومية</span>
+            <span>{isTeacher ? 'الغيابات الحالية' : 'سجل الغيابات والتأخرات اليومية'}</span>
             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
               activeTab === 'absences' ? 'bg-rose-100 text-rose-800' : 'bg-slate-200 text-slate-700'
             }`}>
-              {absences.length}
+              {isTeacher ? activeAbsencesCount : absences.length}
             </span>
           </button>
 
@@ -754,22 +795,92 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
             </span>
           </button>
 
-          <button
-            onClick={() => setActiveTab('summary')}
-            className={`py-2.5 px-6 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-              activeTab === 'summary'
-                ? 'bg-white text-blue-700 shadow-xs border border-slate-200/80'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
-            }`}
-          >
-            <FileText className="w-4 h-4 text-blue-600" />
-            <span>التقرير الإداري</span>
-          </button>
+          {!isTeacher && (
+            <button
+              onClick={() => setActiveTab('summary')}
+              className={`py-2.5 px-6 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all ${
+                activeTab === 'summary'
+                  ? 'bg-white text-blue-700 shadow-xs border border-slate-200/80'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+              }`}
+            >
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>التقرير الإداري</span>
+            </button>
+          )}
         </div>
 
         {/* Tab 1: Absences & Lates Table */}
         {activeTab === 'absences' && (
           <div className="p-5 space-y-4">
+            {/* Absence Scope Selector: الغياب الحالي للأستاذ vs الأرشيف الشامل للمدير */}
+            {isTeacher ? (
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
+                  <span className="text-sm font-bold text-rose-900">مراقبة حية: قائمة التلاميذ الغائبين حالياً في حصصك وأقسامك الدراسية</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-rose-700 bg-white px-2.5 py-1 rounded-xl border border-rose-200 font-medium">
+                    يتم عرض المتغيبين حالياً فقط (تُخفى الغيابات التي تمت تسويتها)
+                  </span>
+                  <span className="px-3 py-1 rounded-xl text-xs font-bold bg-rose-600 text-white shadow-xs">
+                    {activeAbsencesCount} تلميذاً غائباً
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-3.5 bg-slate-100/90 rounded-2xl border border-slate-200">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setAbsenceScope('current_active')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                      absenceScope === 'current_active'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                    }`}
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full bg-rose-300 animate-pulse"></span>
+                    <span>الغياب الحالي (قيد الغياب الآن)</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      absenceScope === 'current_active' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
+                    }`}>
+                      {activeAbsencesCount}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAbsenceScope('all_archive')}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                      absenceScope === 'all_archive'
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                    }`}
+                  >
+                    <span>أرشيف كافة الغيابات (المستمر والمنتهي)</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      absenceScope === 'all_archive' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                    }`}>
+                      {absences.length}
+                    </span>
+                  </button>
+                </div>
+
+                {absenceScope === 'current_active' ? (
+                  <div className="text-xs text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200 font-medium flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                    <span>مراقبة حية: التلاميذ الذين لم تتم إزالة غيابهم بعد ({activeAbsencesCount} تلميذاً)</span>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200 font-medium">
+                    سجل أرشيفي موثق يشمل جميع الغيابات ({resolvedAbsencesCount} تمت تسويتها وإزالتها)
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Search & Status Filter */}
             <div className="flex flex-col md:flex-row items-center justify-between gap-3">
               <div className="relative w-full md:w-80">
@@ -808,15 +919,17 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                   );
                 })}
 
-                <button
-                  type="button"
-                  onClick={() => setShowMassarModal(true)}
-                  className="mr-2 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
-                  title="استيراد وتصدير الغيابات وفق منظومة مسار (Excel / CSV)"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
-                  <span>تصدير / استيراد مسار</span>
-                </button>
+                {!isTeacher && (
+                  <button
+                    type="button"
+                    onClick={() => setShowMassarModal(true)}
+                    className="mr-2 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    title="استيراد وتصدير الغيابات وفق منظومة مسار (Excel / CSV)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
+                    <span>تصدير / استيراد مسار</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -839,6 +952,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                       <th className="py-3 px-3">القسم والمستوى</th>
                       <th className="py-3 px-3">المقعد</th>
                       <th className="py-3 px-3">الوضعية</th>
+                      <th className="py-3 px-3">حالة السجل</th>
                       <th className="py-3 px-3">الحصة / الفترة</th>
                       <th className="py-3 px-3">الأستاذ(ة) / المادة</th>
                       <th className="py-3 px-3">وضعية التبرير</th>
@@ -884,6 +998,29 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                               <Clock className="w-3 h-3 text-amber-600" />
                               تأخر
                             </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {!ab.removedAt ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse"></span>
+                              قيد الغياب الآن
+                            </span>
+                          ) : (
+                            <div className="space-y-0.5">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                                تمت تسويته / أزيل
+                              </span>
+                              <div className="text-[10px] text-slate-500 font-normal">
+                                {ab.removerName ? `بواسطة: ${ab.removerName}` : 'بواسطة الإدارة'}
+                              </div>
+                              {ab.durationLabel && (
+                                <div className="text-[10px] text-slate-400 font-normal">
+                                  المدة: {ab.durationLabel}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </td>
                         <td className="py-3 px-3 text-slate-700 font-medium">
@@ -941,13 +1078,26 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                           {ab.justificationReason || ab.notes || '—'}
                         </td>
                         <td className="py-3 px-3 text-center">
-                          <button
-                            onClick={() => handleDeleteAbsence(ab.id, ab.studentName)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                            title="حذف هذا السجل"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1">
+                            {!ab.removedAt && (
+                              <button
+                                type="button"
+                                onClick={() => handleResolveAbsence(ab.id, ab.studentName)}
+                                className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold inline-flex items-center gap-1 transition-colors shadow-xs cursor-pointer"
+                                title="إنهاء الغياب الحالي وتوثيقه في الأرشيف (ورقة دخول التلميذ)"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                <span>رفع الغياب</span>
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleDeleteAbsence(ab.id, ab.studentName)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="حذف هذا السجل نهائياً"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
