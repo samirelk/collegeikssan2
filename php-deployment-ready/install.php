@@ -101,35 +101,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->exec("SET FOREIGN_KEY_CHECKS = 0;");
             $pdo->exec("SET NAMES utf8mb4;");
 
-            // قراءة وتنفيذ مخطط قاعدة البيانات إذا لم يتم تحديد التخطي
-            if (!$skipTables) {
-                if (file_exists($sqlFile)) {
-                    $sqlContent = file_get_contents($sqlFile);
-                    // إزالة التعليقات متعددة الأسطر والسطرية
-                    $cleanSql = preg_replace('!/\*.*?\*/!s', '', $sqlContent);
-                    $cleanSql = preg_replace('/^[\t ]*--[^\r\n]*/m', '', $cleanSql);
-                    $cleanSql = preg_replace('/^[\t ]*#[^\r\n]*/m', '', $cleanSql);
+            // فحص ذكي: هل الجداول منشأة بالفعل في قاعدة البيانات؟ (مثلاً إذا قام المستخدم بلصقها في phpMyAdmin)
+            $tablesExist = false;
+            try {
+                $checkStmt = $pdo->query("SHOW TABLES LIKE 'users'");
+                if ($checkStmt && $checkStmt->rowCount() > 0) {
+                    $tablesExist = true;
+                }
+            } catch (Exception $e) {}
 
-                    // إزالة أوامر CREATE DATABASE و USE لأننا متصلون بها بالفعل
-                    $cleanSql = preg_replace('/CREATE\s+DATABASE[^;]+;/i', '', $cleanSql);
-                    $cleanSql = preg_replace('/USE\s+[^;]+;/i', '', $cleanSql);
-
-                    $queries = array_filter(array_map('trim', explode(';', $cleanSql)));
-                    foreach ($queries as $q) {
-                        if (!empty($q)) {
-                            try {
-                                $pdo->exec($q);
-                            } catch (PDOException $queryErr) {
-                                // تجاهل أخطاء التكرار إذا كان الجدول موجوداً
-                                if (strpos($queryErr->getMessage(), 'already exists') === false) {
-                                    error_log("SQL Notice in install: " . $queryErr->getMessage());
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // مخطط احتياطي مضمن لضمان عدم توقف التثبيت أبداً حتى لو فُقد الملف
-                    $embeddedTables = [
+            // إذا لم تكن الجداول موجودة مسبقاً، نقوم بإنشائها مباشرة من المخطط المضمن النظيف 100%
+            if (!$skipTables && !$tablesExist) {
+                $embeddedTables = [
                         "CREATE TABLE IF NOT EXISTS `users` (
                           `id` VARCHAR(64) NOT NULL PRIMARY KEY,
                           `username` VARCHAR(64) NOT NULL UNIQUE,
@@ -279,7 +262,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         } catch (Exception $e) {}
                     }
                 }
-            }
 
             // إعادة تفعيل القيود
             $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
