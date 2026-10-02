@@ -9,23 +9,16 @@ require_once __DIR__ . '/../config.php';
 $method = $_SERVER['REQUEST_METHOD'];
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
 
-// التحقق من حالة التثبيت التلقائي (CMS Installer Status)
-$lockFile = __DIR__ . '/../installed.lock';
-if (!file_exists($lockFile)) {
-    jsonResponse([
-        'success' => false,
-        'installed' => false,
-        'redirect' => 'install.php',
-        'error' => 'النظام لم يتم تثبيته بعد. يرجى التوجه لصفحة التثبيت التلقائي install.php'
-    ], 200);
-}
-
-// إزالة المسار الأساسي إذا كان التطبيق في مجلد فرعي
+// دعم التوجيه عبر الرابط الجميل أو عبر باراميتر route= أو المسارات الفرعية
 $basePath = '/api';
 $pos = strpos($uri, $basePath);
 $path = ($pos !== false) ? substr($uri, $pos + strlen($basePath)) : $uri;
 $path = trim($path, '/');
+if (!empty($_GET['route'])) {
+    $path = trim($_GET['route'], '/');
+}
 $segments = $path ? explode('/', $path) : [];
+$segments = array_map(function($s) { return preg_replace('/\.php$/i', '', $s); }, $segments);
 
 $userId = getHeader('x-user-id') ?: ($_GET['userId'] ?? '');
 $userRole = getHeader('x-user-role') ?: ($_GET['userRole'] ?? 'teacher');
@@ -33,27 +26,42 @@ $userRole = getHeader('x-user-role') ?: ($_GET['userRole'] ?? 'teacher');
 // -------------------------------------------------------------
 // 1. المصادقة والمستخدمون (Authentication & Users)
 // -------------------------------------------------------------
-if ($segments[0] === 'auth') {
+if (isset($segments[0]) && $segments[0] === 'auth') {
     $action = $segments[1] ?? '';
 
     // تسجيل الدخول
     if ($action === 'login' && $method === 'POST') {
         $input = getJsonInput();
-        $identifier = trim($input['username'] ?? $input['email'] ?? '');
-        $password = $input['password'] ?? '';
+        $identifier = trim($input['identifier'] ?? $input['username'] ?? $input['email'] ?? '');
+        $password = (string)($input['password'] ?? '');
+
+        if (!$identifier || !$password) {
+            jsonResponse(['success' => false, 'error' => 'يرجى إدخال اسم المستخدم وكلمة المرور.']);
+        }
 
         $stmt = $pdo->prepare("SELECT * FROM users WHERE (username = ? OR email = ?) LIMIT 1");
         $stmt->execute([$identifier, $identifier]);
         $user = $stmt->fetch();
 
-        if ($user && (password_verify($password, $user['password']) || $password === $user['password'])) {
-            if ($user['status'] !== 'active') {
-                jsonResponse(['success' => false, 'error' => 'حسابك في انتظار تفعيل الإدارة التربوية.'], 403);
+        if ($user) {
+            $isCorrect = false;
+            if (password_verify($password, $user['password'])) {
+                $isCorrect = true;
+            } elseif ($password === $user['password']) {
+                $isCorrect = true;
+            } elseif ($user['password'] === md5($password)) {
+                $isCorrect = true;
             }
-            unset($user['password']);
-            jsonResponse(['success' => true, 'user' => $user]);
+
+            if ($isCorrect) {
+                if (isset($user['status']) && $user['status'] !== 'active') {
+                    jsonResponse(['success' => false, 'isPending' => true, 'error' => 'حسابك في انتظار تفعيل الإدارة التربوية.']);
+                }
+                unset($user['password']);
+                jsonResponse(['success' => true, 'user' => $user]);
+            }
         }
-        jsonResponse(['success' => false, 'error' => 'اسم المستخدم أو كلمة المرور غير صحيحة.'], 401);
+        jsonResponse(['success' => false, 'error' => 'اسم المستخدم أو كلمة المرور غير صحيحة.']);
     }
 
     // تسجيل حساب جديد

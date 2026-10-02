@@ -32,11 +32,21 @@ try {
     ];
     $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
 } catch (PDOException $e) {
-    http_response_code(500);
+    // نستخدم كود 200 دائماً لمنع الخوادم المجانية من استبدال الرد بصفحة HTML 500
+    http_response_code(200);
+    $err = $e->getMessage();
+    $hint = 'يرجى مراجعة إعدادات الاتصال في ملف config.php';
+    if (strpos($err, 'Connection refused') !== false || strpos($err, '2002') !== false) {
+        $hint = 'خادم قاعدة البيانات غير صحيح. في استضافات InfinityFree، انسخ عنوان MySQL Hostname من لوحة التحكم (مثال: sql100.infinityfree.com) ولا تستخدم localhost!';
+    } elseif (strpos($err, 'Access denied') !== false || strpos($err, '1045') !== false) {
+        $hint = 'اسم المستخدم أو كلمة المرور لقاعدة البيانات غير صحيحة. تأكد من كلمة مرور حسابك في الاستضافة.';
+    } elseif (strpos($err, 'Unknown database') !== false || strpos($err, '1049') !== false) {
+        $hint = 'اسم قاعدة البيانات غير موجود. تأكد من كتابة الاسم الكامل مع البادئة (مثال: if0_xxxx_dbname).';
+    }
     echo json_encode([
         'success' => false,
-        'error' => 'تعذر الاتصال بقاعدة البيانات MySQL: ' . $e->getMessage(),
-        'tip' => 'يرجى مراجعة إعدادات الاتصال في ملف config.php والتأكد من استيراد database.sql'
+        'error' => 'خطأ في الاتصال بقاعدة البيانات: ' . $err,
+        'hint' => $hint
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -45,7 +55,8 @@ try {
  * دوال مساعدة للاستجابة
  */
 function jsonResponse($data, $statusCode = 200) {
-    http_response_code($statusCode);
+    // نستخدم 200 دائماً لضمان عدم قيام استضافات cPanel/InfinityFree باستبدال الـ JSON بصفحات خطأ HTML
+    http_response_code(200);
     echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     exit;
 }

@@ -19,6 +19,7 @@ import {
 import { User as UserType, AppSettings } from '../types';
 import { AppFooter } from './AppFooter';
 import { AppAdminDashboard } from './AppAdminDashboard';
+import { safeApiFetch } from '../utils/apiClient';
 
 interface AdminPortalViewProps {
   institutionName: string;
@@ -148,19 +149,19 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
     setErrorMessage(null);
 
     try {
-      const res = await fetch('/api/auth/login', {
+      const data = await safeApiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: loginIdentifier.trim(),
+          username: loginIdentifier.trim(),
+          email: loginIdentifier.trim(),
           password: loginPassword
         })
       });
 
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'فشل تسجيل الدخول، تحقق من اسم المستخدم أو كلمة المرور');
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'فشل تسجيل الدخول، تحقق من اسم المستخدم أو كلمة المرور');
       }
 
       // Strict enforcement: ONLY admin role can enter /admin

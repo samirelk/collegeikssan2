@@ -17,6 +17,7 @@ import {
   Clock
 } from 'lucide-react';
 import { User as UserType } from '../types';
+import { safeApiFetch } from '../utils/apiClient';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -117,32 +118,42 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const data = await safeApiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: loginIdentifier.trim(),
+          username: loginIdentifier.trim(),
+          email: loginIdentifier.trim(),
           password: loginPassword
         })
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        if (data.needsEmailVerification) {
+      if (!data || !data.success) {
+        if (data && data.needsEmailVerification) {
           setVerifyEmail(data.email || loginIdentifier.trim());
           setActiveTab('verify');
           setErrorMessage('يرجى تأكيد بريدك الإلكتروني أولاً. تم إرسال رمز التحقق المكون من 6 أرقام إلى بريدك الإلكتروني.');
           return;
         }
-        if (data.isPending) {
+        if (data && data.isPending) {
           setIsPendingLoginWarning(true);
         }
-        throw new Error(data.error || 'فشل تسجيل الدخول، تأكد من صحة البيانات');
+        throw new Error(data?.error || 'فشل تسجيل الدخول، تأكد من صحة البيانات');
       }
 
       onLoginSuccess(data.user);
       onClose();
     } catch (err: any) {
+      if (err.data?.needsEmailVerification) {
+        setVerifyEmail(err.data.email || loginIdentifier.trim());
+        setActiveTab('verify');
+        setErrorMessage('يرجى تأكيد بريدك الإلكتروني أولاً. تم إرسال رمز التحقق المكون من 6 أرقام إلى بريدك الإلكتروني.');
+        return;
+      }
+      if (err.data?.isPending) {
+        setIsPendingLoginWarning(true);
+      }
       setErrorMessage(err.message || 'خطأ أثناء تسجيل الدخول');
     } finally {
       setIsLoading(false);

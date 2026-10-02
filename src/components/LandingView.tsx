@@ -17,12 +17,15 @@ import {
   GraduationCap,
   Clock,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Package,
+  Download
 } from 'lucide-react';
 import { User as UserType } from '../types';
 import heroClassroomImg from '../assets/images/classroom_students_1789420946355.jpg';
 import { AppFooter } from './AppFooter';
 import { SchoolActivitiesWall } from './SchoolActivitiesWall';
+import { safeApiFetch } from '../utils/apiClient';
 
 interface LandingViewProps {
   institutionName: string;
@@ -79,23 +82,28 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const data = await safeApiFetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           identifier: loginEmail.trim(),
+          username: loginEmail.trim(),
+          email: loginEmail.trim(),
           password: loginPassword
         })
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        if (data.isPending) {
+
+      if (!data || !data.success) {
+        if (data && data.isPending) {
           setIsPendingLoginWarning(true);
         }
-        throw new Error(data.error || 'فشل تسجيل الدخول، تأكد من صحة البريد والرقم السري');
+        throw new Error(data?.error || 'فشل تسجيل الدخول، تأكد من صحة البريد والرقم السري');
       }
       onLoginSuccess(data.user);
     } catch (err: any) {
+      if (err.data?.isPending) {
+        setIsPendingLoginWarning(true);
+      }
       setErrorMessage(err.message || 'حدث خطأ أثناء الاتصال');
     } finally {
       setIsLoading(false);
@@ -125,7 +133,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
     setIsLoading(true);
     try {
       const username = regEmail.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '') || `prof_${Date.now()}`;
-      const res = await fetch('/api/auth/register', {
+      const data = await safeApiFetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -138,9 +146,9 @@ export const LandingView: React.FC<LandingViewProps> = ({
           subject: regSubject
         })
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'فشل إنشاء الحساب الجديد');
+
+      if (!data || !data.success) {
+        throw new Error(data?.error || 'فشل إنشاء الحساب الجديد');
       }
 
       // Order #5: Teachers account is pending Director approval
