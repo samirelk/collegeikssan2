@@ -116,15 +116,15 @@ export const TeacherProfileModal: React.FC<TeacherProfileModalProps> = ({
   return (
     <div
       id="modal-user-profile"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn overflow-y-auto"
       dir="rtl"
     >
-      <div className="relative w-full max-w-lg bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-3xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+      <div className="relative w-full max-w-lg bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto max-h-[95vh] sm:max-h-[90vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C]">
+        <div className="p-3.5 sm:p-6 pb-3 sm:pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C] shrink-0">
               {isAdmin ? (
                 <ShieldCheck className="w-5 h-5" />
               ) : isDirector ? (
@@ -133,15 +133,15 @@ export const TeacherProfileModal: React.FC<TeacherProfileModalProps> = ({
                 <User className="w-5 h-5" />
               )}
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-[#F2EFE3]">
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-lg font-bold text-[#F2EFE3] truncate">
                 {isAdmin
                   ? 'إعدادات حساب المشرف العام'
                   : isDirector
                   ? 'إعدادات وتخصيص حساب مدير المؤسسة'
                   : 'إعدادات الحساب الشخصي'}
               </h3>
-              <p className="text-xs text-[rgba(242,239,227,0.6)] mt-0.5">
+              <p className="text-[11px] sm:text-xs text-[rgba(242,239,227,0.6)] mt-0.5 truncate">
                 تعديل الاسم والبريد الإلكتروني واسم المستخدم وكلمة المرور
               </p>
             </div>
@@ -149,14 +149,14 @@ export const TeacherProfileModal: React.FC<TeacherProfileModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer"
+            className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] w-8 h-8 rounded-full flex items-center justify-center text-lg transition-colors cursor-pointer shrink-0"
           >
             ✕
           </button>
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-3.5 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1">
           
           {/* First Login Welcome Notice */}
           {isFirstLogin && isDirector && (

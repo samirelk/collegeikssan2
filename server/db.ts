@@ -549,11 +549,11 @@ export function initDatabase() {
   }
 
   // Seed default settings if not exists
+  const dataResetCompleted = (db.prepare('SELECT value FROM app_settings WHERE key = ?').get('data_reset_completed') as { value?: string } | undefined)?.value === 'true';
   const settingsCount = (db.prepare('SELECT COUNT(*) as count FROM app_settings').get() as { count: number }).count;
-  if (settingsCount === 0) {
+  if (settingsCount === 0 && !dataResetCompleted) {
     seedInitialData();
   }
-  const dataResetCompleted = (db.prepare('SELECT value FROM app_settings WHERE key = ?').get('data_reset_completed') as { value?: string } | undefined)?.value === 'true';
 
   // Ensure default institution is "الثانوية الإعدادية ايكسان"
   const now = new Date().toISOString();
@@ -672,7 +672,7 @@ export function initDatabase() {
   // Seed sample approved activities for the institution if empty
   try {
     const actCount = (db.prepare('SELECT COUNT(*) as count FROM school_activities').get() as { count: number }).count;
-    if (actCount === 0) {
+    if (actCount === 0 && !dataResetCompleted) {
       const sampleActivities = [
         {
           id: 'act_seed_1',
@@ -4033,6 +4033,40 @@ export function getAllTeachers() {
   }));
 }
 
+export function getTeachersWithCredentials() {
+  const rows = db.prepare(`
+    SELECT u.id, u.username, u.email, u.password, u.full_name, u.role, u.academic_year, u.status, u.subject, u.email_verified, u.created_at,
+           (
+             SELECT COUNT(DISTINCT sec_id) FROM (
+               SELECT s.id as sec_id FROM sections s WHERE s.assigned_teacher_id = u.id
+               UNION
+               SELECT sa.section_id as sec_id FROM section_assignments sa WHERE sa.teacher_id = u.id AND sa.status = 'approved'
+               UNION
+               SELECT tt.section_id as sec_id FROM teacher_timetable tt WHERE tt.teacher_id = u.id
+             )
+           ) as assigned_sections_count
+    FROM users u
+    WHERE u.role = 'teacher'
+    GROUP BY u.id
+    ORDER BY u.full_name ASC
+  `).all() as any[];
+
+  return rows.map((r) => ({
+    id: r.id,
+    username: r.username,
+    email: r.email,
+    password: r.password || '',
+    fullName: r.full_name,
+    role: r.role,
+    academicYear: r.academic_year,
+    status: r.status,
+    subject: r.subject || 'الرياضيات',
+    emailVerified: Boolean(r.email_verified),
+    createdAt: r.created_at,
+    assignedSectionsCount: Number(r.assigned_sections_count || 0)
+  }));
+}
+
 export function deleteTeacher(id: string, requesterRole?: string) {
   if (requesterRole && requesterRole !== 'admin' && requesterRole !== 'director') {
     throw new Error('غير مصرح لك بحذف حسابات الأساتذة');
@@ -6882,12 +6916,13 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
 
   // 1. Collect IDs for Cloud sync
   const sectionsToDelete = db.prepare('SELECT id FROM sections').all() as { id: string }[];
-  const usersToDelete = db.prepare("SELECT id FROM users WHERE role != 'admin' AND username != 'admin' AND email NOT LIKE '%samir%'").all() as { id: string }[];
+  const usersToDelete = db.prepare("SELECT id FROM users WHERE role NOT IN ('admin', 'director') AND username NOT IN ('admin', 'directeur') AND email NOT LIKE '%samir%'").all() as { id: string }[];
 
   // 2. Clear transactional/operational tables in SQLite
   db.prepare('DELETE FROM seats').run();
   db.prepare('DELETE FROM notes').run();
   db.prepare('DELETE FROM daily_violations').run();
+  db.prepare('DELETE FROM positive_participations').run();
   db.prepare('DELETE FROM attendance_history').run();
   db.prepare('DELETE FROM teacher_seat_overrides').run();
   db.prepare('DELETE FROM section_assignments').run();
@@ -6898,6 +6933,9 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
   db.prepare('DELETE FROM change_history').run();
   db.prepare('DELETE FROM password_resets').run();
   db.prepare('DELETE FROM email_outbox').run();
+  try {
+    db.prepare('DELETE FROM deleted_tombstones').run();
+  } catch {}
 
   // 3. Remove non-admin users
   for (const u of usersToDelete) {
@@ -6940,6 +6978,7 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
       'seats',
       'notes',
       'daily_violations',
+      'positive_participations',
       'teacher_seat_overrides',
       'attendance_history',
       'section_assignments',
@@ -6963,14 +7002,14 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
       }
     }
 
-    // Clean non-admin users from Firestore
+    // Clean non-admin, non-director users from Firestore
     try {
       const allUsers = await listDocs('users');
       if (Array.isArray(allUsers)) {
         const toDelete: string[] = [];
         for (const u of allUsers) {
-          const isSuperAdmin = u.role === 'admin' || u.username === 'admin' || (u.email && u.email.includes('samir')) || u.id === 'usr_admin_samir';
-          if (!isSuperAdmin && u.id) {
+          const isSuperAdminOrDirector = u.role === 'admin' || u.role === 'director' || u.username === 'admin' || u.username === 'directeur' || (u.email && u.email.includes('samir')) || u.id === 'usr_admin_samir';
+          if (!isSuperAdminOrDirector && u.id) {
             toDelete.push(u.id);
           }
         }
@@ -6979,24 +7018,24 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
         }
       }
 
-      // Re-save / guarantee super admin in Firestore
-      const adminInDb = db.prepare("SELECT * FROM users WHERE role = 'admin' LIMIT 1").get() as any;
-      if (adminInDb) {
-        await setDoc('users', adminInDb.id, {
-          id: adminInDb.id,
-          username: adminInDb.username,
-          email: adminInDb.email,
-          fullName: adminInDb.full_name,
-          role: 'admin',
+      // Re-save / guarantee super admin and directors in Firestore
+      const preservedUsers = db.prepare("SELECT * FROM users WHERE role IN ('admin', 'director')").all() as any[];
+      for (const pUser of preservedUsers) {
+        await setDoc('users', pUser.id, {
+          id: pUser.id,
+          username: pUser.username,
+          email: pUser.email,
+          fullName: pUser.full_name,
+          role: pUser.role,
           status: 'active',
-          academicYear: adminInDb.academic_year || '2026/2027',
+          academicYear: pUser.academic_year || '2026/2027',
           emailVerified: true,
-          createdAt: adminInDb.created_at,
+          createdAt: pUser.created_at,
           updatedAt: new Date().toISOString()
         });
       }
     } catch (usersErr: any) {
-      console.warn('[resetAllDataToZero] Error cleaning non-admin users from Firestore:', usersErr?.message);
+      console.warn('[resetAllDataToZero] Error cleaning users from Firestore:', usersErr?.message);
     }
 
     // Save a clean cloud snapshot with 0 sections

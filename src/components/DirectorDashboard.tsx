@@ -46,6 +46,7 @@ import { ViolationTypesManagement } from './ViolationTypesManagement';
 import { safeApiFetch } from '../utils/apiClient';
 import { TeacherExcelImportModal } from './TeacherExcelImportModal';
 import { DirectorPrintModal } from './DirectorPrintModal';
+import { TeacherCredentialsPrintModal } from './TeacherCredentialsPrintModal';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -82,6 +83,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   // Quick Teacher Creation Modal State
   const [isAddTeacherOpen, setIsAddTeacherOpen] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
+  const [isPrintCredentialsOpen, setIsPrintCredentialsOpen] = useState(false);
   const [newFullName, setNewFullName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -1098,6 +1100,19 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+              {teachers.length > 0 && (
+                <button
+                  type="button"
+                  id="director-print-teacher-credentials-btn"
+                  onClick={() => setIsPrintCredentialsOpen(true)}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#2A4D3B] hover:bg-[#1E3B2C] text-white font-bold text-xs shadow-xs cursor-pointer transition-all border border-[#1E3B2C]"
+                  title="طباعة بطاقات وقسيمات حسابات الأساتذة وكلمات المرور لتوزيعها عليهم"
+                >
+                  <Printer className="w-4 h-4 text-amber-300" />
+                  <span>🖨️ طباعة بطاقات الحسابات وكلمات المرور ({teachers.length})</span>
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => setIsExcelImportOpen(true)}
@@ -1253,6 +1268,16 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                             title="تغيير كلمة المرور"
                           >
                             <KeyRound className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Print Teacher Credentials */}
+                          <button
+                            type="button"
+                            onClick={() => setIsPrintCredentialsOpen(true)}
+                            className="p-1.5 rounded-md hover:bg-[#E8DEC0] text-[#1E3B2C] hover:text-[#152B20] cursor-pointer"
+                            title="طباعة بطاقة حساب وكلمة مرور هذا الأستاذ"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
                           </button>
 
                           {/* Delete Teacher */}
@@ -2013,22 +2038,22 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       {/* MODAL: DIRECT QUICK TEACHER CREATION */}
       {isAddTeacherOpen && (
         <div
-          className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-150"
           onClick={(e) => {
             if (e.target === e.currentTarget) setIsAddTeacherOpen(false);
           }}
         >
-          <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-[#E4DBC0]">
-            <div className="p-5 border-b border-[#E4DBC0] bg-[#EFE9D5] flex items-center justify-between">
+          <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-[#E4DBC0] my-auto max-h-[95vh] flex flex-col">
+            <div className="p-3.5 sm:p-5 border-b border-[#E4DBC0] bg-[#EFE9D5] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-[#2D5A27] text-white flex items-center justify-center">
                   <UserPlus className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-bold font-serif text-[#2A2118]">
+                  <h3 className="text-base sm:text-lg font-bold font-serif text-[#2A2118]">
                     إنشاء حساب أستاذ جديد
                   </h3>
-                  <p className="text-xs text-[#7A6B58]">
+                  <p className="text-[11px] sm:text-xs text-[#7A6B58]">
                     إضافة عضو جديد في هيئة التدريس وتفعيل حسابه مباشرة
                   </p>
                 </div>
@@ -2042,7 +2067,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleCreateTeacher} className="p-5 space-y-3.5">
+            <form onSubmit={handleCreateTeacher} className="p-4 sm:p-5 space-y-3.5 overflow-y-auto flex-1">
               {teacherCreateError && (
                 <div className="p-3 rounded-lg bg-[#FDE8E8] border border-[#F8B4B4] text-[#9B1C1C] text-xs">
                   {teacherCreateError}
@@ -2181,13 +2206,13 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       {/* MODAL: RESET TEACHER PASSWORD */}
       {resettingTeacher && (
         <div
-          className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-150"
           onClick={(e) => {
             if (e.target === e.currentTarget) setResettingTeacher(null);
           }}
         >
-          <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-[#E4DBC0]">
-            <div className="p-4 border-b border-[#E4DBC0] bg-[#EFE9D5] flex items-center justify-between">
+          <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl border border-[#E4DBC0] my-auto max-h-[95vh] flex flex-col">
+            <div className="p-3.5 sm:p-4 border-b border-[#E4DBC0] bg-[#EFE9D5] flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
                 <KeyRound className="w-4 h-4 text-[#8A5A18]" />
                 <h3 className="text-base font-bold font-serif text-[#2A2118]">
@@ -2245,8 +2270,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* Modal: Confirm Delete Single Section */}
       {sectionToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setSectionToDelete(null)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => setSectionToDelete(null)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-50">
               <div className="flex items-center gap-2 text-rose-700">
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
@@ -2298,8 +2323,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* Modal: Confirm Delete Single Teacher (Director) */}
       {teacherToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isDeletingTeacher && setTeacherToDelete(null)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => !isDeletingTeacher && setTeacherToDelete(null)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-50">
               <div className="flex items-center gap-2 text-rose-700">
                 <AlertTriangle className="w-5 h-5 text-rose-600" />
@@ -2357,8 +2382,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* Modal: Confirm Manual Verify Email (Director) */}
       {verifyEmailTarget && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => !isVerifyingEmail && setVerifyEmailTarget(null)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => !isVerifyingEmail && setVerifyEmailTarget(null)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-amber-50">
               <div className="flex items-center gap-2 text-amber-800">
                 <Clock className="w-5 h-5 text-amber-600" />
@@ -2410,9 +2435,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* Modal: Add Student to End of Section (Director) */}
       {isAddStudentModalOpen && targetSectionForAdd && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setIsAddStudentModalOpen(false)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-[#1A4E47] text-white">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => setIsAddStudentModalOpen(false)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[95vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[#E4DBC0] bg-[#1A4E47] text-white shrink-0">
               <div className="flex items-center gap-2">
                 <UserPlus className="w-5 h-5 text-emerald-300" />
                 <h3 className="text-sm font-bold font-serif">
@@ -2428,7 +2453,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               </button>
             </div>
 
-            <form onSubmit={handleConfirmAddStudent} className="p-5 space-y-4">
+            <form onSubmit={handleConfirmAddStudent} className="p-4 sm:p-5 space-y-3.5 sm:space-y-4 overflow-y-auto flex-1">
               <div className="p-3 bg-[#EFE9D5]/60 border border-[#D9CEB0] rounded-xl text-xs text-[#5B5040] space-y-1">
                 <div>القسم المستهدف: <strong className="text-[#1A4E47]">{targetSectionForAdd.level} - القسم {targetSectionForAdd.classNumber}</strong></div>
                 <div>الترتيب: سيتم إدراجه تلقائياً في <strong>آخر لائحة القسم</strong> بعد التلاميذ الحاليين.</div>
@@ -2517,9 +2542,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* Modal: Remove Student (Transfer or Dropout) */}
       {studentToRemove && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setStudentToRemove(null)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-700 text-white">
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => setStudentToRemove(null)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[95vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[#E4DBC0] bg-rose-700 text-white shrink-0">
               <div className="flex items-center gap-2">
                 <UserX className="w-5 h-5 text-rose-200" />
                 <h3 className="text-sm font-bold font-serif">
@@ -2609,8 +2634,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* Modal: Confirm Delete All Sections */}
       {showDeleteAllModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4" onClick={() => setShowDeleteAllModal(false)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => setShowDeleteAllModal(false)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-100/70">
               <div className="flex items-center gap-2 text-rose-800">
                 <AlertTriangle className="w-6 h-6 text-rose-600" />
@@ -2665,11 +2690,11 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       {/* Modal: Confirm Delete All Teachers */}
       {showDeleteAllTeachersModal && (
         <div
-          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
           onClick={() => setShowDeleteAllTeachersModal(false)}
         >
           <div
-            className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+            className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-100/70">
@@ -2740,6 +2765,15 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           violationsData={analytics?.allViolations || []}
           absencesData={analytics?.allAbsences || []}
           onClose={() => setPrintModalMode(null)}
+        />
+      )}
+
+      {/* Teacher Credentials Print Modal (قسيمات وبطاقات تسليم الحسابات وكلمات المرور) */}
+      {isPrintCredentialsOpen && (
+        <TeacherCredentialsPrintModal
+          currentUser={currentUser}
+          settings={settings}
+          onClose={() => setIsPrintCredentialsOpen(false)}
         />
       )}
 

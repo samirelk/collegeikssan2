@@ -93,6 +93,7 @@ import {
   deleteTimetableSlot,
   deleteTimetableEntryById,
   wipeAllDataExceptAdmin,
+  getTeachersWithCredentials,
   db
 } from './server/db.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
@@ -1055,6 +1056,19 @@ async function startServer() {
   app.get('/api/auth/teachers', (req, res) => {
     try {
       const teachers = getAllTeachers();
+      res.json({ success: true, teachers });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Director & Admin Credential Export for Printing
+  app.get('/api/director/teachers/credentials', (req, res) => {
+    try {
+      const auth = requireAdminOrDirector(req, res);
+      if (!auth.authorized) return;
+
+      const teachers = getTeachersWithCredentials();
       res.json({ success: true, teachers });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

@@ -72,16 +72,16 @@ export const SectionModal: React.FC<SectionModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-[#E4DBC0] animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-[#E4DBC0] animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[95vh] flex flex-col">
         
         {/* Header */}
-        <div className="p-4 sm:p-5 border-b border-[#E4DBC0] flex items-center justify-between bg-[#EFE9D5]">
-          <h3 className="text-lg font-bold font-serif text-[#2A2118] m-0">
+        <div className="p-3.5 sm:p-5 border-b border-[#E4DBC0] flex items-center justify-between bg-[#EFE9D5] shrink-0">
+          <h3 className="text-base sm:text-lg font-bold font-serif text-[#2A2118] m-0">
             {sectionToEdit ? 'تعديل بيانات القسم' : 'إضافة قسم جديد'}
           </h3>
           <button
@@ -94,7 +94,7 @@ export const SectionModal: React.FC<SectionModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-[#5B5040] mb-1.5 flex items-center gap-1">

@@ -166,18 +166,18 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden shadow-2xl border border-[#E4DBC0] animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-[#F4EFDE] text-[#2A2118] rounded-2xl w-full max-w-lg my-auto max-h-[95vh] sm:max-h-[88vh] flex flex-col overflow-hidden shadow-2xl border border-[#E4DBC0] animate-in fade-in zoom-in-95 duration-150">
         
         {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-[#E4DBC0] flex items-center justify-between bg-[#EFE9D5]">
+        <div className="p-3.5 sm:p-5 border-b border-[#E4DBC0] flex items-center justify-between bg-[#EFE9D5] shrink-0">
           <div className="flex items-center gap-2">
             <Database className="w-5 h-5 text-[#A96E28]" />
-            <h3 className="text-lg font-bold font-serif text-[#2A2118] m-0">
+            <h3 className="text-base sm:text-lg font-bold font-serif text-[#2A2118] m-0">
               قاعدة البيانات والنسخ الاحتياطي (SQLite)
             </h3>
           </div>
@@ -191,7 +191,7 @@ export const DatabaseModal: React.FC<DatabaseModalProps> = ({
         </div>
 
         {/* Tab Switcher */}
-        <div className="flex border-b border-[#E4DBC0] bg-[#EFE9D5]/60 px-4 pt-2 gap-2">
+        <div className="flex border-b border-[#E4DBC0] bg-[#EFE9D5]/60 px-3 sm:px-4 pt-2 gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('status')}

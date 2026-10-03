@@ -104,32 +104,32 @@ export const TeacherAssignmentModal: React.FC<TeacherAssignmentModalProps> = ({
   return (
     <div
       id="modal-teacher-assignments"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn overflow-y-auto"
       dir="rtl"
     >
-      <div className="relative w-full max-w-3xl bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+      <div className="relative w-full max-w-3xl bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[95vh] sm:max-h-[88vh]">
         
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C]">
-              <Layers className="w-5 h-5" />
+        <div className="p-3.5 sm:p-6 pb-3 sm:pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C] shrink-0">
+              <Layers className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h3 className="text-xl font-bold text-[#F2EFE3]">
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-xl font-bold text-[#F2EFE3] truncate">
                 طلب إسناد أقسام المؤسسة
               </h3>
-              <p className="text-xs text-[rgba(242,239,227,0.6)] mt-0.5">
+              <p className="text-[11px] sm:text-xs text-[rgba(242,239,227,0.6)] mt-0.5 truncate">
                 الثانوية الإعدادية ايكسان • طلب إسناد الأقسام إلى حساب الأستاذ {currentUser.fullName}
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={fetchAvailableSections}
-              className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] p-2 rounded-xl transition-colors cursor-pointer"
+              className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] p-1.5 sm:p-2 rounded-xl transition-colors cursor-pointer"
               title="تحديث القائمة"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#C98A3C]' : ''}`} />
@@ -145,10 +145,10 @@ export const TeacherAssignmentModal: React.FC<TeacherAssignmentModalProps> = ({
         </div>
 
         {/* Info Banner */}
-        <div className="px-6 py-3 bg-[#2A4F40]/30 border-b border-[rgba(242,239,227,0.08)] flex items-center justify-between flex-wrap gap-3 text-xs shrink-0">
+        <div className="px-3.5 sm:px-6 py-2.5 sm:py-3 bg-[#2A4F40]/30 border-b border-[rgba(242,239,227,0.08)] flex items-center justify-between flex-wrap gap-2 sm:gap-3 text-xs shrink-0">
           <div className="flex items-center gap-2 text-[rgba(242,239,227,0.85)]">
             <Lock className="w-4 h-4 text-[#C98A3C] shrink-0" />
-                <span>
+            <span>
               قاعدة إسناد الأقسام: يمكن إسناد نفس القسم لعدة أساتذة إذا كانت المواد مختلفة، ولا تُسند المادة نفسها لأستاذين في الوقت نفسه.
             </span>
           </div>
@@ -163,7 +163,7 @@ export const TeacherAssignmentModal: React.FC<TeacherAssignmentModalProps> = ({
         </div>
 
         {/* Content Body */}
-        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+        <div className="p-3.5 sm:p-6 overflow-y-auto flex-1 space-y-3 sm:space-y-4">
           
           {errorMessage && (
             <div className="p-3.5 rounded-2xl bg-rose-950/50 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5">

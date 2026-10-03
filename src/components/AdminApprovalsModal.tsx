@@ -329,37 +329,37 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
   return (
     <div
       id="modal-admin-approvals"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-[rgba(10,18,14,0.85)] backdrop-blur-sm animate-fadeIn overflow-y-auto"
       dir="rtl"
     >
-      <div className="relative w-full max-w-4xl bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+      <div className="relative w-full max-w-4xl bg-[#1E362D] border border-[rgba(242,239,227,0.2)] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden flex flex-col my-auto max-h-[96vh] sm:max-h-[90vh]">
         
         {/* Header */}
-        <div className="p-6 pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C] shadow-sm">
-              <ShieldCheck className="w-6 h-6" />
+        <div className="p-3.5 sm:p-6 pb-3 sm:pb-4 border-b border-[rgba(242,239,227,0.12)] bg-[#172B24] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-[#2A4F40] border border-[#C98A3C]/40 flex items-center justify-center text-[#C98A3C] shadow-sm shrink-0">
+              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-xl font-bold text-[#F2EFE3]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                <h3 className="text-base sm:text-xl font-bold text-[#F2EFE3] truncate">
                   لوحة المشرف العام (مدير المؤسسة)
                 </h3>
-                <span className="px-2 py-0.5 rounded-full bg-[#C98A3C] text-[#1E362D] text-[11px] font-bold">
+                <span className="px-2 py-0.5 rounded-full bg-[#C98A3C] text-[#1E362D] text-[10px] sm:text-[11px] font-bold">
                   admin
                 </span>
               </div>
-              <p className="text-xs text-[rgba(242,239,227,0.6)] mt-0.5">
+              <p className="text-[11px] sm:text-xs text-[rgba(242,239,227,0.6)] mt-0.5 truncate">
                 الثانوية الإعدادية ايكسان • الموافقة على طلبات إسناد الأقسام، إدارة الأساتذة ومتابعة البريد
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={loadAllAdminData}
-              className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] p-2 rounded-xl transition-colors cursor-pointer"
+              className="text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3] hover:bg-[rgba(255,255,255,0.08)] p-1.5 sm:p-2 rounded-xl transition-colors cursor-pointer"
               title="تحديث البيانات"
             >
               <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#C98A3C]' : ''}`} />
@@ -375,7 +375,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
         </div>
 
         {/* Tab Navigation */}
-        <div className="px-6 pt-3 pb-0 bg-[#172B24] border-b border-[rgba(242,239,227,0.08)] flex items-center gap-2 overflow-x-auto shrink-0">
+        <div className="px-3 sm:px-6 pt-2 sm:pt-3 pb-0 bg-[#172B24] border-b border-[rgba(242,239,227,0.08)] flex items-center gap-1.5 sm:gap-2 overflow-x-auto shrink-0">
           <button
             type="button"
             id="admin-tab-requests"

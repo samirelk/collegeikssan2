@@ -362,24 +362,24 @@ export const TeacherExcelImportModal: React.FC<TeacherExcelImportModalProps> = (
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-[#0F1914]/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5 animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 bg-[#0F1914]/80 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-5 overflow-y-auto animate-in fade-in duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isLoading) onClose();
       }}
     >
-      <div className="bg-[#FBF8EF] text-[#2A2118] rounded-2xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl border border-[#E4DBC0] overflow-hidden">
+      <div className="bg-[#FBF8EF] text-[#2A2118] rounded-2xl w-full max-w-4xl my-auto max-h-[96vh] sm:max-h-[92vh] flex flex-col shadow-2xl border border-[#E4DBC0] overflow-hidden">
         {/* MODAL HEADER */}
-        <div className="p-4 sm:p-5 border-b border-[#E4DBC0] bg-[#EFE9D5] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-[#2D5A27] text-white flex items-center justify-center shadow-xs">
-              <FileSpreadsheet className="w-5 h-5" />
+        <div className="p-3.5 sm:p-5 border-b border-[#E4DBC0] bg-[#EFE9D5] flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#2D5A27] text-white flex items-center justify-center shadow-xs shrink-0">
+              <FileSpreadsheet className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
-            <div>
-              <h3 className="text-lg sm:text-xl font-bold font-serif text-[#2A2118]">
+            <div className="min-w-0">
+              <h3 className="text-base sm:text-xl font-bold font-serif text-[#2A2118] truncate">
                 إضافة واستصدار أساتذة المادة عبر ملف Excel
               </h3>
-              <p className="text-xs text-[#7A6B58]">
-                العمود A: اسم الأستاذ (ابتداءً من السطر 2) • العمود B: تخصص الأستاذ / المادة
+              <p className="text-[11px] sm:text-xs text-[#7A6B58] truncate">
+                العمود A: اسم الأستاذ • العمود B: تخصص الأستاذ / المادة
               </p>
             </div>
           </div>
