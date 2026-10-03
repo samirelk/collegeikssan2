@@ -34,6 +34,14 @@ if (!fs.existsSync(DATA_DIR)) {
 const DB_PATH = path.join(DATA_DIR, 'classroom_database.sqlite');
 export const db = new DatabaseSync(DB_PATH);
 
+export function safeRollback() {
+  try {
+    db.exec('ROLLBACK;');
+  } catch {
+    // Suppress "cannot rollback - no transaction is active" to preserve original errors
+  }
+}
+
 export interface AppSettings {
   institution: string;
   year: string;
@@ -395,6 +403,7 @@ export function initDatabase() {
 
   // Ensure attendance_history has extended columns for daily archive and duration tracking
   const attendanceCols = [
+    "ALTER TABLE attendance_history ADD COLUMN massar_number TEXT DEFAULT '';",
     "ALTER TABLE attendance_history ADD COLUMN session_period TEXT DEFAULT 'كامل اليوم';",
     "ALTER TABLE attendance_history ADD COLUMN teacher_name TEXT DEFAULT '';",
     "ALTER TABLE attendance_history ADD COLUMN teacher_subject TEXT DEFAULT '';",
@@ -1882,7 +1891,7 @@ export function batchUpdateSeats(
     }
     db.exec('COMMIT;');
   } catch (txErr) {
-    db.exec('ROLLBACK;');
+    safeRollback();
     throw txErr;
   }
 
@@ -2899,7 +2908,7 @@ export function importFullBackup(backupData: any) {
     db.exec('COMMIT;');
     return { success: true, count: backupData.sections.length };
   } catch (err) {
-    db.exec('ROLLBACK;');
+    safeRollback();
     throw err;
   }
 }
@@ -2964,7 +2973,7 @@ export function swapSeats(sectionId: string, seatANum: number, seatBNum: number,
 
       return { success: true, message: 'تم تبديل مقاعدك الخاصة بنجاح' };
     } catch (err) {
-      db.exec('ROLLBACK;');
+      safeRollback();
       throw err;
     }
   }
@@ -3050,7 +3059,7 @@ export function swapSeats(sectionId: string, seatANum: number, seatBNum: number,
     db.exec('COMMIT;');
     return { success: true, message: 'تم التبديل بنجاح' };
   } catch (err) {
-    db.exec('ROLLBACK;');
+    safeRollback();
     throw err;
   }
 }
@@ -3058,6 +3067,7 @@ export function swapSeats(sectionId: string, seatANum: number, seatBNum: number,
 // ---------------- Seat Shuffle & Random Distribution ----------------
 
 export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, actorRole?: string) {
+  let assignedCount = 0;
   db.exec('BEGIN TRANSACTION;');
   try {
     const sec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
@@ -3152,7 +3162,7 @@ export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, a
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const assignedCount = Math.min(studentsToSeat.length, 100);
+    assignedCount = Math.min(studentsToSeat.length, 100);
     for (let i = 0; i < assignedCount; i++) {
       const targetSeat = i + 1;
       const student = studentsToSeat[i];
@@ -3194,32 +3204,33 @@ export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, a
     );
 
     db.exec('COMMIT;');
-
-    try {
-      const allSecSeats = db.prepare('SELECT * FROM seats WHERE section_id = ?').all(sectionId) as any[];
-      for (const st of allSecSeats) {
-        cloudSaveSeat(sectionId, {
-          seat: st.seat_num,
-          name: st.student_name || '',
-          number: st.student_number || '',
-          massarNumber: st.massar_number || '',
-          rosterId: st.roster_id || null,
-          statusColor: st.status_color || 'default',
-          attendance: st.attendance || null
-        });
-      }
-    } catch (syncErr: any) {
-      console.warn('[orderSectionSeatsByNumber] Firestore seats sync warning:', syncErr?.message || syncErr);
-    }
-
-    return { success: true, assignedCount };
   } catch (err) {
-    db.exec('ROLLBACK;');
+    safeRollback();
     throw err;
   }
+
+  try {
+    const allSecSeats = db.prepare('SELECT * FROM seats WHERE section_id = ?').all(sectionId) as any[];
+    for (const st of allSecSeats) {
+      cloudSaveSeat(sectionId, {
+        seat: st.seat_num,
+        name: st.student_name || '',
+        number: st.student_number || '',
+        massarNumber: st.massar_number || '',
+        rosterId: st.roster_id || null,
+        statusColor: st.status_color || 'default',
+        attendance: st.attendance || null
+      });
+    }
+  } catch (syncErr: any) {
+    console.warn('[orderSectionSeatsByNumber] Firestore seats sync warning:', syncErr?.message || syncErr);
+  }
+
+  return { success: true, assignedCount };
 }
 
 export function shuffleSectionSeats(sectionId: string, actorId?: string, actorRole?: string) {
+  let assignedCount = 0;
   db.exec('BEGIN TRANSACTION;');
   try {
     const sec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
@@ -3313,7 +3324,7 @@ export function shuffleSectionSeats(sectionId: string, actorId?: string, actorRo
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const assignedCount = Math.min(studentsToSeat.length, 100);
+    assignedCount = Math.min(studentsToSeat.length, 100);
     for (let i = 0; i < assignedCount; i++) {
       const targetSeat = seatPool[i];
       const student = studentsToSeat[i];
@@ -3355,29 +3366,29 @@ export function shuffleSectionSeats(sectionId: string, actorId?: string, actorRo
     );
 
     db.exec('COMMIT;');
-
-    try {
-      const allSecSeats = db.prepare('SELECT * FROM seats WHERE section_id = ?').all(sectionId) as any[];
-      for (const st of allSecSeats) {
-        cloudSaveSeat(sectionId, {
-          seat: st.seat_num,
-          name: st.student_name || '',
-          number: st.student_number || '',
-          massarNumber: st.massar_number || '',
-          rosterId: st.roster_id || null,
-          statusColor: st.status_color || 'default',
-          attendance: st.attendance || null
-        });
-      }
-    } catch (syncErr: any) {
-      console.warn('[shuffleSectionSeats] Firestore seats sync warning:', syncErr?.message || syncErr);
-    }
-
-    return { success: true, assignedCount };
   } catch (err) {
-    db.exec('ROLLBACK;');
+    safeRollback();
     throw err;
   }
+
+  try {
+    const allSecSeats = db.prepare('SELECT * FROM seats WHERE section_id = ?').all(sectionId) as any[];
+    for (const st of allSecSeats) {
+      cloudSaveSeat(sectionId, {
+        seat: st.seat_num,
+        name: st.student_name || '',
+        number: st.student_number || '',
+        massarNumber: st.massar_number || '',
+        rosterId: st.roster_id || null,
+        statusColor: st.status_color || 'default',
+        attendance: st.attendance || null
+      });
+    }
+  } catch (syncErr: any) {
+    console.warn('[shuffleSectionSeats] Firestore seats sync warning:', syncErr?.message || syncErr);
+  }
+
+  return { success: true, assignedCount };
 }
 
 // ---------------- Multi-Section Batch Import ----------------
@@ -3398,6 +3409,7 @@ export function batchImportSections(
     throw new Error('لم يتم تقديم أي أقسام صالحة للاستيراد');
   }
 
+  let totalStudentsImported = 0;
   db.exec('BEGIN TRANSACTION;');
   try {
     if (replaceExisting) {
@@ -3417,7 +3429,6 @@ export function batchImportSections(
     `);
 
     const now = new Date().toISOString();
-    let totalStudentsImported = 0;
 
     for (let idx = 0; idx < sectionsData.length; idx++) {
       const secInput = sectionsData[idx];
@@ -3505,32 +3516,32 @@ export function batchImportSections(
     );
 
     db.exec('COMMIT;');
-
-    try {
-      const allSections = getAllSections();
-      for (const sec of allSections) {
-        cloudSaveSection(sec);
-        for (const st of (sec.seats || [])) {
-          if (st.name && st.name.trim()) {
-            cloudSaveSeat(sec.id, st);
-          }
-        }
-      }
-    } catch (syncErr: any) {
-      console.warn('[batchImportSections] Firestore sync warning:', syncErr?.message || syncErr);
-    }
-
-    return {
-      success: true,
-      sectionsCount: sectionsData.length,
-      totalStudents: totalStudentsImported,
-      message: `تم بنجاح استيراد ${sectionsData.length} قسماً و ${totalStudentsImported} تلميذاً مع الترتيب الافتراضي حسب الأرقام ابتداءً من 1`,
-      sections: getAllSections()
-    };
-  } catch (err) {
-    db.exec('ROLLBACK;');
+  } catch (err: any) {
+    safeRollback();
     throw err;
   }
+
+  try {
+    const allSections = getAllSections();
+    for (const sec of allSections) {
+      cloudSaveSection(sec);
+      for (const st of (sec.seats || [])) {
+        if (st.name && st.name.trim()) {
+          cloudSaveSeat(sec.id, st);
+        }
+      }
+    }
+  } catch (syncErr: any) {
+    console.warn('[batchImportSections] Firestore sync warning:', syncErr?.message || syncErr);
+  }
+
+  return {
+    success: true,
+    sectionsCount: sectionsData.length,
+    totalStudents: totalStudentsImported,
+    message: `تم بنجاح استيراد ${sectionsData.length} قسماً و ${totalStudentsImported} تلميذاً مع الترتيب الافتراضي حسب الأرقام ابتداءً من 1`,
+    sections: getAllSections()
+  };
 }
 
 // ---------------- Pre-generate 10 Sample Sections ----------------
@@ -7346,7 +7357,7 @@ export function wipeAllDataExceptAdmin() {
       message: 'تم مسح كافة البيانات بنجاح، وتم الاحتفاظ فقط بحساب المشرف العام (Admin).'
     };
   } catch (err) {
-    db.exec('ROLLBACK;');
+    safeRollback();
     throw err;
   }
 }
