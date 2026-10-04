@@ -26,7 +26,8 @@ import {
   Building,
   Plus,
   Building2,
-  MoreHorizontal
+  MoreHorizontal,
+  ArrowLeftRight
 } from 'lucide-react';
 import {
   SectionItem,
@@ -141,7 +142,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     studentName: string;
     studentNumber?: string;
   } | null>(null);
-  const [removeReason, setRemoveReason] = useState<'انتقال' | 'انقطاع'>('انتقال');
+  const [removeReason, setRemoveReason] = useState<'انتقال' | 'انقطاع' | 'نقل_داخلي'>('نقل_داخلي');
+  const [targetTransferSectionId, setTargetTransferSectionId] = useState<string>('');
+  const [targetTransferSeatNum, setTargetTransferSeatNum] = useState<number | ''>('');
+  const [transferStudentHistory, setTransferStudentHistory] = useState<boolean>(true);
   const [isRemovingStudent, setIsRemovingStudent] = useState(false);
 
   // Auth headers for backend RBAC verification
@@ -385,29 +389,54 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     }
   };
 
-  // Confirm student removal (Dropout or Transfer)
+  // Confirm student removal (Dropout, External Transfer, or Internal Transfer to another section)
   const handleConfirmRemoveStudent = async () => {
     if (!studentToRemove) return;
 
     setIsRemovingStudent(true);
     try {
-      const res = await fetch(
-        `/api/sections/${studentToRemove.sectionId}/students/${studentToRemove.seatNum}?reason=${encodeURIComponent(removeReason)}`,
-        {
-          method: 'DELETE',
-          headers: getAuthHeaders()
+      if (removeReason === 'نقل_داخلي') {
+        if (!targetTransferSectionId) {
+          throw new Error('يرجى اختيار القسم المستقبل لنقل التلميذ إليه');
         }
-      );
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'تعذر شطب التلميذ من القسم');
+        const res = await fetch(
+          `/api/sections/${studentToRemove.sectionId}/students/${studentToRemove.seatNum}/transfer`,
+          {
+            method: 'POST',
+            headers: getAuthHeaders(),
+            body: JSON.stringify({
+              targetSectionId: targetTransferSectionId,
+              targetSeatNum: targetTransferSeatNum || undefined,
+              transferHistory: transferStudentHistory
+            })
+          }
+        );
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'تعذر نقل التلميذ إلى القسم الآخر');
 
-      setSuccessMessage(
-        `تم شطب التلميذ (${studentToRemove.studentName}) من القسم بسبب: ${removeReason === 'انقطاع' ? 'الانقطاع عن الدراسة' : 'الانتقال إلى مؤسسة أخرى'}`
-      );
+        setSuccessMessage(data.message || `تم بنجاح نقل التلميذ (${studentToRemove.studentName}) إلى القسم الجديد`);
+      } else {
+        const res = await fetch(
+          `/api/sections/${studentToRemove.sectionId}/students/${studentToRemove.seatNum}?reason=${encodeURIComponent(removeReason)}`,
+          {
+            method: 'DELETE',
+            headers: getAuthHeaders()
+          }
+        );
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || 'تعذر شطب التلميذ من القسم');
+
+        setSuccessMessage(
+          `تم شطب التلميذ (${studentToRemove.studentName}) من القسم بسبب: ${removeReason === 'انقطاع' ? 'الانقطاع عن الدراسة' : 'الانتقال إلى مؤسسة أخرى'}`
+        );
+      }
+
       setStudentToRemove(null);
+      setTargetTransferSectionId('');
+      setTargetTransferSeatNum('');
       await Promise.all([onRefreshSections(), fetchDirectorData()]);
     } catch (err: any) {
-      setErrorMessage(err.message || 'حدث خطأ أثناء إزالة التلميذ');
+      setErrorMessage(err.message || 'حدث خطأ أثناء تنفيذ الإجراء');
     } finally {
       setIsRemovingStudent(false);
     }
@@ -1996,20 +2025,25 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                       <td className="p-3 text-center">
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
+                            const otherSections = sections.filter(s => s.id !== activeInspectSection.id);
+                            setTargetTransferSectionId(otherSections[0]?.id || '');
+                            setTargetTransferSeatNum('');
+                            setTransferStudentHistory(true);
+                            setRemoveReason('نقل_داخلي');
                             setStudentToRemove({
                               sectionId: activeInspectSection.id,
                               sectionName: `${activeInspectSection.level} - ${activeInspectSection.classNumber}`,
                               seatNum: st.seat,
                               studentName: st.name,
                               studentNumber: st.number
-                            })
-                          }
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 transition-colors cursor-pointer"
-                          title="شطب التلميذ من القسم بسبب انتقال أو انقطاع"
+                            });
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-300 transition-colors cursor-pointer shadow-2xs"
+                          title="إزالة أو نقل التلميذ من هذا القسم (نقل لقسم آخر، انتقال لمؤسسة أخرى، أو انقطاع)"
                         >
-                          <UserX className="w-3.5 h-3.5" />
-                          <span>إزالة (انتقال/انقطاع)</span>
+                          <ArrowLeftRight className="w-3.5 h-3.5 text-amber-700" />
+                          <span>إزالة أو نقل التلميذ</span>
                         </button>
                       </td>
                     </tr>
@@ -2540,15 +2574,21 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </div>
       )}
 
-      {/* Modal: Remove Student (Transfer or Dropout) */}
+      {/* Modal: Remove or Transfer Student */}
       {studentToRemove && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto" onClick={() => setStudentToRemove(null)}>
-          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[95vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[#E4DBC0] bg-rose-700 text-white shrink-0">
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[95vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className={`flex items-center justify-between p-3.5 sm:p-4 border-b border-[#E4DBC0] text-white shrink-0 ${
+              removeReason === 'نقل_داخلي' ? 'bg-[#1A4E47]' : 'bg-rose-700'
+            }`}>
               <div className="flex items-center gap-2">
-                <UserX className="w-5 h-5 text-rose-200" />
+                {removeReason === 'نقل_داخلي' ? (
+                  <ArrowLeftRight className="w-5 h-5 text-emerald-200" />
+                ) : (
+                  <UserX className="w-5 h-5 text-rose-200" />
+                )}
                 <h3 className="text-sm font-bold font-serif">
-                  شطب تلميذ من القسم (إجراء إداري)
+                  {removeReason === 'نقل_داخلي' ? 'نقل تلميذ إلى قسم آخر (في نفس المؤسسة)' : 'شطب تلميذ من القسم (إجراء إداري)'}
                 </h3>
               </div>
               <button
@@ -2560,22 +2600,54 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
-              <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl space-y-1.5 text-xs text-rose-950">
-                <div className="text-sm font-bold text-rose-900">
-                  التلميذ: {studentToRemove.studentName} {studentToRemove.studentNumber ? `(رقم: ${studentToRemove.studentNumber})` : ''}
+            <div className="p-5 space-y-4 overflow-y-auto">
+              {/* Student Info Card */}
+              <div className={`p-3.5 border rounded-xl space-y-1.5 text-xs ${
+                removeReason === 'نقل_داخلي'
+                  ? 'bg-emerald-50/70 border-emerald-200 text-emerald-950'
+                  : 'bg-rose-50 border-rose-200 text-rose-950'
+              }`}>
+                <div className="text-sm font-bold flex items-center justify-between">
+                  <span>التلميذ: {studentToRemove.studentName}</span>
+                  {studentToRemove.studentNumber && (
+                    <span className="text-xs font-mono font-bold bg-white/70 px-2 py-0.5 rounded border border-black/10">
+                      رقم: {studentToRemove.studentNumber}
+                    </span>
+                  )}
                 </div>
-                <div>القسم: <strong>{studentToRemove.sectionName}</strong></div>
-                <div>رقم المقعد المشغول: <strong>المقعد #{studentToRemove.seatNum}</strong></div>
+                <div>القسم الحالي: <strong>{studentToRemove.sectionName}</strong></div>
+                <div>المقعد الحالي: <strong>المقعد #{studentToRemove.seatNum}</strong></div>
               </div>
 
+              {/* Action / Reason Selector */}
               <div>
                 <label className="block text-xs font-bold text-[#2A2118] mb-2">
-                  سبب الشطب من القسم <span className="text-rose-600">*</span>
+                  نوع الإجراء المطلوب <span className="text-rose-600">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <label className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${
-                    removeReason === 'انتقال' ? 'bg-[#EFE9D5] border-[#1A4E47] text-[#1A4E47] font-bold' : 'bg-white border-[#D9CEB0] text-[#5B5040]'
+                    removeReason === 'نقل_داخلي'
+                      ? 'bg-emerald-100 border-[#1A4E47] text-[#1A4E47] font-bold shadow-2xs'
+                      : 'bg-white border-[#D9CEB0] text-[#5B5040] hover:bg-[#F7F4EB]'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="removeReason"
+                      value="نقل_داخلي"
+                      checked={removeReason === 'نقل_داخلي'}
+                      onChange={() => setRemoveReason('نقل_داخلي')}
+                      className="accent-[#1A4E47]"
+                    />
+                    <div className="leading-tight">
+                      <div className="text-xs font-bold">نقل لقسم آخر</div>
+                      <div className="text-[10px] text-[#7A6B58]">في نفس المؤسسة</div>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${
+                    removeReason === 'انتقال'
+                      ? 'bg-[#EFE9D5] border-[#C98A3C] text-[#2A2118] font-bold shadow-2xs'
+                      : 'bg-white border-[#D9CEB0] text-[#5B5040] hover:bg-[#F7F4EB]'
                   }`}>
                     <input
                       type="radio"
@@ -2583,13 +2655,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                       value="انتقال"
                       checked={removeReason === 'انتقال'}
                       onChange={() => setRemoveReason('انتقال')}
-                      className="accent-[#1A4E47]"
+                      className="accent-[#C98A3C]"
                     />
-                    <span className="text-xs">انتقال إلى مؤسسة أخرى</span>
+                    <div className="leading-tight">
+                      <div className="text-xs font-bold">انتقال لمؤسسة أخرى</div>
+                      <div className="text-[10px] text-[#7A6B58]">مغادرة المؤسسة</div>
+                    </div>
                   </label>
 
                   <label className={`flex items-center gap-2 p-3 rounded-xl border cursor-pointer transition-all ${
-                    removeReason === 'انقطاع' ? 'bg-rose-100 border-rose-600 text-rose-900 font-bold' : 'bg-white border-[#D9CEB0] text-[#5B5040]'
+                    removeReason === 'انقطاع'
+                      ? 'bg-rose-100 border-rose-600 text-rose-900 font-bold shadow-2xs'
+                      : 'bg-white border-[#D9CEB0] text-[#5B5040] hover:bg-[#F7F4EB]'
                   }`}>
                     <input
                       type="radio"
@@ -2599,15 +2676,88 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                       onChange={() => setRemoveReason('انقطاع')}
                       className="accent-rose-700"
                     />
-                    <span className="text-xs">انقطاع عن الدراسة</span>
+                    <div className="leading-tight">
+                      <div className="text-xs font-bold">انقطاع عن الدراسة</div>
+                      <div className="text-[10px] text-rose-700">شطب نهائي</div>
+                    </div>
                   </label>
                 </div>
               </div>
 
+              {/* Conditional UI for Internal Transfer */}
+              {removeReason === 'نقل_داخلي' && (
+                <div className="bg-[#EAE4D0]/40 border border-[#D9CEB0] rounded-xl p-3.5 space-y-3 animate-in fade-in duration-150">
+                  <div>
+                    <label className="block text-xs font-bold text-[#2A2118] mb-1">
+                      القسم المستقبل <span className="text-rose-600">*</span>
+                    </label>
+                    {sections.filter(s => s.id !== studentToRemove.sectionId).length === 0 ? (
+                      <p className="text-xs text-rose-700 font-bold bg-rose-50 p-2 rounded-lg border border-rose-200">
+                        لا توجد أقسام أخرى في المؤسسة لنقل التلميذ إليها!
+                      </p>
+                    ) : (
+                      <select
+                        value={targetTransferSectionId}
+                        onChange={(e) => setTargetTransferSectionId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white border border-[#D9CEB0] rounded-xl text-xs font-bold text-[#2A2118] focus:outline-hidden focus:border-[#1A4E47]"
+                      >
+                        <option value="">-- اختر القسم المستقبل للتلميذ --</option>
+                        {sections
+                          .filter(s => s.id !== studentToRemove.sectionId)
+                          .map(s => {
+                            const count = s.seats?.filter(st => st.name?.trim())?.length || 0;
+                            return (
+                              <option key={s.id} value={s.id}>
+                                {s.level} - القسم {s.classNumber} ({count} تلميذاً مسجلاً) {s.teacher ? `| الأستاذ: ${s.teacher}` : ''}
+                              </option>
+                            );
+                          })}
+                      </select>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-[#2A2118] mb-1">
+                        رقم المقعد بالقسم الجديد (اختياري)
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        placeholder="تلقائي (أول مقعد شاغر)"
+                        value={targetTransferSeatNum}
+                        onChange={(e) => {
+                          const val = e.target.value ? parseInt(e.target.value, 10) : '';
+                          setTargetTransferSeatNum(val);
+                        }}
+                        className="w-full px-3 py-1.5 bg-white border border-[#D9CEB0] rounded-xl text-xs text-[#2A2118] focus:outline-hidden focus:border-[#1A4E47]"
+                      />
+                    </div>
+
+                    <div className="flex items-center pt-5">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-[#2A2118]">
+                        <input
+                          type="checkbox"
+                          checked={transferStudentHistory}
+                          onChange={(e) => setTransferStudentHistory(e.target.checked)}
+                          className="w-4 h-4 rounded border-[#D9CEB0] text-[#1A4E47] focus:ring-[#1A4E47] accent-[#1A4E47]"
+                        />
+                        <span>نقل سجل الغيابات والمخالفات والمشاركات</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Explanatory notes */}
               <p className="text-[11px] text-[#7A6B58] leading-relaxed">
-                ملاحظة: سيتم تحرير المقعد بالقسم وشطب التلميذ من اللائحة الرسمية، وتسجيل هذا الإجراء في سجل العمليات الإدارية بالمؤسسة.
+                {removeReason === 'نقل_داخلي'
+                  ? 'ملاحظة: سيتم إخلاء المقعد في القسم الحالي وإضافة التلميذ إلى لائحة القسم المستقبل وحجز مقعد له هناك مع تسجيل العملية الإدارية في الأرشيف.'
+                  : 'ملاحظة: سيتم تحرير المقعد بالقسم وشطب التلميذ من اللائحة الرسمية، وتسجيل هذا الإجراء في سجل العمليات الإدارية بالمؤسسة.'}
               </p>
 
+              {/* Action Buttons */}
               <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#E4DBC0]">
                 <button
                   type="button"
@@ -2619,12 +2769,25 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                 </button>
                 <button
                   type="button"
-                  disabled={isRemovingStudent}
+                  disabled={isRemovingStudent || (removeReason === 'نقل_داخلي' && !targetTransferSectionId)}
                   onClick={handleConfirmRemoveStudent}
-                  className="px-5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className={`px-5 py-2 rounded-xl text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5 transition-colors ${
+                    removeReason === 'نقل_داخلي'
+                      ? 'bg-[#1A4E47] hover:bg-[#133E38]'
+                      : 'bg-rose-700 hover:bg-rose-800'
+                  }`}
                 >
-                  <UserX className="w-4 h-4" />
-                  <span>{isRemovingStudent ? 'جاري الشطب...' : 'تأكيد شطب التلميذ'}</span>
+                  {removeReason === 'نقل_داخلي' ? (
+                    <>
+                      <ArrowLeftRight className="w-4 h-4" />
+                      <span>{isRemovingStudent ? 'جاري نقل التلميذ...' : 'تأكيد نقل التلميذ إلى القسم الجديد'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <UserX className="w-4 h-4" />
+                      <span>{isRemovingStudent ? 'جاري الشطب...' : 'تأكيد شطب التلميذ'}</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>

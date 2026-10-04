@@ -62,6 +62,9 @@ import {
   manualVerifyEmail,
   getDailyArchive,
   getStudentHistory,
+  getRepeatedAbsenceStudents,
+  getAttendanceMonthlySummary,
+  getCurrentSchoolPeriod,
   addDailyAbsence,
   updateDailyAbsence,
   resolveDailyAbsence,
@@ -78,6 +81,7 @@ import {
   deleteAcademicYear,
   addStudentToSection,
   removeStudentFromSection,
+  transferStudentToSection,
   getViolationTypes,
   addViolationType,
   updateViolationType,
@@ -661,6 +665,28 @@ async function startServer() {
       const seatNum = Number(req.params.seatNum);
       const reason = req.query.reason ? String(req.query.reason) : (req.body?.reason || 'انتقال');
       const result = removeStudentFromSection(sectionId, seatNum, reason);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 6a3. Transfer student to another section in the same institution
+  app.post('/api/sections/:id/students/:seatNum/transfer', (req, res) => {
+    try {
+      const sourceSectionId = req.params.id;
+      const sourceSeatNum = Number(req.params.seatNum);
+      const { targetSectionId, targetSeatNum, transferHistory } = req.body;
+      if (!targetSectionId) {
+        return res.status(400).json({ success: false, error: 'يرجى اختيار القسم المستقبل لنقل التلميذ إليه' });
+      }
+      const result = transferStudentToSection(
+        sourceSectionId,
+        sourceSeatNum,
+        targetSectionId,
+        targetSeatNum ? Number(targetSeatNum) : undefined,
+        transferHistory !== false
+      );
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -1501,6 +1527,45 @@ async function startServer() {
       const studentNumber = (req.query.studentNumber as string) || undefined;
       const viewerId = (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
       res.json({ success: true, history: getStudentHistory(req.params.sectionId, seatNum, studentName, studentNumber, viewerId) });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Query student history by query params
+  app.get('/api/students/history', (req, res) => {
+    try {
+      const sectionId = (req.query.sectionId as string) || '';
+      const seatNum = Number(req.query.seatNum || 1);
+      const studentName = (req.query.studentName as string) || undefined;
+      const studentNumber = (req.query.studentNumber as string) || undefined;
+      const viewerId = (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
+      if (!sectionId) {
+        return res.status(400).json({ success: false, error: 'معرف القسم مطلوب' });
+      }
+      res.json({ success: true, history: getStudentHistory(sectionId, seatNum, studentName, studentNumber, viewerId) });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Early warning: Repeated absences list
+  app.get('/api/attendance/repeated-absences', (req, res) => {
+    try {
+      const threshold = Number(req.query.threshold || 3);
+      const students = getRepeatedAbsenceStudents(threshold);
+      res.json({ success: true, count: students.length, threshold, students });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Monthly Attendance Summary by Section
+  app.get('/api/attendance/monthly-summary', (req, res) => {
+    try {
+      const month = (req.query.month as string) || undefined;
+      const result = getAttendanceMonthlySummary(month);
+      res.json({ success: true, ...result });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

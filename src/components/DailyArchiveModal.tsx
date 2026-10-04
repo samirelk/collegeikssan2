@@ -26,6 +26,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { MassarAbsenceModal } from './MassarAbsenceModal';
+import { StudentAttendanceCardModal } from './StudentAttendanceCardModal';
 import {
   DailyAbsenceItem,
   DailyViolationItem,
@@ -97,11 +98,24 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'absences' | 'violations' | 'summary'>('absences');
+  const [activeTab, setActiveTab] = useState<'absences' | 'violations' | 'summary' | 'risk'>('absences');
 
   // Archive Data
   const [absences, setAbsences] = useState<DailyAbsenceItem[]>([]);
   const [violations, setViolations] = useState<DailyViolationItem[]>([]);
+  const [repeatedStudents, setRepeatedStudents] = useState<any[]>([]);
+  const [monthlySectionsSummary, setMonthlySectionsSummary] = useState<any[]>([]);
+
+  // Student Attendance Card Modal state
+  const [selectedStudentForCard, setSelectedStudentForCard] = useState<{
+    studentName: string;
+    sectionId: string;
+    sectionName: string;
+    studentNumber?: string;
+    massarNumber?: string;
+    seatNum?: number;
+  } | null>(null);
+  const [showStudentCardModal, setShowStudentCardModal] = useState(false);
   const [stats, setStats] = useState<DailyArchiveStats>({
     totalAbsences: 0,
     totalLates: 0,
@@ -197,6 +211,25 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         if (json.availableDates) {
           setAvailableDates(json.availableDates);
         }
+
+        // Fetch early warning repeated absences list
+        try {
+          const repRes = await fetch('/api/attendance/repeated-absences?threshold=3');
+          const repJson = await repRes.json();
+          if (repJson.success && Array.isArray(repJson.students)) {
+            setRepeatedStudents(repJson.students);
+          }
+        } catch {}
+
+        // Fetch monthly sections summary
+        try {
+          const monthParam = date ? date.slice(0, 7) : new Date().toISOString().slice(0, 7);
+          const monRes = await fetch(`/api/attendance/monthly-summary?month=${monthParam}`);
+          const monJson = await monRes.json();
+          if (monJson.success && Array.isArray(monJson.summary)) {
+            setMonthlySectionsSummary(monJson.summary);
+          }
+        } catch {}
       } else {
         setErrorMsg('فشل في تحميل بيانات الأرشيف اليومي');
       }
@@ -808,6 +841,23 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
               <span>التقرير الإداري</span>
             </button>
           )}
+
+          <button
+            onClick={() => setActiveTab('risk')}
+            className={`py-2.5 px-6 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-all cursor-pointer ${
+              activeTab === 'risk'
+                ? 'bg-white text-rose-700 shadow-xs border border-slate-200/80'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-white/50'
+            }`}
+          >
+            <ShieldAlert className="w-4 h-4 text-rose-600" />
+            <span>تنبيه الغياب المتكرر</span>
+            {repeatedStudents.length > 0 && (
+              <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-800">
+                {repeatedStudents.length}
+              </span>
+            )}
+          </button>
         </div>
 
         {/* Tab 1: Absences & Lates Table */}
@@ -1079,6 +1129,25 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                         </td>
                         <td className="py-3 px-3 text-center">
                           <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentForCard({
+                                  studentName: ab.studentName,
+                                  studentNumber: ab.studentNumber,
+                                  massarNumber: ab.massarNumber,
+                                  sectionId: ab.sectionId,
+                                  sectionName: `${ab.sectionLevel} - فوج ${ab.sectionClass}`,
+                                  seatNum: ab.seatNum
+                                });
+                                setShowStudentCardModal(true);
+                              }}
+                              className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-blue-200 cursor-pointer shadow-2xs"
+                              title="فتح بطاقة المواظبة الفردية واستخراج إشعار ولي الأمر"
+                            >
+                              <FileText className="w-3 h-3 text-blue-600" />
+                              <span>كشف / إشعار</span>
+                            </button>
                             {!ab.removedAt && (
                               <button
                                 type="button"
@@ -1092,7 +1161,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                             )}
                             <button
                               onClick={() => handleDeleteAbsence(ab.id, ab.studentName)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
                               title="حذف هذا السجل نهائياً"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -1302,6 +1371,124 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                 <span>طباعة ورقة المراقبة اليومية الرسمية</span>
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Tab 4: Early Warning - Repeated Absences */}
+        {activeTab === 'risk' && (
+          <div className="p-5 space-y-4">
+            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 flex items-start gap-3">
+              <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-bold text-rose-900">
+                  نظام التنبيه المبكر: التلاميذ في دائرة خطر الغياب المتكرر (3 حصص فأكثر)
+                </h3>
+                <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                  ترصد هذه اللوحة تلقائياً كافة التلاميذ الذين راكموا 3 حصص غياب أو أكثر على صعيد المؤسسة، لتنبيه الإدارة والحراسة العامة وتوجيه استدعاءات وإشعارات عاجلة لأولياء الأمور قبل بلوغ عتبة الانقطاع.
+                </p>
+              </div>
+            </div>
+
+            {repeatedStudents.length === 0 ? (
+              <div className="py-16 text-center text-slate-500 bg-white rounded-xl border border-slate-200">
+                <UserCheck className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+                <p className="text-base font-bold text-slate-800">لا يوجد أي تلميذ في دائرة الخطر حالياً</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  كافة التلاميذ لديهم معدل غيابات سليم وأقل من العتبة التحذيرية (أقل من 3 غيابات).
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-2xs">
+                <table className="w-full text-right text-xs">
+                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3">#</th>
+                      <th className="p-3">اسم التلميذ(ة)</th>
+                      <th className="p-3">القسم</th>
+                      <th className="p-3 text-center">مستوى الخطورة</th>
+                      <th className="p-3 text-center">مجموع الغيابات</th>
+                      <th className="p-3 text-center">غير مبرر</th>
+                      <th className="p-3 text-center">مبرر</th>
+                      <th className="p-3">آخر تاريخ غياب</th>
+                      <th className="p-3 text-center">إجراءات المتابعة</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 font-medium">
+                    {repeatedStudents.map((st, i) => (
+                      <tr key={i} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="p-3 text-slate-400 font-bold">{i + 1}</td>
+                        <td className="p-3 font-bold text-slate-900">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStudentForCard({
+                                studentName: st.studentName,
+                                studentNumber: st.studentNumber,
+                                sectionId: st.sectionId,
+                                sectionName: st.sectionName
+                              });
+                              setShowStudentCardModal(true);
+                            }}
+                            className="hover:text-emerald-700 hover:underline cursor-pointer text-right flex items-center gap-1.5"
+                          >
+                            <span>{st.studentName}</span>
+                            <FileText className="w-3.5 h-3.5 text-slate-400" />
+                          </button>
+                        </td>
+                        <td className="p-3 text-slate-700">
+                          <span className="px-2 py-0.5 rounded bg-slate-100 font-medium">
+                            {st.sectionName}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {st.riskLevel === 'critical' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                              <ShieldAlert className="w-3 h-3 text-rose-600" />
+                              حرج (5+ غيابات)
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                              <AlertTriangle className="w-3 h-3 text-amber-600" />
+                              إنذار (3-4 غيابات)
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-rose-700 text-sm">
+                          {st.absencesCount} حصة
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-rose-900">
+                          {st.unjustifiedCount}
+                        </td>
+                        <td className="p-3 text-center font-mono font-bold text-emerald-700">
+                          {st.justifiedCount}
+                        </td>
+                        <td className="p-3 font-mono text-slate-600">
+                          {st.lastAbsenceDate || '—'}
+                        </td>
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStudentForCard({
+                                studentName: st.studentName,
+                                studentNumber: st.studentNumber,
+                                sectionId: st.sectionId,
+                                sectionName: st.sectionName
+                              });
+                              setShowStudentCardModal(true);
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-[#1A4E47] hover:bg-[#133E38] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>كشف المواظبة وإشعار ولي الأمر</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

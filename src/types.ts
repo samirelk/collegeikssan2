@@ -237,6 +237,7 @@ export interface SeatItem {
   rosterId: string | null;
   statusColor?: SeatStatusColor;
   attendance?: SeatAttendance;
+  totalAbsencesCount?: number;
   previousSessionAbsence?: {
     teacherName?: string;
     sessionPeriod?: string;

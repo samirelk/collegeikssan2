@@ -106,8 +106,9 @@ export async function writeSnapshot(reason: string = 'manual'): Promise<Snapshot
     const prev = (await getDoc(SNAPSHOT_COLLECTION, snapshotId)) as SnapshotManifest | null;
     const prevChunkCount = prev?.chunkCount || 0;
 
-    // Safety guard: never overwrite a snapshot that had sections with an auto snapshot of 0 sections
-    if (reason === 'auto' && sectionsCount === 0 && prev && (prev.sectionsCount || 0) > 0) {
+    // Safety guard: only skip auto-snapshots if sectionsCount is 0 AND it was an unverified auto-tick without an intentional deletion
+    const isExplicitlyCleared = Boolean(dbRef?.prepare?.("SELECT 1 FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections') AND value = 'true'")?.get?.());
+    if (reason === 'auto' && sectionsCount === 0 && prev && (prev.sectionsCount || 0) > 0 && !isExplicitlyCleared) {
       console.warn(`[CloudBackup] Skipping auto-snapshot: local DB has 0 sections while existing snapshot "${snapshotId}" has ${prev.sectionsCount} sections.`);
       return prev;
     }
@@ -233,17 +234,24 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
   restoredOnBoot = true;
 
   try {
+    // Check if user has explicitly reset data or deleted all sections
+    const isReset = Boolean(dbRef.prepare("SELECT 1 FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections') AND value = 'true'").get());
+    if (isReset) {
+      console.log('ℹ️  [CloudBackup] Data reset or intentional wipe marker detected; skipping snapshot auto-restore.');
+      return;
+    }
+
     let localSections = 0;
-    let localOccupiedSeats = 0;
-    let localTeachers = 0;
     try {
       localSections = (dbRef.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
-      localOccupiedSeats = (dbRef.prepare("SELECT COUNT(*) as c FROM seats WHERE student_name != ''").get() as any)?.c || 0;
-      localTeachers = (dbRef.prepare("SELECT COUNT(*) as c FROM users WHERE role = 'teacher'").get() as any)?.c || 0;
     } catch {
       localSections = 0;
-      localOccupiedSeats = 0;
-      localTeachers = 0;
+    }
+
+    // If local database has ANY sections (even empty sections), respect the local state!
+    if (localSections > 0) {
+      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s); skipping snapshot auto-restore to respect current state.`);
+      return;
     }
 
     const all = await listSnapshots();
@@ -254,20 +262,31 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
 
     // Always use the most recent daily snapshot
     const targetSnapshot = all[0];
-
-    // If local database has 0 sections or 0 students, but cloud snapshot has sections, restore it!
-    if (localSections > 0 && localOccupiedSeats > 0) {
-      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s) and ${localOccupiedSeats} seated students; skipping snapshot auto-restore to respect current state.`);
+    if (targetSnapshot.sectionsCount === 0) {
+      console.log('☁️  [CloudBackup] Latest snapshot has 0 sections; skipping restore.');
       return;
     }
 
-    console.log(`♻️  [CloudBackup] Auto-restoring cloud snapshot "${targetSnapshot.id}" (${targetSnapshot.sectionsCount} section[s], local was ${localSections} sections / ${localOccupiedSeats} seated students)...`);
+    console.log(`♻️  [CloudBackup] Auto-restoring cloud snapshot "${targetSnapshot.id}" (${targetSnapshot.sectionsCount} section[s], local was ${localSections} sections)...`);
     const res = await restoreSnapshot(targetSnapshot.id);
     if (res?.success) {
       console.log(`✅ [CloudBackup] Auto-restored ${res.count} section(s) from snapshot "${targetSnapshot.id}".`);
     }
   } catch (err: any) {
     console.error('[CloudBackup] restoreLatestSnapshotOnBoot failed:', err?.message || err);
+  }
+}
+
+/** Purge all snapshots and chunks from Firestore (used during complete reset) */
+export async function purgeAllSnapshots(): Promise<void> {
+  try {
+    const all = await listSnapshots();
+    for (const m of all) {
+      await deleteSnapshot(m);
+    }
+    console.log(`🧹 [CloudBackup] Purged ${all.length} snapshot(s) from cloud.`);
+  } catch (err: any) {
+    console.warn('[CloudBackup] purgeAllSnapshots warning:', err?.message || err);
   }
 }
 

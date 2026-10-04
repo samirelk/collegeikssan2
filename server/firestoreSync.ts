@@ -227,6 +227,9 @@ async function syncSectionsFromFirestore(db: any) {
 
     const checkSeatsCountStmt = db.prepare('SELECT COUNT(*) as c FROM seats WHERE section_id = ?');
     const secTombstoneStmt = db.prepare("SELECT 1 FROM deleted_tombstones WHERE type = 'section' AND item_id = ?");
+    const isResetOrEmpty = Boolean(db.prepare("SELECT 1 FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections') AND value = 'true'").get());
+    const localSecCount = (db.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
+
     const insertInitialSeat = db.prepare(`
       INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 'default', NULL, ?)
@@ -235,10 +238,22 @@ async function syncSectionsFromFirestore(db: any) {
     for (const s of sections) {
       if (!s.id) continue;
 
-      // Check if section was deleted locally
+      // 1. If user intentionally wiped data or deleted all sections, purge orphan cloud sections
+      if (isResetOrEmpty && localSecCount === 0) {
+        deleteDoc('sections', s.id).catch(() => {});
+        for (let i = 1; i <= 100; i++) {
+          deleteDoc('seats', `${s.id}_seat_${i}`).catch(() => {});
+        }
+        continue;
+      }
+
+      // 2. Check if section was deleted locally (tombstone)
       try {
         if (secTombstoneStmt.get(s.id)) {
           deleteDoc('sections', s.id).catch(() => {});
+          for (let i = 1; i <= 100; i++) {
+            deleteDoc('seats', `${s.id}_seat_${i}`).catch(() => {});
+          }
           continue;
         }
       } catch {}
@@ -912,7 +927,88 @@ export function cloudSaveSection(sec: any) {
 }
 
 export function cloudDeleteSection(sectionId: string) {
-  return trackCloudWrite(`cloudDeleteSection(${sectionId})`, () => deleteDoc('sections', sectionId));
+  return trackCloudWrite(`cloudDeleteSection(${sectionId})`, async () => {
+    const ok = await deleteDoc('sections', sectionId);
+    // Also delete all 100 seats in Firestore for this section
+    for (let i = 1; i <= 100; i++) {
+      deleteDoc('seats', `${sectionId}_seat_${i}`).catch(() => {});
+    }
+    deleteDoc('section_assignments', sectionId).catch(() => {});
+    return ok;
+  });
+}
+
+export function cloudDeleteAllSections() {
+  return trackCloudWrite('cloudDeleteAllSections', async () => {
+    try {
+      const sections = await listDocs('sections');
+      for (const s of sections) {
+        if (s.id) {
+          await deleteDoc('sections', s.id).catch(() => {});
+          for (let i = 1; i <= 100; i++) {
+            deleteDoc('seats', `${s.id}_seat_${i}`).catch(() => {});
+          }
+          deleteDoc('section_assignments', s.id).catch(() => {});
+        }
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('[cloudDeleteAllSections] error:', err?.message || err);
+      return false;
+    }
+  });
+}
+
+export function cloudPurgeAllData(exceptAdminId: string = 'usr_admin_samir') {
+  return trackCloudWrite('cloudPurgeAllData', async () => {
+    try {
+      // 1. Purge all sections & seats
+      const sections = await listDocs('sections');
+      for (const s of sections) {
+        if (s.id) {
+          await deleteDoc('sections', s.id).catch(() => {});
+          for (let i = 1; i <= 100; i++) {
+            deleteDoc('seats', `${s.id}_seat_${i}`).catch(() => {});
+          }
+          deleteDoc('section_assignments', s.id).catch(() => {});
+        }
+      }
+
+      // 2. Purge non-admin users
+      const users = await listDocs('users');
+      for (const u of users) {
+        if (u.id && u.id !== exceptAdminId && u.username !== 'admin') {
+          await deleteDoc('users', u.id).catch(() => {});
+        }
+      }
+
+      // 3. Purge daily attendance and violations
+      const atts = await listDocs('attendance_history');
+      for (const a of atts) {
+        if (a.id) deleteDoc('attendance_history', a.id).catch(() => {});
+      }
+      const vios = await listDocs('daily_violations');
+      for (const v of vios) {
+        if (v.id) deleteDoc('daily_violations', v.id).catch(() => {});
+      }
+
+      // 4. Purge snapshots
+      const snaps = await listDocs('db_snapshots');
+      for (const snap of snaps) {
+        if (snap.id) {
+          await deleteDoc('db_snapshots', snap.id).catch(() => {});
+          for (let c = 0; c < 20; c++) {
+            deleteDoc('db_snapshot_chunks', `${snap.id}__${c}`).catch(() => {});
+          }
+        }
+      }
+      console.log('✅ [FirestoreSync] Cloud data purged successfully.');
+      return true;
+    } catch (err: any) {
+      console.error('[FirestoreSync] cloudPurgeAllData error:', err?.message || err);
+      return false;
+    }
+  });
 }
 
 export function cloudSaveSeat(sectionId: string, seat: any) {

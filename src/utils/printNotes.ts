@@ -2368,3 +2368,231 @@ export function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
 }
+
+export interface PrintStudentAttendanceCardOptions {
+  institution?: string;
+  academicYear?: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  sectionName: string;
+  seatNum?: number;
+  totalAbsences: number;
+  totalLates: number;
+  totalHours: number;
+  justifiedCount: number;
+  unjustifiedCount: number;
+  records: Array<{
+    status: 'absent' | 'late';
+    recordedDate: string;
+    sessionPeriod?: string;
+    teacherName?: string;
+    teacherSubject?: string;
+    justified?: string;
+    justificationReason?: string;
+    durationLabel?: string;
+    notes?: string;
+  }>;
+}
+
+export function printStudentAttendanceCard(options: PrintStudentAttendanceCardOptions): boolean {
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution: options.institution,
+    academicYear: options.academicYear,
+    dateLabel: 'تاريخ استخراج الكشف',
+    middleIcon: '📋'
+  });
+
+  const rowsHtml = options.records.length === 0
+    ? `<tr><td colspan="7" style="text-align: center; padding: 20px; color: #64748b;">لا توجد أي غيابات أو تأخرات مسجلة بحق التلميذ (سجل انضباط نموذجي)</td></tr>`
+    : options.records.map((r, i) => `
+        <tr style="background-color: ${i % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+          <td style="text-align: center; font-weight: bold;">${i + 1}</td>
+          <td style="text-align: center; font-family: monospace; font-weight: bold;">${escapeHtml(r.recordedDate)}</td>
+          <td style="text-align: center;">${escapeHtml(r.sessionPeriod || 'كامل اليوم')}</td>
+          <td style="text-align: center; font-weight: bold; color: ${r.status === 'absent' ? '#b91c1c' : '#b45309'};">
+            ${r.status === 'absent' ? '✕ غياب' : '⏳ تأخر'}
+          </td>
+          <td>${escapeHtml(r.teacherSubject || '—')} ${r.teacherName ? `(${escapeHtml(r.teacherName)})` : ''}</td>
+          <td style="text-align: center; font-weight: bold; color: ${r.justified && r.justified !== 'unjustified' ? '#15803d' : '#b91c1c'};">
+            ${r.justified && r.justified !== 'unjustified' ? 'مبرر ✓' : 'غير مبرر ✕'}
+          </td>
+          <td style="font-size: 11px; color: #475569;">${escapeHtml(r.justificationReason || r.notes || '—')}</td>
+        </tr>
+      `).join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>كشف المواظبة والغياب الفردي - ${escapeHtml(options.studentName)}</title>
+      <style>
+        ${OFFICIAL_HEADER_CSS}
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 15mm; color: #1e293b; background: #fff; }
+        .doc-title { text-align: center; font-size: 18px; font-weight: bold; margin: 15px 0; color: #0f172a; text-decoration: underline; }
+        .student-box { border: 1.5px solid #cbd5e1; border-radius: 8px; padding: 12px; margin-bottom: 15px; background: #f8fafc; }
+        .student-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-size: 12px; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 15px; }
+        .stat-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; text-align: center; font-size: 11px; }
+        .stat-card strong { display: block; font-size: 16px; margin-top: 4px; }
+        .records-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+        .records-table th, .records-table td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: right; }
+        .records-table th { background: #f1f5f9; font-weight: bold; }
+        .signatures { display: flex; justify-content: space-between; margin-top: 35px; font-size: 12px; font-weight: bold; }
+        .sig-box { width: 30%; text-align: center; min-height: 80px; }
+      </style>
+    </head>
+    <body>
+      ${headerHtml}
+      <div class="doc-title">كشف المواظبة والغياب الفردي للتلميذ(ة)</div>
+
+      <div class="student-box">
+        <div class="student-grid">
+          <div>اسم التلميذ: <b>${escapeHtml(options.studentName)}</b></div>
+          <div>القسم: <b>${escapeHtml(options.sectionName)}</b></div>
+          <div>الرقم الترتيبي: <b>${escapeHtml(options.studentNumber || '—')}</b></div>
+          <div>رقم مسار: <b>${escapeHtml(options.massarNumber || '—')}</b></div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card" style="background: #fef2f2; border-color: #fecaca; color: #991b1b;">
+          إجمالي الغيابات: <strong>${options.totalAbsences} حصة</strong>
+        </div>
+        <div class="stat-card" style="background: #fffbeb; border-color: #fde68a; color: #92400e;">
+          إجمالي التأخرات: <strong>${options.totalLates} حالة</strong>
+        </div>
+        <div class="stat-card" style="background: #f0fdf4; border-color: #bbf7d0; color: #166534;">
+          الغيابات المبررة: <strong>${options.justifiedCount} حصة</strong>
+        </div>
+        <div class="stat-card" style="background: #fff1f2; border-color: #ffe4e6; color: #be123c;">
+          الغيابات غير المبررة: <strong>${options.unjustifiedCount} حصة</strong>
+        </div>
+      </div>
+
+      <table class="records-table">
+        <thead>
+          <tr>
+            <th style="width: 30px; text-align: center;">#</th>
+            <th style="width: 85px; text-align: center;">التاريخ</th>
+            <th style="width: 130px; text-align: center;">الحصة / الفترة</th>
+            <th style="width: 70px; text-align: center;">الحالة</th>
+            <th>المادة / الأستاذ</th>
+            <th style="width: 80px; text-align: center;">وضعية التبرير</th>
+            <th>الملاحظات والمبرر</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <div class="signatures">
+        <div class="sig-box">توقيع ولي الأمر بالعلم:<br><br>......................................</div>
+        <div class="sig-box">توقيع الحارس(ة) العام(ة):<br><br>......................................</div>
+        <div class="sig-box">توقيع وخاتم رئيس المؤسسة:<br><br>......................................</div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return printReportHtml(html);
+}
+
+export interface PrintParentAbsenceNoticeOptions {
+  institution?: string;
+  academicYear?: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  sectionName: string;
+  recordedDate: string;
+  sessionPeriod?: string;
+  teacherName?: string;
+  teacherSubject?: string;
+}
+
+export function printParentAbsenceNotice(options: PrintParentAbsenceNoticeOptions): boolean {
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution: options.institution,
+    academicYear: options.academicYear,
+    dateLabel: 'تاريخ الإشعار',
+    middleIcon: '✉️'
+  });
+
+  const html = `
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+      <meta charset="UTF-8">
+      <title>إشعار بالغياب موجه لولي الأمر - ${escapeHtml(options.studentName)}</title>
+      <style>
+        ${OFFICIAL_HEADER_CSS}
+        body { font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 15mm; color: #1e293b; background: #fff; }
+        .doc-title { text-align: center; font-size: 18px; font-weight: bold; margin: 15px 0 20px; color: #0f172a; text-decoration: underline; }
+        .notice-card { border: 2px solid #0f172a; border-radius: 10px; padding: 20px; background: #ffffff; }
+        .info-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        .info-table td { padding: 8px 12px; border: 1px solid #cbd5e1; font-size: 13px; }
+        .info-table td.label { background: #f8fafc; font-weight: bold; width: 25%; }
+        .message-p { font-size: 13.5px; line-height: 1.9; margin: 20px 0; text-align: justify; }
+        .signatures { display: flex; justify-content: space-between; margin-top: 35px; font-size: 13px; font-weight: bold; }
+        .tear-slip { margin-top: 40px; border-top: 2px dashed #94a3b8; padding-top: 20px; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      ${headerHtml}
+      <div class="doc-title">إشعار رسمي بتغيب تلميذ(ة) موجه لولي الأمر</div>
+
+      <div class="notice-card">
+        <p style="font-size: 14px; font-weight: bold; margin-bottom: 15px;">
+          إلى السيد(ة) ولي أمر التلميذ(ة): <u>${escapeHtml(options.studentName)}</u> المحترم(ة)
+        </p>
+
+        <table class="info-table">
+          <tr>
+            <td class="label">اسم التلميذ(ة):</td>
+            <td><b>${escapeHtml(options.studentName)}</b></td>
+            <td class="label">القسم:</td>
+            <td><b>${escapeHtml(options.sectionName)}</b></td>
+          </tr>
+          <tr>
+            <td class="label">تاريخ الغياب:</td>
+            <td><b>${escapeHtml(options.recordedDate)}</b></td>
+            <td class="label">الحصة / الفترة:</td>
+            <td><b>${escapeHtml(options.sessionPeriod || 'كامل اليوم')}</b></td>
+          </tr>
+          <tr>
+            <td class="label">المادة:</td>
+            <td><b>${escapeHtml(options.teacherSubject || '—')}</b></td>
+            <td class="label">الأستاذ(ة):</td>
+            <td><b>${escapeHtml(options.teacherName || '—')}</b></td>
+          </tr>
+        </table>
+
+        <p class="message-p">
+          سلام تام بوجود مولانا الإمام المؤيد بالله،<br>
+          وبعد، يُؤسف إدارة المؤسسة إخباركم بأن ابنكم(تكم) المذكور(ة) أعلاه قد تغيب(ت) عن الحصة المحددة دون سابق إشعار أو مبرر مقبول.
+          لذا نرجو منكم الحضور إلى مصلحة الحراسة العامة في أقرب وقت لتسوية وضعية التلميذ والإدلاء بالمبرر القانوني، حفاظاً على تمدرسه وتجنباً للعقوبات التأديبية المنصوص عليها في النظام الداخلي للمؤسسة.
+        </p>
+
+        <div class="signatures">
+          <div>حرر بـ: الثانوية الإعدادية ايكسان<br>بتاريخ: ${escapeHtml(options.recordedDate)}</div>
+          <div>توقيع وخاتم إدارة المؤسسة:<br><br><br>...........................................</div>
+        </div>
+      </div>
+
+      <div class="tear-slip">
+        <div style="text-align: center; font-weight: bold; margin-bottom: 10px;">✂️ وصل التوصل بإشعار الغياب (يُرجع بعد التوقيع للحراسة العامة)</div>
+        <p>أنا الموقع أسفله ولي أمر التلميذ(ة): <b>${escapeHtml(options.studentName)}</b> بالقسم: <b>${escapeHtml(options.sectionName)}</b>، أشهد بأنني توصلت بالإشعار بتغيبه بتاريخ: <b>${escapeHtml(options.recordedDate)}</b>.</p>
+        <div style="display: flex; justify-content: space-between; margin-top: 15px;">
+          <div>تاريخ التوصل: ..... / ..... / 2026</div>
+          <div>توقيع ولي الأمر: .......................................</div>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  return printReportHtml(html);
+}

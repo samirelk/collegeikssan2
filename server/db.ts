@@ -6,6 +6,8 @@ import {
   cloudDeleteUser,
   cloudSaveSection,
   cloudDeleteSection,
+  cloudDeleteAllSections,
+  cloudPurgeAllData,
   cloudSaveSeat,
   cloudSaveAttendance,
   cloudDeleteAttendance,
@@ -24,6 +26,7 @@ import {
   cloudDeleteTimetableEntry
 } from './firestoreSync.ts';
 import { commitBatchDocs } from './firestoreService.ts';
+import { markDirty, purgeAllSnapshots } from './cloudBackup.ts';
 
 // Ensure data directory exists for durable SQLite file persistence
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -70,6 +73,7 @@ export interface SeatItem {
   rosterId: string | null;
   statusColor?: SeatStatusColor;
   attendance?: SeatAttendance;
+  totalAbsencesCount?: number;
   previousSessionAbsence?: any;
 }
 
@@ -1143,6 +1147,18 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       ORDER BY created_at DESC
     `).all(...(viewerRole === 'teacher' && viewerId ? [sec.id, viewerId] : [sec.id])) as any[];
 
+    // Precalculate total accumulated absences count per student in this section
+    const studentAbsenceCounts = db.prepare(`
+      SELECT LOWER(TRIM(student_name)) as sname, COUNT(*) as c
+      FROM attendance_history
+      WHERE section_id = ? AND status = 'absent' AND student_name IS NOT NULL AND student_name != ''
+      GROUP BY LOWER(TRIM(student_name))
+    `).all(sec.id) as Array<{ sname: string; c: number }>;
+    const absenceCountMap = new Map<string, number>();
+    for (const row of studentAbsenceCounts) {
+      if (row.sname) absenceCountMap.set(row.sname, row.c);
+    }
+
     const seats: SeatItem[] = [];
     const maxSeatNum = Math.max(100, seatRows.length > 0 ? Math.max(...seatRows.map((s: any) => s.seat_num)) : 100);
     for (let i = 1; i <= maxSeatNum; i++) {
@@ -1262,6 +1278,9 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
 
       const positiveCount = seatPos.reduce((sum: number, p: any) => sum + (p.points || 1), 0);
 
+      const cleanLowerStudentName = (studentName || '').trim().toLowerCase();
+      const studentTotalAbsences = cleanLowerStudentName ? (absenceCountMap.get(cleanLowerStudentName) || 0) : 0;
+
       seats.push({
         seat: i,
         name: studentName,
@@ -1270,6 +1289,7 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
         rosterId: rosterId,
         statusColor: statusColor,
         attendance: resolvedAttendance,
+        totalAbsencesCount: studentTotalAbsences,
         previousSessionAbsence: previousSessionAbsence,
         violations: seatViols,
         positiveParticipations: seatPos,
@@ -1440,23 +1460,28 @@ export function updateSectionMeta(id: string, data: { level: string; classNumber
 export function deleteSection(id: string) {
   const sec = db.prepare('SELECT level, class_number FROM sections WHERE id = ?').get(id) as any;
   const title = sec ? `${sec.level} - القسم ${sec.class_number}` : id;
+  const now = new Date().toISOString();
 
   db.prepare('DELETE FROM section_assignments WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM teacher_seat_overrides WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM teacher_timetable WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM attendance_history WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM daily_violations WHERE section_id = ?').run(id);
+  db.prepare('DELETE FROM positive_participations WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM notes WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM student_change_requests WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM seats WHERE section_id = ?').run(id);
   db.prepare('DELETE FROM sections WHERE id = ?').run(id);
-  db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('section', ?, ?)").run(id, new Date().toISOString());
+  db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('section', ?, ?)").run(id, now);
 
   try {
     cloudDeleteSection(id);
   } catch (cloudErr: any) {
     console.warn(`[deleteSection] cloudDeleteSection warning for ${id}:`, cloudErr?.message || cloudErr);
   }
+
+  // Update cloud backup snapshot so this section is permanently removed from backups
+  markDirty();
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -1465,31 +1490,46 @@ export function deleteSection(id: string) {
     'delete_section',
     `حذف القسم: ${title}`,
     JSON.stringify({ id }),
-    new Date().toISOString()
+    now
   );
 }
 
 export function deleteAllSections() {
   const allSections = db.prepare('SELECT id FROM sections').all() as Array<{ id: string }>;
   const count = allSections.length;
+  const now = new Date().toISOString();
+
+  // 1. Insert tombstone for EVERY section being deleted
+  const insertTombstone = db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('section', ?, ?)");
+  for (const s of allSections) {
+    insertTombstone.run(s.id, now);
+  }
+
+  // 2. Mark in settings that the user intentionally wiped all sections
+  db.prepare(`
+    INSERT INTO app_settings (key, value, updated_at) VALUES ('user_deleted_all_sections', 'true', ?)
+    ON CONFLICT(key) DO UPDATE SET value = 'true', updated_at = excluded.updated_at
+  `).run(now);
 
   db.prepare('DELETE FROM section_assignments').run();
   db.prepare('DELETE FROM teacher_seat_overrides').run();
   db.prepare('DELETE FROM teacher_timetable').run();
   db.prepare('DELETE FROM attendance_history').run();
   db.prepare('DELETE FROM daily_violations').run();
+  db.prepare('DELETE FROM positive_participations').run();
   db.prepare('DELETE FROM notes').run();
   db.prepare('DELETE FROM student_change_requests').run();
   db.prepare('DELETE FROM seats').run();
   db.prepare('DELETE FROM sections').run();
 
-  for (const s of allSections) {
-    try {
-      cloudDeleteSection(s.id);
-    } catch {
-      // Ignore non-critical individual cleanup
-    }
+  try {
+    cloudDeleteAllSections();
+  } catch (err: any) {
+    console.warn('[deleteAllSections] cloudDeleteAllSections warning:', err?.message || err);
   }
+
+  // Update backup snapshot immediately
+  markDirty();
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -1498,10 +1538,31 @@ export function deleteAllSections() {
     'delete_all_sections',
     `حذف جميع الأقسام (${count} قسم) من طرف إدارة المؤسسة`,
     JSON.stringify({ count }),
-    new Date().toISOString()
+    now
   );
 
   return { count };
+}
+
+/**
+ * Detect the current school session period based on local Moroccan school timings.
+ */
+export function getCurrentSchoolPeriod(): string {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  const totalMin = hours * 60 + minutes;
+
+  if (totalMin >= 8 * 60 + 15 && totalMin < 9 * 60 + 30) return 'الحصة 1 (08:30 - 09:30)';
+  if (totalMin >= 9 * 60 + 30 && totalMin < 10 * 60 + 30) return 'الحصة 2 (09:30 - 10:30)';
+  if (totalMin >= 10 * 60 + 30 && totalMin < 11 * 60 + 30) return 'الحصة 3 (10:30 - 11:30)';
+  if (totalMin >= 11 * 60 + 30 && totalMin <= 12 * 60 + 45) return 'الحصة 4 (11:30 - 12:30)';
+  if (totalMin >= 14 * 60 + 15 && totalMin < 15 * 60 + 30) return 'الحصة 5 (14:30 - 15:30)';
+  if (totalMin >= 15 * 60 + 30 && totalMin < 16 * 60 + 30) return 'الحصة 6 (15:30 - 16:30)';
+  if (totalMin >= 16 * 60 + 30 && totalMin < 17 * 60 + 30) return 'الحصة 7 (16:30 - 17:30)';
+  if (totalMin >= 17 * 60 + 30 && totalMin <= 18 * 60 + 45) return 'الحصة 8 (17:30 - 18:30)';
+
+  return totalMin < 13 * 60 ? 'الفترة الصباحية (08:30 - 12:30)' : 'الفترة المسائية (14:30 - 18:30)';
 }
 
 function clearSeatAbsenceHistory(sectionId: string, seatNum: number) {
@@ -1692,13 +1753,14 @@ export function updateSeat(
       ).get(sectionId, targetSeatNum, name.trim(), today, actorId || '', effectiveTeacherName, effectiveTeacherName) as any;
 
       if (!existing) {
+        const currentPeriod = getCurrentSchoolPeriod();
         const histResult = db.prepare(`
           INSERT INTO attendance_history (
             section_id, seat_num, student_name, student_number,
             status, recorded_date, session_period, teacher_name, teacher_subject,
             justified, created_at, created_by, removed_by, removed_at, count_in_stats,
             absence_mode, duration_hours, duration_days, duration_label
-          ) VALUES (?, ?, ?, ?, ?, ?, 'غياب بالساعات', ?, ?, 'unjustified', ?, ?, '', '', 1, 'hours', 1, 0, '1 ساعة (جاري)')
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unjustified', ?, ?, '', '', 1, 'hours', 1, 0, '1 ساعة (جاري)')
         `).run(
           sectionId,
           targetSeatNum,
@@ -1706,6 +1768,7 @@ export function updateSeat(
           number.trim(),
           attendance,
           today,
+          currentPeriod,
           effectiveTeacherName,
           effectiveTeacherSubject,
           now,
@@ -1724,7 +1787,7 @@ export function updateSeat(
               status: attendance,
               date: today,
               time: now.slice(11, 16),
-              session: 'غياب بالساعات',
+              session: currentPeriod,
               subject: secInfo?.teacher_subject || '',
               teacherName: secInfo?.teacher_name || '',
               isJustified: false,
@@ -2518,6 +2581,8 @@ export function removeStudentFromSection(
     console.warn('[removeStudentFromSection] Firestore sync warning:', syncErr?.message || syncErr);
   }
 
+  markDirty();
+
   return {
     success: true,
     removedStudentName: removedName,
@@ -2525,6 +2590,191 @@ export function removeStudentFromSection(
     reason: reasonText,
     remainingRosterCount: roster.length
   };
+}
+
+export function transferStudentToSection(
+  sourceSectionId: string,
+  sourceSeatNum: number,
+  targetSectionId: string,
+  customTargetSeatNum?: number,
+  transferHistory: boolean = true
+) {
+  if (sourceSectionId === targetSectionId) {
+    throw new Error('لا يمكن نقل التلميذ إلى نفس القسم، استخدم خاصية تبديل المقاعد بدلاً من ذلك');
+  }
+
+  const now = new Date().toISOString();
+  db.exec('BEGIN TRANSACTION;');
+  try {
+    const srcSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sourceSectionId) as any;
+    if (!srcSec) throw new Error('القسم المصدر غير موجود');
+    const tgtSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(targetSectionId) as any;
+    if (!tgtSec) throw new Error('القسم المستقبل غير موجود');
+
+    const srcSeat = db.prepare('SELECT * FROM seats WHERE section_id = ? AND seat_num = ?').get(sourceSectionId, sourceSeatNum) as any;
+    if (!srcSeat || !srcSeat.student_name || !srcSeat.student_name.trim()) {
+      throw new Error(`لا يوجد تلميذ مسجل في المقعد رقم ${sourceSeatNum} بالقسم المصدر`);
+    }
+
+    const studentName = srcSeat.student_name.trim();
+    const studentNumber = srcSeat.student_number || '';
+    const massarNumber = srcSeat.massar_number || '';
+    const oldRosterId = srcSeat.roster_id;
+
+    // 1. Determine target seat number
+    let targetSeatNum = 0;
+    if (customTargetSeatNum && customTargetSeatNum >= 1 && customTargetSeatNum <= 100) {
+      const tgtSeatCheck = db.prepare('SELECT * FROM seats WHERE section_id = ? AND seat_num = ?').get(targetSectionId, customTargetSeatNum) as any;
+      if (tgtSeatCheck && tgtSeatCheck.student_name && tgtSeatCheck.student_name.trim()) {
+        throw new Error(`المقعد رقم ${customTargetSeatNum} في القسم المستقبل محجوز للتلميذ (${tgtSeatCheck.student_name})`);
+      }
+      targetSeatNum = customTargetSeatNum;
+    } else {
+      // Find first empty seat between 1 and 100
+      const emptySeat = db.prepare(`
+        SELECT seat_num FROM seats 
+        WHERE section_id = ? AND (student_name IS NULL OR TRIM(student_name) = '')
+        ORDER BY seat_num ASC 
+        LIMIT 1
+      `).get(targetSectionId) as any;
+      if (!emptySeat) {
+        throw new Error('القسم المستقبل مكتمل ولا توجد به مقاعد شاغرة (100 مقعد ممتلئ)');
+      }
+      targetSeatNum = emptySeat.seat_num;
+    }
+
+    // 2. Generate new roster ID for target section
+    const newRosterId = `r_${targetSectionId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    // 3. Vacate student from source seat
+    db.prepare(`
+      UPDATE seats SET
+        student_name = '',
+        student_number = '',
+        massar_number = '',
+        roster_id = NULL,
+        attendance = NULL,
+        status_color = 'default',
+        updated_at = ?
+      WHERE section_id = ? AND seat_num = ?
+    `).run(now, sourceSectionId, sourceSeatNum);
+
+    // 4. Place student in target seat
+    db.prepare(`
+      INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'default', NULL, ?)
+      ON CONFLICT(section_id, seat_num) DO UPDATE SET
+        student_name = excluded.student_name,
+        student_number = excluded.student_number,
+        massar_number = excluded.massar_number,
+        roster_id = excluded.roster_id,
+        status_color = excluded.status_color,
+        attendance = excluded.attendance,
+        updated_at = excluded.updated_at
+    `).run(targetSectionId, targetSeatNum, studentName, studentNumber, massarNumber, newRosterId, now);
+
+    // 5. Update source section roster_json
+    let srcRoster: RosterItem[] = [];
+    try {
+      srcRoster = JSON.parse(srcSec.roster_json || '[]');
+    } catch {
+      srcRoster = [];
+    }
+    srcRoster = srcRoster.filter(r => {
+      if (oldRosterId && r.id === oldRosterId) return false;
+      if (r.name && r.name.trim() === studentName) return false;
+      return true;
+    });
+    db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(srcRoster), now, sourceSectionId);
+
+    // 6. Update target section roster_json
+    let tgtRoster: RosterItem[] = [];
+    try {
+      tgtRoster = JSON.parse(tgtSec.roster_json || '[]');
+    } catch {
+      tgtRoster = [];
+    }
+    let finalStudentNumber = studentNumber;
+    if (!finalStudentNumber || tgtRoster.some(r => r.number === finalStudentNumber)) {
+      finalStudentNumber = String(tgtRoster.length + 1);
+      db.prepare('UPDATE seats SET student_number = ? WHERE section_id = ? AND seat_num = ?')
+        .run(finalStudentNumber, targetSectionId, targetSeatNum);
+    }
+    tgtRoster.push({
+      id: newRosterId,
+      name: studentName,
+      number: finalStudentNumber,
+      massarNumber: massarNumber || undefined
+    });
+    db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(tgtRoster), now, targetSectionId);
+
+    // 7. If transferHistory is true, migrate attendance, violations, notes, participations
+    if (transferHistory) {
+      db.prepare('UPDATE attendance_history SET section_id = ?, seat_num = ? WHERE section_id = ? AND seat_num = ?')
+        .run(targetSectionId, targetSeatNum, sourceSectionId, sourceSeatNum);
+      db.prepare('UPDATE daily_violations SET section_id = ?, seat_num = ? WHERE section_id = ? AND seat_num = ?')
+        .run(targetSectionId, targetSeatNum, sourceSectionId, sourceSeatNum);
+      db.prepare('UPDATE positive_participations SET section_id = ?, seat_num = ? WHERE section_id = ? AND seat_num = ?')
+        .run(targetSectionId, targetSeatNum, sourceSectionId, sourceSeatNum);
+      db.prepare('UPDATE notes SET section_id = ?, seat_num = ? WHERE section_id = ? AND seat_num = ?')
+        .run(targetSectionId, targetSeatNum, sourceSectionId, sourceSeatNum);
+    }
+
+    // 8. Log the transfer action in change_history
+    const srcTitle = `${srcSec.level} - القسم ${srcSec.class_number}`;
+    const tgtTitle = `${tgtSec.level} - القسم ${tgtSec.class_number}`;
+    db.prepare(`
+      INSERT INTO change_history (action, summary, details_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      'transfer_student',
+      `نقل التلميذ "${studentName}" من قسم [${srcTitle}] (مقعد ${sourceSeatNum}) إلى قسم [${tgtTitle}] (مقعد ${targetSeatNum}) في نفس المؤسسة`,
+      JSON.stringify({
+        studentName,
+        studentNumber: finalStudentNumber,
+        massarNumber,
+        sourceSectionId,
+        sourceSeatNum,
+        targetSectionId,
+        targetSeatNum,
+        transferHistory
+      }),
+      now
+    );
+
+    db.exec('COMMIT;');
+
+    // 9. Sync changes to Firestore & Cloud Backup
+    try {
+      const updatedSrcSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sourceSectionId);
+      const updatedTgtSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(targetSectionId);
+      if (updatedSrcSec) cloudSaveSection(updatedSrcSec);
+      if (updatedTgtSec) cloudSaveSection(updatedTgtSec);
+
+      cloudSaveSeat(sourceSectionId, { seat: sourceSeatNum, name: '', number: '', massarNumber: '', rosterId: null });
+      cloudSaveSeat(targetSectionId, { seat: targetSeatNum, name: studentName, number: finalStudentNumber, massarNumber, rosterId: newRosterId });
+    } catch (syncErr: any) {
+      console.warn('[transferStudentToSection] Firestore sync warning:', syncErr?.message || syncErr);
+    }
+
+    markDirty();
+
+    return {
+      success: true,
+      message: `تم نقل التلميذ (${studentName}) بنجاح إلى قسم (${tgtTitle}) في المقعد #${targetSeatNum}`,
+      studentName,
+      sourceSectionName: srcTitle,
+      targetSectionName: tgtTitle,
+      targetSeatNum,
+      remainingSrcCount: srcRoster.length,
+      newTgtCount: tgtRoster.length
+    };
+  } catch (err) {
+    safeRollback();
+    throw err;
+  }
 }
 
 export function getChangeLogs(limit: number = 50) {
@@ -3413,9 +3663,21 @@ export function batchImportSections(
   db.exec('BEGIN TRANSACTION;');
   try {
     if (replaceExisting) {
+      const existingSections = db.prepare('SELECT id FROM sections').all() as Array<{ id: string }>;
+      const nowTomb = new Date().toISOString();
+      const insertTomb = db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('section', ?, ?)");
+      for (const es of existingSections) {
+        insertTomb.run(es.id, nowTomb);
+      }
+      db.prepare("DELETE FROM app_settings WHERE key = 'user_deleted_all_sections'").run();
       db.prepare('DELETE FROM notes').run();
       db.prepare('DELETE FROM seats').run();
       db.prepare('DELETE FROM sections').run();
+      try {
+        cloudDeleteAllSections();
+      } catch {
+        // ignore
+      }
     }
 
     const insertSec = db.prepare(`
@@ -3534,6 +3796,8 @@ export function batchImportSections(
   } catch (syncErr: any) {
     console.warn('[batchImportSections] Firestore sync warning:', syncErr?.message || syncErr);
   }
+
+  markDirty();
 
   return {
     success: true,
@@ -4143,6 +4407,8 @@ export function deleteTeacher(id: string, requesterRole?: string) {
     now
   );
 
+  markDirty();
+
   return { success: true, message: `تم حذف حساب الأستاذ (${user.fullName}) بنجاح` };
 }
 
@@ -4163,6 +4429,12 @@ export function deleteAllTeachers(requesterRole?: string) {
   }
 
   const now = new Date().toISOString();
+
+  // Insert tombstones for all teachers being deleted
+  const insertTombstone = db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('user', ?, ?)");
+  for (const t of teachers) {
+    insertTombstone.run(t.id, now);
+  }
 
   // Clean up teacher specific records
   db.prepare("DELETE FROM section_assignments WHERE teacher_id IN (SELECT id FROM users WHERE role = 'teacher')").run();
@@ -4185,6 +4457,8 @@ export function deleteAllTeachers(requesterRole?: string) {
       console.warn(`[deleteAllTeachers] cloudDeleteUser warning for ${t.id}:`, err?.message || err);
     }
   }
+
+  markDirty();
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -5873,6 +6147,8 @@ export function deleteDirector(directorId: string, requesterRole?: string) {
     now
   );
 
+  markDirty();
+
   return { success: true, message: `تم حذف حساب المدير (${user.fullName}) بنجاح` };
 }
 
@@ -5917,6 +6193,7 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
     JOIN sections sec ON ah.section_id = sec.id
     LEFT JOIN seats s ON ah.section_id = s.section_id AND ah.seat_num = s.seat_num
     WHERE ah.recorded_date IN (${datePlaceholders})
+      AND ah.status IN ('absent', 'late')
   `;
   const absenceParams: any[] = [...dateList];
 
@@ -6251,6 +6528,106 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
       recordedTime: violation.recorded_time || '',
       createdAt: violation.created_at
     }))
+  };
+}
+
+/**
+ * Early Warning: Find students with repeated unexcused/total absences across the school.
+ */
+export function getRepeatedAbsenceStudents(threshold: number = 3) {
+  const rows = db.prepare(`
+    SELECT 
+      ah.section_id,
+      ah.student_name,
+      ah.student_number,
+      sec.level as section_level,
+      sec.class_number as section_class,
+      COUNT(CASE WHEN ah.status = 'absent' THEN 1 END) as absences_count,
+      COUNT(CASE WHEN ah.status = 'late' THEN 1 END) as lates_count,
+      COUNT(CASE WHEN ah.status = 'absent' AND (ah.justified = 'unjustified' OR ah.justified IS NULL OR ah.justified = '') THEN 1 END) as unjustified_count,
+      COUNT(CASE WHEN ah.status = 'absent' AND ah.justified IS NOT NULL AND ah.justified != 'unjustified' AND ah.justified != '' THEN 1 END) as justified_count,
+      SUM(COALESCE(ah.duration_hours, 1)) as total_hours,
+      MAX(ah.recorded_date) as last_absence_date
+    FROM attendance_history ah
+    JOIN sections sec ON ah.section_id = sec.id
+    WHERE ah.status IN ('absent', 'late') AND ah.student_name IS NOT NULL AND TRIM(ah.student_name) != ''
+    GROUP BY ah.section_id, TRIM(ah.student_name)
+    HAVING absences_count >= ?
+    ORDER BY absences_count DESC, unjustified_count DESC
+    LIMIT 100
+  `).all(threshold) as any[];
+
+  return rows.map((r) => ({
+    sectionId: r.section_id,
+    studentName: r.student_name,
+    studentNumber: r.student_number || '',
+    sectionName: `${r.section_level} - القسم ${r.section_class}`,
+    absencesCount: Number(r.absences_count || 0),
+    latesCount: Number(r.lates_count || 0),
+    unjustifiedCount: Number(r.unjustified_count || 0),
+    justifiedCount: Number(r.justified_count || 0),
+    totalHours: Number(r.total_hours || 0),
+    lastAbsenceDate: r.last_absence_date || '',
+    riskLevel: (r.absences_count >= 5 ? 'critical' : 'warning') as 'critical' | 'warning'
+  }));
+}
+
+/**
+ * Monthly Attendance Summary by Section
+ */
+export function getAttendanceMonthlySummary(yearMonth?: string) {
+  const currentMonth = yearMonth && yearMonth.trim() ? yearMonth.trim() : new Date().toISOString().slice(0, 7);
+
+  const sectionsRows = db.prepare(`
+    SELECT id, level, class_number, roster_json
+    FROM sections
+    ORDER BY level ASC, class_number ASC
+  `).all() as any[];
+
+  const attendanceData = db.prepare(`
+    SELECT 
+      section_id,
+      status,
+      justified,
+      duration_hours
+    FROM attendance_history
+    WHERE recorded_date LIKE ? AND status IN ('absent', 'late')
+  `).all(`${currentMonth}%`) as any[];
+
+  const summary = sectionsRows.map((sec) => {
+    let studentCount = 0;
+    try {
+      const roster = JSON.parse(sec.roster_json || '[]');
+      studentCount = Array.isArray(roster) ? roster.length : 0;
+    } catch {
+      studentCount = 0;
+    }
+    if (studentCount === 0) {
+      studentCount = (db.prepare('SELECT COUNT(*) as c FROM seats WHERE section_id = ? AND student_name != ""').get(sec.id) as any)?.c || 0;
+    }
+
+    const secAtt = attendanceData.filter((a: any) => a.section_id === sec.id);
+    const absences = secAtt.filter((a: any) => a.status === 'absent');
+    const lates = secAtt.filter((a: any) => a.status === 'late');
+    const justified = absences.filter((a: any) => a.justified && a.justified !== 'unjustified');
+    const unjustified = absences.filter((a: any) => !a.justified || a.justified === 'unjustified');
+    const totalHours = absences.reduce((sum: number, a: any) => sum + (Number(a.duration_hours) || 1), 0);
+
+    return {
+      sectionId: sec.id,
+      sectionName: `${sec.level} - القسم ${sec.class_number}`,
+      enrolledStudents: studentCount,
+      absencesCount: absences.length,
+      latesCount: lates.length,
+      justifiedCount: justified.length,
+      unjustifiedCount: unjustified.length,
+      totalHours
+    };
+  });
+
+  return {
+    month: currentMonth,
+    summary
   };
 }
 
@@ -7352,6 +7729,14 @@ export function wipeAllDataExceptAdmin() {
     );
 
     db.exec('COMMIT;');
+
+    try {
+      cloudPurgeAllData('usr_admin_samir');
+      purgeAllSnapshots();
+    } catch (e: any) {
+      console.warn('[wipeAllDataExceptAdmin] cloud purge error:', e);
+    }
+
     return {
       success: true,
       message: 'تم مسح كافة البيانات بنجاح، وتم الاحتفاظ فقط بحساب المشرف العام (Admin).'
