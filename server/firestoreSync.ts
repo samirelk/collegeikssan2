@@ -226,9 +226,7 @@ async function syncSectionsFromFirestore(db: any) {
     `);
 
     const checkSeatsCountStmt = db.prepare('SELECT COUNT(*) as c FROM seats WHERE section_id = ?');
-    const secTombstoneStmt = db.prepare("SELECT 1 FROM deleted_tombstones WHERE type = 'section' AND item_id = ?");
-    const isResetOrEmpty = Boolean(db.prepare("SELECT 1 FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections') AND value = 'true'").get());
-    const localSecCount = (db.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
+    const secTombstoneStmt = db.prepare("SELECT created_at FROM deleted_tombstones WHERE type = 'section' AND item_id = ?");
 
     const insertInitialSeat = db.prepare(`
       INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
@@ -238,23 +236,16 @@ async function syncSectionsFromFirestore(db: any) {
     for (const s of sections) {
       if (!s.id) continue;
 
-      // 1. If user intentionally wiped data or deleted all sections, purge orphan cloud sections
-      if (isResetOrEmpty && localSecCount === 0) {
-        deleteDoc('sections', s.id).catch(() => {});
-        for (let i = 1; i <= 100; i++) {
-          deleteDoc('seats', `${s.id}_seat_${i}`).catch(() => {});
-        }
-        continue;
-      }
-
-      // 2. Check if section was deleted locally (tombstone)
+      // Check if section was explicitly deleted locally AFTER it was updated
       try {
-        if (secTombstoneStmt.get(s.id)) {
-          deleteDoc('sections', s.id).catch(() => {});
-          for (let i = 1; i <= 100; i++) {
-            deleteDoc('seats', `${s.id}_seat_${i}`).catch(() => {});
+        const tomb = secTombstoneStmt.get(s.id) as { created_at?: string } | undefined;
+        if (tomb && tomb.created_at) {
+          const sUpdated = new Date(s.updatedAt || s.createdAt || 0).getTime();
+          const tTime = new Date(tomb.created_at).getTime();
+          if (tTime > sUpdated) {
+            deleteDoc('sections', s.id).catch(() => {});
+            continue;
           }
-          continue;
         }
       } catch {}
 
@@ -307,11 +298,51 @@ async function syncSectionsFromFirestore(db: any) {
       `);
       const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
+      // Auto-reconstruct section if seats exist in Firestore but section row was missing
+      const sectionNameLookup: Record<string, { level: string; classNumber: string }> = {
+        'sec_mus4ead6_0_wmch': { level: 'الأولى إعدادي', classNumber: '1' },
+        'sec_mus4ead7_1_39ea': { level: 'الأولى إعدادي', classNumber: '2' },
+        'sec_mus4ead7_2_wk0x': { level: 'الأولى إعدادي', classNumber: '3' },
+        'sec_mus4ead8_3_1p2v': { level: 'الأولى إعدادي', classNumber: '4' },
+        'sec_mus4ead8_4_0ady': { level: 'الثانية إعدادي', classNumber: '1' },
+        'sec_mus4eada_5_gdvw': { level: 'الثانية إعدادي', classNumber: '2' },
+        'sec_mus4eadb_6_b5sw': { level: 'الثانية إعدادي', classNumber: '3' },
+        'sec_mus4eadb_7_ytnu': { level: 'الثالثة إعدادي', classNumber: '1' },
+        'sec_mus4eadc_8_e4sy': { level: 'الثالثة إعدادي', classNumber: '2' },
+        'sec_mus4eadh_9_wgvd': { level: 'الثالثة إعدادي', classNumber: '3' },
+        'sec_mutvo2jo_0_nzo6': { level: 'الأولى إعدادي', classNumber: '1' },
+        'sec_mutvo2jo_1_oez2': { level: 'الأولى إعدادي', classNumber: '2' },
+        'sec_mutvo2jp_2_u1l3': { level: 'الأولى إعدادي', classNumber: '3' },
+        'sec_mutvo2jp_3_2fdi': { level: 'الأولى إعدادي', classNumber: '4' },
+        'sec_mutvo2jq_4_t3cl': { level: 'الثانية إعدادي', classNumber: '1' },
+        'sec_mutvo2jq_5_lu20': { level: 'الثانية إعدادي', classNumber: '2' },
+        'sec_mutvo2jq_6_9a9q': { level: 'الثانية إعدادي', classNumber: '3' },
+        'sec_mutvo2jq_7_561k': { level: 'الثالثة إعدادي', classNumber: '1' },
+        'sec_mutvo2jr_8_l0cr': { level: 'الثالثة إعدادي', classNumber: '2' },
+        'sec_mutvo2jr_9_s8cm': { level: 'الثالثة إعدادي', classNumber: '3' }
+      };
+
       for (const st of seats) {
         if (!st.sectionId || st.seatNum === undefined) continue;
         try {
-          const sectionExists = checkSectionStmt.get(st.sectionId);
-          if (!sectionExists) continue;
+          let sectionExists = checkSectionStmt.get(st.sectionId);
+          if (!sectionExists) {
+            const meta = sectionNameLookup[st.sectionId] || { level: 'المستوى العام', classNumber: '1' };
+            insertSec.run(
+              st.sectionId,
+              meta.level,
+              meta.classNumber,
+              '',
+              null,
+              Date.now(),
+              new Date().toISOString(),
+              '[]'
+            );
+            // Ensure 100 seats initialized
+            for (let i = 1; i <= 100; i++) {
+              insertInitialSeat.run(st.sectionId, i, '', '', '', null, new Date().toISOString());
+            }
+          }
 
           insertSeat.run(
             st.sectionId,
@@ -579,14 +610,66 @@ async function syncAssignmentsFromFirestore(db: any) {
     const checkUserStmt = db.prepare('SELECT 1 FROM users WHERE id = ?');
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
+    const insertSecStmt = db.prepare(`
+      INSERT INTO sections (id, level, class_number, teacher, assigned_teacher_id, created_at, updated_at, roster_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET updated_at = excluded.updated_at
+    `);
+    const insertInitialSeatStmt = db.prepare(`
+      INSERT OR IGNORE INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
+      VALUES (?, ?, '', '', '', NULL, 'default', NULL, ?)
+    `);
+
+    const sectionNameLookup: Record<string, { level: string; classNumber: string }> = {
+      'sec_mus4ead6_0_wmch': { level: 'الأولى إعدادي', classNumber: '1' },
+      'sec_mus4ead7_1_39ea': { level: 'الأولى إعدادي', classNumber: '2' },
+      'sec_mus4ead7_2_wk0x': { level: 'الأولى إعدادي', classNumber: '3' },
+      'sec_mus4ead8_3_1p2v': { level: 'الأولى إعدادي', classNumber: '4' },
+      'sec_mus4ead8_4_0ady': { level: 'الثانية إعدادي', classNumber: '1' },
+      'sec_mus4eada_5_gdvw': { level: 'الثانية إعدادي', classNumber: '2' },
+      'sec_mus4eadb_6_b5sw': { level: 'الثانية إعدادي', classNumber: '3' },
+      'sec_mus4eadb_7_ytnu': { level: 'الثالثة إعدادي', classNumber: '1' },
+      'sec_mus4eadc_8_e4sy': { level: 'الثالثة إعدادي', classNumber: '2' },
+      'sec_mus4eadh_9_wgvd': { level: 'الثالثة إعدادي', classNumber: '3' },
+      'sec_mutvo2jo_0_nzo6': { level: 'الأولى إعدادي', classNumber: '1' },
+      'sec_mutvo2jo_1_oez2': { level: 'الأولى إعدادي', classNumber: '2' },
+      'sec_mutvo2jp_2_u1l3': { level: 'الأولى إعدادي', classNumber: '3' },
+      'sec_mutvo2jp_3_2fdi': { level: 'الأولى إعدادي', classNumber: '4' },
+      'sec_mutvo2jq_4_t3cl': { level: 'الثانية إعدادي', classNumber: '1' },
+      'sec_mutvo2jq_5_lu20': { level: 'الثانية إعدادي', classNumber: '2' },
+      'sec_mutvo2jq_6_9a9q': { level: 'الثانية إعدادي', classNumber: '3' },
+      'sec_mutvo2jq_7_561k': { level: 'الثالثة إعدادي', classNumber: '1' },
+      'sec_mutvo2jr_8_l0cr': { level: 'الثالثة إعدادي', classNumber: '2' },
+      'sec_mutvo2jr_9_s8cm': { level: 'الثالثة إعدادي', classNumber: '3' }
+    };
+
     for (const a of list) {
       if (!a.id || !a.teacherId || !a.sectionId) continue;
       try {
         const userExists = checkUserStmt.get(a.teacherId);
-        const sectionExists = checkSectionStmt.get(a.sectionId);
-        if (!userExists || !sectionExists) {
-          console.warn(`[FirestoreSync] Skipping assignment ${a.id}: user or section missing.`);
+        let sectionExists = checkSectionStmt.get(a.sectionId);
+        if (!userExists) {
+          console.warn(`[FirestoreSync] Skipping assignment ${a.id}: user missing.`);
           continue;
+        }
+
+        if (!sectionExists) {
+          const meta = sectionNameLookup[a.sectionId] || { level: 'المستوى العام', classNumber: '1' };
+          const nowStr = new Date().toISOString();
+          insertSecStmt.run(
+            a.sectionId,
+            meta.level,
+            meta.classNumber,
+            '',
+            a.teacherId,
+            Date.now(),
+            nowStr,
+            '[]'
+          );
+          for (let i = 1; i <= 100; i++) {
+            insertInitialSeatStmt.run(a.sectionId, i, nowStr);
+          }
+          sectionExists = true;
         }
 
         insertStmt.run(

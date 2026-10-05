@@ -234,26 +234,6 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
   restoredOnBoot = true;
 
   try {
-    // Check if user has explicitly reset data or deleted all sections
-    const isReset = Boolean(dbRef.prepare("SELECT 1 FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections') AND value = 'true'").get());
-    if (isReset) {
-      console.log('ℹ️  [CloudBackup] Data reset or intentional wipe marker detected; skipping snapshot auto-restore.');
-      return;
-    }
-
-    let localSections = 0;
-    try {
-      localSections = (dbRef.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
-    } catch {
-      localSections = 0;
-    }
-
-    // If local database has ANY sections (even empty sections), respect the local state!
-    if (localSections > 0) {
-      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s); skipping snapshot auto-restore to respect current state.`);
-      return;
-    }
-
     const all = await listSnapshots();
     if (all.length === 0) {
       console.log('☁️  [CloudBackup] No cloud snapshot found yet. Local data will seed the first one.');
@@ -262,8 +242,29 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
 
     // Always use the most recent daily snapshot
     const targetSnapshot = all[0];
-    if (targetSnapshot.sectionsCount === 0) {
+    if ((targetSnapshot.sectionsCount || 0) === 0) {
       console.log('☁️  [CloudBackup] Latest snapshot has 0 sections; skipping restore.');
+      return;
+    }
+
+    let localSections = 0;
+    let isDummySeedOnly = false;
+    try {
+      localSections = (dbRef.prepare('SELECT COUNT(*) as c FROM sections').get() as any)?.c || 0;
+      if (localSections === 1) {
+        // Check if this single section is just the initial auto-seeded dummy section
+        const dummySec = dbRef.prepare('SELECT student_name FROM seats WHERE seat_num = 1 LIMIT 1').get() as any;
+        if (dummySec && dummySec.student_name === 'أحمد محمد الزهراني') {
+          isDummySeedOnly = true;
+        }
+      }
+    } catch {
+      localSections = 0;
+    }
+
+    // If local database already has multiple real sections, respect it
+    if (localSections > 1 || (localSections === 1 && !isDummySeedOnly)) {
+      console.log(`✅ [CloudBackup] Local database already initialized with ${localSections} section(s); skipping snapshot auto-restore to respect current state.`);
       return;
     }
 
@@ -271,6 +272,10 @@ export async function restoreLatestSnapshotOnBoot(): Promise<void> {
     const res = await restoreSnapshot(targetSnapshot.id);
     if (res?.success) {
       console.log(`✅ [CloudBackup] Auto-restored ${res.count} section(s) from snapshot "${targetSnapshot.id}".`);
+      // Clear any stale reset markers
+      try {
+        dbRef.prepare("DELETE FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections')").run();
+      } catch {}
     }
   } catch (err: any) {
     console.error('[CloudBackup] restoreLatestSnapshotOnBoot failed:', err?.message || err);

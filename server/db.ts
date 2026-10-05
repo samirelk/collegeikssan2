@@ -1413,12 +1413,19 @@ export function createSection(data: { level: string; classNumber: string; teache
     now
   );
 
+  db.prepare("DELETE FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections')").run();
+  db.prepare("DELETE FROM deleted_tombstones WHERE type = 'section' AND item_id = ?").run(id);
+
   try {
     const createdSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(id) as any;
     if (createdSec) cloudSaveSection(createdSec);
+    cloudSaveSetting('data_reset_completed', 'false');
+    cloudSaveSetting('user_deleted_all_sections', 'false');
   } catch (syncErr: any) {
     console.warn('[createSection] Firestore sync warning:', syncErr?.message || syncErr);
   }
+
+  markDirty();
 
   return {
     id,
@@ -3662,6 +3669,13 @@ export function batchImportSections(
   let totalStudentsImported = 0;
   db.exec('BEGIN TRANSACTION;');
   try {
+    // Clear any reset or wipe flags so new sections persist properly
+    db.prepare("DELETE FROM app_settings WHERE key IN ('data_reset_completed', 'user_deleted_all_sections')").run();
+    try {
+      cloudSaveSetting('data_reset_completed', 'false');
+      cloudSaveSetting('user_deleted_all_sections', 'false');
+    } catch {}
+
     if (replaceExisting) {
       const existingSections = db.prepare('SELECT id FROM sections').all() as Array<{ id: string }>;
       const nowTomb = new Date().toISOString();
@@ -3669,7 +3683,6 @@ export function batchImportSections(
       for (const es of existingSections) {
         insertTomb.run(es.id, nowTomb);
       }
-      db.prepare("DELETE FROM app_settings WHERE key = 'user_deleted_all_sections'").run();
       db.prepare('DELETE FROM notes').run();
       db.prepare('DELETE FROM seats').run();
       db.prepare('DELETE FROM sections').run();
@@ -3681,8 +3694,8 @@ export function batchImportSections(
     }
 
     const insertSec = db.prepare(`
-      INSERT INTO sections (id, level, class_number, teacher, created_at, updated_at, roster_json)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sections (id, level, class_number, teacher, assigned_teacher_id, created_at, updated_at, roster_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertSeat = db.prepare(`
@@ -3696,6 +3709,9 @@ export function batchImportSections(
       const secInput = sectionsData[idx];
       const sectionId = 'sec_' + Date.now().toString(36) + '_' + idx + '_' + Math.random().toString(36).slice(2, 6);
       const createdAt = Date.now() + idx;
+
+      // Clear any previous tombstone for this ID
+      db.prepare("DELETE FROM deleted_tombstones WHERE item_id = ?").run(sectionId);
 
       // 1. Sort students by sequence number starting from 1 (الترتيب الافتراضي للتلاميذ حسب الرقم ابتداءً من الرقم 1)
       const sortedStudents = [...(secInput.students || [])].sort((a, b) => {
@@ -3715,11 +3731,45 @@ export function batchImportSections(
         massarNumber: st.massarNumber ? String(st.massarNumber).trim() : ''
       }));
 
+      // Check if teacher name matches an existing user account in the system
+      let assignedTeacherId: string | null = null;
+      if (secInput.teacher && secInput.teacher.trim()) {
+        const teacherName = secInput.teacher.trim();
+        const matchedUser = db.prepare(`
+          SELECT id, full_name, subject, academic_year FROM users 
+          WHERE role = 'teacher' AND (LOWER(TRIM(full_name)) = LOWER(?) OR LOWER(TRIM(username)) = LOWER(?))
+          LIMIT 1
+        `).get(teacherName, teacherName) as any;
+        if (matchedUser) {
+          assignedTeacherId = matchedUser.id;
+          const asgnId = 'req_import_' + Date.now().toString(36) + '_' + idx;
+          db.prepare(`
+            INSERT OR REPLACE INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
+            VALUES (?, ?, ?, 'approved', 'إسناد تلقائي عبر استيراد الأقسام', ?, ?, 'admin', ?, ?)
+          `).run(asgnId, matchedUser.id, sectionId, now, now, matchedUser.academic_year || '2026/2027', matchedUser.subject || 'عام');
+          try {
+            cloudSaveAssignment({
+              id: asgnId,
+              teacherId: matchedUser.id,
+              sectionId,
+              status: 'approved',
+              requestNote: 'إسناد تلقائي عبر استيراد الأقسام',
+              requestedAt: now,
+              reviewedAt: now,
+              reviewedBy: 'admin',
+              academicYear: matchedUser.academic_year || '2026/2027',
+              subject: matchedUser.subject || 'عام'
+            });
+          } catch {}
+        }
+      }
+
       insertSec.run(
         sectionId,
         secInput.level.trim(),
         secInput.classNumber.trim(),
         secInput.teacher ? secInput.teacher.trim() : '',
+        assignedTeacherId,
         createdAt,
         now,
         JSON.stringify(roster)
@@ -4957,6 +5007,8 @@ export function reviewAssignmentRequest(requestId: string, decision: 'approved' 
     now
   );
 
+  markDirty();
+
   return { success: true, decision };
 }
 
@@ -5035,6 +5087,7 @@ export function assignSectionDirectly(teacherId: string, sectionId: string) {
   }
 
   // NOTE: Multi-teacher support: We do NOT reject other teachers assigned to this section!
+  markDirty();
   return { success: true };
 }
 
@@ -5110,6 +5163,8 @@ export function unassignSection(sectionId: string, teacherId?: string) {
       // Ignore
     }
   }
+
+  markDirty();
 
   return { success: true };
 }

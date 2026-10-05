@@ -163,11 +163,11 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 overflow-y-auto"
       onClick={onClose}
     >
       <div
-        className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto max-h-[95vh] flex flex-col"
+        className="bg-[#FBF8EF] border-0 sm:border border-[#E4DBC0] rounded-none sm:rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto min-h-[100dvh] sm:min-h-0 sm:max-h-[95vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
