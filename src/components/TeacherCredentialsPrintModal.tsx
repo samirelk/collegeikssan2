@@ -59,6 +59,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
   const [searchQuery, setSearchQuery] = useState('');
   const [subjectFilter, setSubjectFilter] = useState('all');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [singleTeacherForPrint, setSingleTeacherForPrint] = useState<TeacherCredentialItem | null>(null);
 
   const institutionName = settings.institution || 'الثانوية الإعدادية ايكسان';
   const academicYear = settings.year || '2026/2027';
@@ -133,30 +134,33 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
     });
   }, [teachers, searchQuery, subjectFilter]);
 
+  // If printing a single slip, isolate that teacher; otherwise print all filtered teachers
+  const displayedTeachers = useMemo(() => {
+    if (singleTeacherForPrint) {
+      return [singleTeacherForPrint];
+    }
+    return filteredTeachers;
+  }, [singleTeacherForPrint, filteredTeachers]);
+
   const handlePrint = () => {
-    printTeacherCredentialsReport({
-      institution: institutionName,
-      academicYear,
-      directorName: settings.teacher || currentUser.fullName || 'السيد مدير المؤسسة',
-      viewMode,
-      teachers: filteredTeachers.map(t => ({
-        ...t,
-        password: t.password && t.password.trim() ? t.password.trim() : '123456'
-      }))
-    });
+    setSingleTeacherForPrint(null);
+    setTimeout(() => {
+      window.print();
+    }, 60);
   };
 
   const handlePrintSingle = (t: TeacherCredentialItem) => {
-    printTeacherCredentialsReport({
-      institution: institutionName,
-      academicYear,
-      directorName: settings.teacher || currentUser.fullName || 'السيد مدير المؤسسة',
-      viewMode: 'cards',
-      teachers: [{
-        ...t,
-        password: t.password && t.password.trim() ? t.password.trim() : '123456'
-      }]
-    });
+    setSingleTeacherForPrint(t);
+    setTimeout(() => {
+      window.print();
+      const resetTimer = setTimeout(() => {
+        setSingleTeacherForPrint(null);
+      }, 1500);
+      window.addEventListener('afterprint', () => {
+        clearTimeout(resetTimer);
+        setSingleTeacherForPrint(null);
+      }, { once: true });
+    }, 80);
   };
 
   const handleCopyCredentials = (t: TeacherCredentialItem) => {
@@ -196,8 +200,18 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
       {/* Print-specific style overrides */}
       <style>{`
         @media print {
+          @page {
+            size: A4 portrait;
+            margin: 8mm;
+          }
+          html, body {
+            background: white !important;
+            color: black !important;
+            height: auto !important;
+            overflow: visible !important;
+          }
           body * {
-            visibility: hidden !important;
+            visibility: hidden;
           }
           #teacher-credentials-print-area,
           #teacher-credentials-print-area * {
@@ -209,9 +223,10 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
             top: 0 !important;
             width: 100% !important;
             margin: 0 !important;
-            padding: 10mm !important;
+            padding: 4mm !important;
             background: white !important;
             color: black !important;
+            overflow: visible !important;
           }
           .no-print {
             display: none !important;
@@ -406,14 +421,14 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                     : 'لائحة تسليم بيانات الولوج للحسابات الشخصية مع التوقيع بالاستلام'}
                 </h1>
                 <p className="text-xs text-[#7A6B58] mt-0.5">
-                  منظومة تدبير الفصول الدراسية وتتبع الغياب والمواظبة • العدد الإجمالي: {filteredTeachers.length} أستاذ(ة)
+                  منظومة تدبير الفصول الدراسية وتتبع الغياب والمواظبة • العدد: {displayedTeachers.length} أستاذ(ة)
                 </p>
               </div>
 
               {/* 1. CARDS / SLIPS MODE (✂️ 6 to 8 cards per page with scissors) */}
               {viewMode === 'cards' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 print-card-grid">
-                  {filteredTeachers.map((t, idx) => (
+                  {displayedTeachers.map((t, idx) => (
                     <div
                       key={t.id}
                       className="page-break-inside-avoid relative bg-white border-2 border-dashed border-[#8C7D6B] rounded-xl p-4 shadow-xs print:shadow-none print:border-black/60 print:rounded-none flex flex-col justify-between"
@@ -472,8 +487,11 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                               <Lock className="w-3 h-3 text-amber-700" />
                               <span>كلمة المرور الأولية:</span>
                             </span>
-                            <span className="font-mono font-bold text-amber-950 text-sm tracking-wider select-all">
+                            <span className="font-mono font-bold text-amber-950 text-sm tracking-wider select-all print:hidden">
                               {showPasswords ? ((t.password && t.password.trim()) || '123456') : '••••••••'}
+                            </span>
+                            <span className="font-mono font-bold text-amber-950 text-sm tracking-wider select-all hidden print:inline">
+                              {(t.password && t.password.trim()) || '123456'}
                             </span>
                           </div>
                         </div>
@@ -544,7 +562,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-[#D9CEB0]">
-                      {filteredTeachers.map((t, idx) => (
+                      {displayedTeachers.map((t, idx) => (
                         <tr key={t.id} className="hover:bg-[#FAF8F5] transition-colors page-break-inside-avoid">
                           <td className="p-2 text-center font-mono font-bold text-[#6C6356] border border-[#E5DFD4]">
                             {idx + 1}
@@ -562,7 +580,12 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                             {t.email}
                           </td>
                           <td className="p-2 text-center font-mono font-bold text-amber-950 bg-amber-50/50 border border-[#E5DFD4]">
-                            {showPasswords ? ((t.password && t.password.trim()) || '123456') : '••••••••'}
+                            <span className="print:hidden">
+                              {showPasswords ? ((t.password && t.password.trim()) || '123456') : '••••••••'}
+                            </span>
+                            <span className="hidden print:inline font-mono font-bold text-amber-950">
+                              {(t.password && t.password.trim()) || '123456'}
+                            </span>
                           </td>
                           <td className="p-2 text-center text-[10px] text-[#8C7D6B] border border-[#E5DFD4]">
                             ..... / ..... / 202..

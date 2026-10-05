@@ -2324,39 +2324,96 @@ export function printReportHtml(html: string): boolean {
 
       setTimeout(() => {
         try {
-          printIframe?.contentWindow?.focus();
-          printIframe?.contentWindow?.print();
+          if (printIframe?.contentWindow) {
+            printIframe.contentWindow.focus();
+            printIframe.contentWindow.print();
+          }
         } catch (e) {
           console.warn('Iframe print execution notice:', e);
+          fallbackDirectPrint(html);
         }
       }, 400);
 
       return true;
     }
   } catch (e) {
-    console.warn('Iframe print failed, falling back to popup window', e);
+    console.warn('Iframe print failed, falling back to direct print', e);
   }
 
-  // Method 2: Fallback to window.open
+  return fallbackDirectPrint(html);
+}
+
+function fallbackDirectPrint(html: string): boolean {
   try {
-    const printWindow = window.open('', '_blank');
-    if (printWindow) {
-      printWindow.document.open();
-      printWindow.document.write(html);
-      printWindow.document.close();
-      setTimeout(() => {
-        try {
-          printWindow.focus();
-          printWindow.print();
-        } catch (e) {}
-      }, 500);
-      return true;
+    let container = document.getElementById('direct-report-print-container');
+    if (container && container.parentNode) {
+      container.parentNode.removeChild(container);
     }
-  } catch (e) {
-    console.error('Failed to open print window', e);
-  }
+    container = document.createElement('div');
+    container.id = 'direct-report-print-container';
 
-  return false;
+    // Parse the html content
+    const parser = new DOMParser();
+    const parsedDoc = parser.parseFromString(html, 'text/html');
+    const styles = parsedDoc.querySelectorAll('style, link[rel="stylesheet"]');
+    const bodyContent = parsedDoc.body ? parsedDoc.body.innerHTML : html;
+
+    let styleHtml = `
+      <style id="direct-print-styles">
+        @media screen {
+          #direct-report-print-container {
+            display: none !important;
+          }
+        }
+        @media print {
+          body > *:not(#direct-report-print-container) {
+            display: none !important;
+            visibility: hidden !important;
+          }
+          #direct-report-print-container {
+            display: block !important;
+            visibility: visible !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 5mm !important;
+            background: white !important;
+            color: black !important;
+            direction: rtl !important;
+          }
+          #direct-report-print-container * {
+            visibility: visible !important;
+          }
+        }
+      </style>
+    `;
+
+    styles.forEach((s) => {
+      styleHtml += s.outerHTML;
+    });
+
+    container.innerHTML = styleHtml + bodyContent;
+    document.body.appendChild(container);
+
+    setTimeout(() => {
+      window.print();
+      const cleanup = () => {
+        if (container && container.parentNode) {
+          container.parentNode.removeChild(container);
+        }
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      setTimeout(cleanup, 12000);
+    }, 250);
+
+    return true;
+  } catch (err) {
+    console.error('Direct print fallback failed:', err);
+    return false;
+  }
 }
 
 export function escapeHtml(str: string): string {

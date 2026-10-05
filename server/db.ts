@@ -755,6 +755,38 @@ export function initDatabase() {
   }
   }
 
+  // Ensure section roster_json is synced from occupied seats if any section is missing roster data
+  try {
+    const allSecs = db.prepare('SELECT id, roster_json FROM sections').all() as any[];
+    for (const sec of allSecs) {
+      let rCount = 0;
+      try {
+        rCount = JSON.parse(sec.roster_json || '[]').length;
+      } catch {
+        rCount = 0;
+      }
+      const occupiedSeats = db.prepare(`
+        SELECT seat_num, student_name, student_number, massar_number, roster_id 
+        FROM seats 
+        WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
+        ORDER BY CAST(student_number AS INTEGER) ASC, seat_num ASC
+      `).all(sec.id) as any[];
+
+      if (occupiedSeats.length > 0 && rCount < occupiedSeats.length) {
+        const syncedRoster = occupiedSeats.map((s) => ({
+          id: s.roster_id || `r_${sec.id}_${s.seat_num}`,
+          name: s.student_name.trim(),
+          number: s.student_number || String(s.seat_num),
+          massarNumber: s.massar_number || undefined
+        }));
+        db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(syncedRoster), now, sec.id);
+      }
+    }
+  } catch (err) {
+    console.warn('Roster sync warning in initDatabase:', err);
+  }
+
   try {
     syncAssignedSectionsWithTimetableAndBackfill();
   } catch (syncErr) {
@@ -2624,11 +2656,57 @@ export function transferStudentToSection(
     }
 
     const studentName = srcSeat.student_name.trim();
-    const studentNumber = srcSeat.student_number || '';
+    const oldStudentNumber = srcSeat.student_number || '';
     const massarNumber = srcSeat.massar_number || '';
     const oldRosterId = srcSeat.roster_id;
 
-    // 1. Determine target seat number
+    // 1. Prepare target section roster & calculate new sequential student number at the end of the list
+    let tgtRoster: RosterItem[] = [];
+    try {
+      tgtRoster = JSON.parse(tgtSec.roster_json || '[]');
+    } catch {
+      tgtRoster = [];
+    }
+
+    const targetOccupiedSeats = db.prepare(`
+      SELECT seat_num, student_name, student_number, massar_number, roster_id FROM seats 
+      WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
+      ORDER BY CAST(student_number AS INTEGER) ASC, seat_num ASC
+    `).all(targetSectionId) as any[];
+
+    if (tgtRoster.length < targetOccupiedSeats.length) {
+      tgtRoster = targetOccupiedSeats.map((s) => ({
+        id: s.roster_id || `r_${targetSectionId}_${s.seat_num}`,
+        name: s.student_name.trim(),
+        number: s.student_number || String(s.seat_num),
+        massarNumber: s.massar_number || undefined
+      }));
+    }
+
+    // Determine the highest student number in the target section
+    let maxNumber = 0;
+    tgtRoster.forEach(r => {
+      const num = parseInt(String(r.number).trim(), 10);
+      if (!isNaN(num) && num > maxNumber) {
+        maxNumber = num;
+      }
+    });
+
+    targetOccupiedSeats.forEach(s => {
+      const num = parseInt(String(s.student_number).trim(), 10);
+      if (!isNaN(num) && num > maxNumber) {
+        maxNumber = num;
+      }
+    });
+
+    if (tgtRoster.length > maxNumber) {
+      maxNumber = tgtRoster.length;
+    }
+
+    // The transferred student takes a new number strictly at the end of the list
+    const finalStudentNumber = String(maxNumber + 1);
+
+    // 2. Determine target seat number
     let targetSeatNum = 0;
     if (customTargetSeatNum && customTargetSeatNum >= 1 && customTargetSeatNum <= 100) {
       const tgtSeatCheck = db.prepare('SELECT * FROM seats WHERE section_id = ? AND seat_num = ?').get(targetSectionId, customTargetSeatNum) as any;
@@ -2637,23 +2715,35 @@ export function transferStudentToSection(
       }
       targetSeatNum = customTargetSeatNum;
     } else {
-      // Find first empty seat between 1 and 100
-      const emptySeat = db.prepare(`
+      // Find empty seat: prefer placing at the end of currently occupied desks (maxOccupied + 1) or first free seat
+      const occupiedSeats = db.prepare(`
         SELECT seat_num FROM seats 
-        WHERE section_id = ? AND (student_name IS NULL OR TRIM(student_name) = '')
-        ORDER BY seat_num ASC 
-        LIMIT 1
-      `).get(targetSectionId) as any;
-      if (!emptySeat) {
+        WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
+        ORDER BY seat_num ASC
+      `).all(targetSectionId) as any[];
+      const occupiedSeatNums = new Set(occupiedSeats.map(s => s.seat_num));
+      const maxOccupiedSeat = occupiedSeats.length > 0 ? Math.max(...occupiedSeats.map(s => s.seat_num)) : 0;
+
+      if (maxOccupiedSeat > 0 && maxOccupiedSeat < 100 && !occupiedSeatNums.has(maxOccupiedSeat + 1)) {
+        targetSeatNum = maxOccupiedSeat + 1;
+      } else {
+        for (let s = 1; s <= 100; s++) {
+          if (!occupiedSeatNums.has(s)) {
+            targetSeatNum = s;
+            break;
+          }
+        }
+      }
+
+      if (!targetSeatNum) {
         throw new Error('القسم المستقبل مكتمل ولا توجد به مقاعد شاغرة (100 مقعد ممتلئ)');
       }
-      targetSeatNum = emptySeat.seat_num;
     }
 
-    // 2. Generate new roster ID for target section
+    // 3. Generate new roster ID for target section
     const newRosterId = `r_${targetSectionId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
 
-    // 3. Vacate student from source seat
+    // 4. Vacate student from source seat
     db.prepare(`
       UPDATE seats SET
         student_name = '',
@@ -2666,7 +2756,7 @@ export function transferStudentToSection(
       WHERE section_id = ? AND seat_num = ?
     `).run(now, sourceSectionId, sourceSeatNum);
 
-    // 4. Place student in target seat
+    // 5. Place student in target seat with the NEW student number at end of list
     db.prepare(`
       INSERT INTO seats (section_id, seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 'default', NULL, ?)
@@ -2678,15 +2768,30 @@ export function transferStudentToSection(
         status_color = excluded.status_color,
         attendance = excluded.attendance,
         updated_at = excluded.updated_at
-    `).run(targetSectionId, targetSeatNum, studentName, studentNumber, massarNumber, newRosterId, now);
+    `).run(targetSectionId, targetSeatNum, studentName, finalStudentNumber, massarNumber, newRosterId, now);
 
-    // 5. Update source section roster_json
+    // 6. Update source section roster_json
     let srcRoster: RosterItem[] = [];
     try {
       srcRoster = JSON.parse(srcSec.roster_json || '[]');
     } catch {
       srcRoster = [];
     }
+    const srcOccupiedSeats = db.prepare(`
+      SELECT seat_num, student_name, student_number, massar_number, roster_id FROM seats 
+      WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
+      ORDER BY CAST(student_number AS INTEGER) ASC, seat_num ASC
+    `).all(sourceSectionId) as any[];
+
+    if (srcRoster.length < srcOccupiedSeats.length) {
+      srcRoster = srcOccupiedSeats.map((s) => ({
+        id: s.roster_id || `r_${sourceSectionId}_${s.seat_num}`,
+        name: s.student_name.trim(),
+        number: s.student_number || String(s.seat_num),
+        massarNumber: s.massar_number || undefined
+      }));
+    }
+
     srcRoster = srcRoster.filter(r => {
       if (oldRosterId && r.id === oldRosterId) return false;
       if (r.name && r.name.trim() === studentName) return false;
@@ -2695,19 +2800,7 @@ export function transferStudentToSection(
     db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(srcRoster), now, sourceSectionId);
 
-    // 6. Update target section roster_json
-    let tgtRoster: RosterItem[] = [];
-    try {
-      tgtRoster = JSON.parse(tgtSec.roster_json || '[]');
-    } catch {
-      tgtRoster = [];
-    }
-    let finalStudentNumber = studentNumber;
-    if (!finalStudentNumber || tgtRoster.some(r => r.number === finalStudentNumber)) {
-      finalStudentNumber = String(tgtRoster.length + 1);
-      db.prepare('UPDATE seats SET student_number = ? WHERE section_id = ? AND seat_num = ?')
-        .run(finalStudentNumber, targetSectionId, targetSeatNum);
-    }
+    // 7. Update target section roster_json with new roster item at the end of the list
     tgtRoster.push({
       id: newRosterId,
       name: studentName,
@@ -2770,8 +2863,10 @@ export function transferStudentToSection(
 
     return {
       success: true,
-      message: `تم نقل التلميذ (${studentName}) بنجاح إلى قسم (${tgtTitle}) في المقعد #${targetSeatNum}`,
+      message: `تم نقل التلميذ (${studentName}) بنجاح إلى قسم [${tgtTitle}] وتعيين الرقم الجديد له (${finalStudentNumber}) في آخر اللائحة (مقعد #${targetSeatNum})`,
       studentName,
+      oldStudentNumber,
+      newStudentNumber: finalStudentNumber,
       sourceSectionName: srcTitle,
       targetSectionName: tgtTitle,
       targetSeatNum,
