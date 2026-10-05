@@ -282,12 +282,12 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           setDropTargetSeat(null);
         }}
       >
-        {/* Seat Number Badge */}
+        {/* Seat Number Badge (مكان الجلوس بالقاعة) */}
         <div
-          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-[#1F3E32] text-[#F2EFE3] border-2 border-[#C98A3C] flex items-center justify-center text-xs font-black shadow-xs z-10"
-          title={`المقعد رقم ${seat.seat}`}
+          className="absolute -top-2.5 -right-2.5 px-1.5 h-6 min-w-[26px] rounded-full bg-[#1F3E32] text-[#F2EFE3] border-2 border-[#C98A3C] flex items-center justify-center text-[10px] font-black shadow-xs z-10"
+          title={`المقعد رقم ${seat.seat} (مكان الجلوس بالقاعة - يمكن أن يتغير من قاعة أو أستاذ لآخر)`}
         >
-          {seat.seat}
+          <span className="text-[8px] text-amber-300 ml-0.5 font-bold">مقعد</span>{seat.seat}
         </div>
 
         {/* Top Mini Drag & Swap Bar */}
@@ -321,8 +321,8 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
         {/* Student Number field */}
         <div className="mb-2">
           <div className="flex items-center justify-between gap-2">
-            <label className="block text-[10px] font-bold text-[#5B5040] mb-0.5">
-              رقم
+            <label className="block text-[10px] font-bold text-[#5B5040] mb-0.5" title="الرقم الترتيبي للتلميذ في القسم (محدد أساسي لا يتغير)">
+              رقم التلميذ بالقسم
             </label>
             <button
               type="button"

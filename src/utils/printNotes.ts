@@ -38,15 +38,16 @@ export function buildOfficialMoroccanHeaderHtml(options: {
   return `
     <table class="header-table">
       <tr>
-        <td style="width: 40%; text-align: right;" class="official-head">
+        <td style="width: 38%; text-align: right;" class="official-head">
           المملكة المغربية<br>
           وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
           <b>${escapeHtml(inst)}</b>
         </td>
-        <td style="width: 20%; text-align: center;">
-          <div style="font-size: 26px; color: #854d0e;">${icon}</div>
+        <td style="width: 24%; text-align: center;">
+          <div style="font-size: 24px; color: #854d0e;">${icon}</div>
+          <div style="font-size: 11px; font-weight: bold; color: #1E3B2C; direction: ltr; font-family: monospace; margin-top: 3px;">www.lyceecom.com</div>
         </td>
-        <td style="width: 40%; text-align: left;" class="official-head">
+        <td style="width: 38%; text-align: left;" class="official-head">
           الموسم الدراسي: <b>${escapeHtml(year)}</b><br>
           ${escapeHtml(dLabel)}: <b>${escapeHtml(dStr)}</b><br>
           الساعة: <b>${escapeHtml(tStr)} (GMT)</b>
@@ -328,13 +329,13 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
         <tr>
           <td class="info-label">اسم التلميذ(ة):</td>
           <td class="info-val" style="font-size: 16px; color: #991b1b;">${escapeHtml(studentName || 'غير مسجل')}</td>
-          <td class="info-label">رقم المقعد:</td>
+          <td class="info-label">مكان الجلوس (المقعد):</td>
           <td class="info-val"><span class="badge">مقعد #${seatNum}</span></td>
         </tr>
         <tr>
           <td class="info-label">المستوى والقسم:</td>
           <td class="info-val">${escapeHtml(level || '')} (${escapeHtml(classNumber || '')})</td>
-          <td class="info-label">الرقم الترتيبي:</td>
+          <td class="info-label">رقم التلميذ في القسم:</td>
           <td class="info-val" style="font-family: monospace; font-size: 14px;">${escapeHtml(studentNumber || '—')}</td>
         </tr>
         <tr>
@@ -381,7 +382,7 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
     </table>
 
     <div class="footer-bar">
-      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</span>
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>التواريخ والأوقات مسجلة رسمياً بالأرقام الفرنسية</span>
     </div>
   </div>
@@ -552,7 +553,7 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
     </table>
 
     <div class="footer-bar">
-      <span>منظومة خرائط الأقسام وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</span>
+      <span>منظومة خرائط الأقسام وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -731,7 +732,7 @@ export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
     </table>
 
     <div class="footer-bar">
-      <span>منظومة خرائط الأقسام وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')}</span>
+      <span>منظومة خرائط الأقسام وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -840,7 +841,7 @@ export function printSingleViolationNotice(options: PrintSingleViolationOptions)
         <tr>
           <td class="label">رقم مسار:</td>
           <td class="val" style="font-family:monospace;">${escapeHtml(massarNumber || '—')}</td>
-          <td class="label">الرقم الترتيبي:</td>
+          <td class="label">رقم التلميذ في القسم:</td>
           <td class="val" style="font-family:monospace;">${escapeHtml(studentNumber || '—')}</td>
         </tr>
         <tr>
@@ -884,6 +885,11 @@ export function printSingleViolationNotice(options: PrintSingleViolationOptions)
         </td>
       </tr>
     </table>
+
+    <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10.5px; color: #777;">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>وثيقة إدارية رسمية للتتبع السلوكي والتربوي</span>
+    </div>
   </div>
   <script>
     window.onload = function() {
@@ -1055,9 +1061,9 @@ export function printStudentRosterReport(options: PrintStudentRosterOptions): bo
           <th style="width: 40px;">#</th>
           <th>الاسم الكامل للتلميذ(ة)</th>
           <th style="width: 115px;">رقم مسار</th>
-          <th style="width: 60px;">الرقم</th>
+          <th style="width: 80px;" title="الرقم الترتيبي للتلميذ في القسم">رقم التلميذ</th>
           <th style="width: 130px;">المستوى والقسم</th>
-          <th style="width: 70px;">المقعد</th>
+          <th style="width: 80px;" title="مكان الجلوس بالقاعة">رقم المقعد</th>
         </tr>
       </thead>
       <tbody>
@@ -1077,7 +1083,7 @@ export function printStudentRosterReport(options: PrintStudentRosterOptions): bo
     </table>
 
     <div class="footer-bar">
-      <span>منظومة خرائط الأقسام • ${escapeHtml(institution)}</span>
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -1172,8 +1178,8 @@ export function printClassroomSeatingPlan(options: PrintClassroomSeatingPlanOpti
         return `
           <div class="seat-box ${isFilled ? 'seat-filled' : 'seat-empty'}">
             <div class="seat-head">
-              <span class="seat-num">#${s.seat}</span>
-              ${s.number ? `<span class="student-num">رقم: ${escapeHtml(s.number)}</span>` : ''}
+              <span class="seat-num" title="رقم المقعد">مقعد #${s.seat}</span>
+              ${s.number ? `<span class="student-num" title="رقم التلميذ في القسم">تلميذ #${escapeHtml(s.number)}</span>` : ''}
             </div>
             <div class="student-name">${isFilled ? escapeHtml(s.name) : '<span class="empty-txt">— شاغر —</span>'}</div>
             ${s.massarNumber ? `<div class="massar-tag">${escapeHtml(s.massarNumber)}</div>` : ''}
@@ -1295,7 +1301,7 @@ export function printClassroomSeatingPlan(options: PrintClassroomSeatingPlanOpti
     </table>
 
     <div class="footer-bar">
-      <span>منظومة خرائط الأقسام • ${escapeHtml(institution)}</span>
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
       <span>مخطط هندسي رسمي لتنظيم وتوزيع المقاعد داخل الحجرة الدراسية</span>
     </div>
   </div>
@@ -1582,7 +1588,7 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
           <th style="width: 30px;">#</th>
           <th>اسم التلميذ(ة)</th>
           <th style="width: 110px;">القسم</th>
-          <th style="width: 50px;">المقعد</th>
+          <th style="width: 65px;">رقم المقعد</th>
           <th style="width: 65px;">الحالة</th>
           <th style="width: 85px;">الفترة</th>
           <th style="width: 110px;">الأستاذ(ة)</th>
@@ -1624,6 +1630,11 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
         <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
         <div style="height: 48px;"></div>
       </div>
+    </div>
+
+    <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #777;">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>وثيقة الأرشيف اليومي الرسمية للإدارة والتربية</span>
     </div>
   </div>
 </body>
@@ -1873,17 +1884,21 @@ export function printStudentPositiveParticipationsReport(options: PrintStudentPo
 
     <table class="student-badge-grid">
       <tr>
-        <td style="width: 35%;">
+        <td style="width: 30%;">
           <span class="badge-label">اسم التلميذ(ة) الكامل:</span>
-          <span class="badge-val" style="color: #92400e; font-size: 16px;">${escapeHtml(studentName)}</span>
+          <span class="badge-val" style="color: #92400e; font-size: 15px;">${escapeHtml(studentName)}</span>
         </td>
-        <td style="width: 25%;">
+        <td style="width: 20%;">
           <span class="badge-label">القسم والمستوى:</span>
           <span class="badge-val">${escapeHtml(level)} (${escapeHtml(classNumber)})</span>
         </td>
-        <td style="width: 20%;">
-          <span class="badge-label">رقم الترتيب / المقعد:</span>
-          <span class="badge-val">${studentNumber || (seatNum ? `#${seatNum}` : '—')}</span>
+        <td style="width: 15%;">
+          <span class="badge-label">رقم التلميذ:</span>
+          <span class="badge-val">${studentNumber || '—'}</span>
+        </td>
+        <td style="width: 15%;">
+          <span class="badge-label">مكان الجلوس:</span>
+          <span class="badge-val">${seatNum ? `مقعد #${seatNum}` : '—'}</span>
         </td>
         <td style="width: 20%;">
           <span class="badge-label">رقم مسار:</span>
@@ -1895,7 +1910,7 @@ export function printStudentPositiveParticipationsReport(options: PrintStudentPo
           <span class="badge-label">الأستاذ(ة) المؤطر(ة):</span>
           <span class="badge-val">${escapeHtml(teacherName || 'الإدارة التربوية وهيئة التدريس')}</span>
         </td>
-        <td colspan="2">
+        <td colspan="3">
           <span class="badge-label">المادة الدراسية:</span>
           <span class="badge-val">${escapeHtml(subject || 'جميع المواد / الحياة المدرسية')}</span>
         </td>
@@ -1958,6 +1973,11 @@ export function printStudentPositiveParticipationsReport(options: PrintStudentPo
         <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
         <div class="sig-space"></div>
       </div>
+    </div>
+
+    <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #777;">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>بطاقة تعزيز وتشجيع رسمية مستخرجة آلياً</span>
     </div>
   </div>
 </body>
@@ -2240,7 +2260,7 @@ export function printSectionPositiveParticipationsReport(options: PrintSectionPo
         <tr>
           <th>الرتبة</th>
           <th>الاسم الكامل للتلميذ(ة)</th>
-          <th>الرقم</th>
+          <th title="الرقم الترتيبي للتلميذ في القسم">رقم التلميذ</th>
           <th>رقم مسار</th>
           <th>رصيد النقاط</th>
           <th>المشاركات</th>
@@ -2289,6 +2309,11 @@ export function printSectionPositiveParticipationsReport(options: PrintSectionPo
         <strong>توقيع وخاتم السيد رئيس المؤسسة</strong>
         <div class="sig-space"></div>
       </div>
+    </div>
+
+    <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #777;">
+      <span>منظومة خرائط الأقسام • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>لوحة التميز والمشاركات الإيجابية الرسمية</span>
     </div>
   </div>
 </body>
@@ -2508,7 +2533,7 @@ export function printStudentAttendanceCard(options: PrintStudentAttendanceCardOp
         <div class="student-grid">
           <div>اسم التلميذ: <b>${escapeHtml(options.studentName)}</b></div>
           <div>القسم: <b>${escapeHtml(options.sectionName)}</b></div>
-          <div>الرقم الترتيبي: <b>${escapeHtml(options.studentNumber || '—')}</b></div>
+          <div>رقم التلميذ في القسم: <b>${escapeHtml(options.studentNumber || '—')}</b></div>
           <div>رقم مسار: <b>${escapeHtml(options.massarNumber || '—')}</b></div>
         </div>
       </div>
@@ -2549,6 +2574,11 @@ export function printStudentAttendanceCard(options: PrintStudentAttendanceCardOp
         <div class="sig-box">توقيع ولي الأمر بالعلم:<br><br>......................................</div>
         <div class="sig-box">توقيع الحارس(ة) العام(ة):<br><br>......................................</div>
         <div class="sig-box">توقيع وخاتم رئيس المؤسسة:<br><br>......................................</div>
+      </div>
+
+      <div style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; font-size: 10px; color: #64748b;">
+        <span>منظومة خرائط الأقسام • ${escapeHtml(options.institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+        <span>كشف المواظبة والغياب الفردي الرسمي</span>
       </div>
     </body>
     </html>

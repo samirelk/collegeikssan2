@@ -3096,9 +3096,12 @@ export default function App() {
               <b>الأستاذ:</b> {activeSection.teacher || settings.teacher || '—'}
             </div>
             <div>
-              <b>رقم المقعد:</b> {activeSeatModal.seatNum}
+              <b>رقم المقعد (مكان الجلوس):</b> مقعد #{activeSeatModal.seatNum}
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
+            <div>
+              <b>رقم التلميذ في القسم:</b> {activeSection.seats.find((s) => s.seat === activeSeatModal.seatNum)?.number || '—'}
+            </div>
+            <div>
               <b>اسم التلميذ:</b> {activeSeatModal.name || '—'}
             </div>
           </div>
@@ -3126,7 +3129,7 @@ export default function App() {
           </table>
 
           <div className="print-footer">
-            تم استخراج هذه الوثيقة من نظام خرائط الأقسام بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
+            منظومة تدبير الفصول والأقسام • الموقع: www.lyceecom.com | طُبعت بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (GMT)
           </div>
         </div>
       )}

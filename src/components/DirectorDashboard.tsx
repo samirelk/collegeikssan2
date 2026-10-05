@@ -27,7 +27,8 @@ import {
   Plus,
   Building2,
   MoreHorizontal,
-  ArrowLeftRight
+  ArrowLeftRight,
+  ListOrdered
 } from 'lucide-react';
 import {
   SectionItem,
@@ -428,7 +429,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         if (!data.success) throw new Error(data.error || 'تعذر شطب التلميذ من القسم');
 
         setSuccessMessage(
-          `تم شطب التلميذ (${studentToRemove.studentName}) من القسم بسبب: ${removeReason === 'انقطاع' ? 'الانقطاع عن الدراسة' : 'الانتقال إلى مؤسسة أخرى'}`
+          data.message || `تم شطب التلميذ (${studentToRemove.studentName}) من القسم بسبب: ${removeReason === 'انقطاع' ? 'الانقطاع عن الدراسة' : 'الانتقال إلى مؤسسة أخرى'}`
         );
       }
 
@@ -440,6 +441,22 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       setErrorMessage(err.message || 'حدث خطأ أثناء تنفيذ الإجراء');
     } finally {
       setIsRemovingStudent(false);
+    }
+  };
+
+  // Renumber section students sequentially to eliminate any empty/skipped numbers
+  const handleRenumberSection = async (sectionId: string) => {
+    try {
+      const res = await fetch(`/api/sections/${sectionId}/renumber`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'تعذر إعادة ترتيب أرقام التلاميذ');
+      setSuccessMessage(`تمت إعادة ترتيب أرقام تلاميذ القسم تسلسلياً بنجاح (من 1 إلى ${data.totalStudents}) وسد كافة الأرقام الفارغة!`);
+      await Promise.all([onRefreshSections(), fetchDirectorData()]);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'حدث خطأ أثناء إعادة ترتيب الأرقام');
     }
   };
 
@@ -1669,8 +1686,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               <table className="w-full text-right text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#EFE9D5] text-[#2A2118] border-b border-[#D9CEB0]">
-                    <th className="p-3 font-bold w-16 text-center">الرقم</th>
+                    <th className="p-3 font-bold w-20 text-center" title="رقم التلميذ في القسم (محدد أساسي لا يتغير)">رقم التلميذ</th>
                     <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
+                    <th className="p-3 font-bold text-center w-20" title="المقعد مجرد مكان جلوس يمكن أن يتغير من قاعة لأخرى">المقعد</th>
                     <th className="p-3 font-bold">رقم مسار / البطاقة</th>
                     <th className="p-3 font-bold">القسم والمستوى</th>
                     <th className="p-3 font-bold">الأستاذ المسؤول والمادة</th>
@@ -1683,18 +1701,17 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                   {filteredStudents.map((st, i) => (
                     <tr key={`${st.sectionId}-${st.seatNum}`} className="hover:bg-[#F4EFDE] transition-colors">
                       <td className="p-3 font-mono font-bold text-center text-[#2A2118]">
-                        {st.studentNumber ? (
-                          <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0]">
-                            {st.studentNumber}
-                          </span>
-                        ) : (
-                          <span className="text-[#7A6B58]">
-                            #{st.seatNum}
-                          </span>
-                        )}
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold" title="رقم التلميذ في لائحة القسم">
+                          {st.studentNumber || '—'}
+                        </span>
                       </td>
                       <td className="p-3 font-bold text-sm text-[#2A2118]">
                         {st.studentName}
+                      </td>
+                      <td className="p-3 font-mono text-center text-[#5B5040]">
+                        <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-medium" title="مكان الجلوس بالقاعة">
+                          مقعد #{st.seatNum}
+                        </span>
                       </td>
                       <td className="p-3 font-mono text-xs">
                         {st.massarNumber ? (
@@ -1931,6 +1948,15 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
+                onClick={() => handleRenumberSection(activeInspectSection.id)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-300 shadow-2xs transition-colors cursor-pointer"
+                title="إعادة ترتيب أرقام التلاميذ تسلسلياً (من 1 إلى N) لمنع وسد أي أرقام فارغة"
+              >
+                <ListOrdered className="w-3.5 h-3.5 text-amber-700" />
+                <span>ترتيب الأرقام ومنع الفراغات</span>
+              </button>
+              <button
+                type="button"
                 onClick={() => handleOpenAddStudent(activeInspectSection)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
               >
@@ -1960,8 +1986,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             <table className="w-full text-right text-xs border-collapse">
               <thead>
                 <tr className="bg-[#EFE9D5] text-[#2A2118] border-b border-[#D9CEB0]">
-                  <th className="p-3 font-bold w-16 text-center">الرقم</th>
+                  <th className="p-3 font-bold w-20 text-center" title="رقم التلميذ في القسم (محدد أساسي لا يتغير بتغير القاعة)">رقم التلميذ</th>
                   <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
+                  <th className="p-3 font-bold text-center w-24" title="المقعد مجرد مكان جلوس يمكن أن يتغير من قاعة أو أستاذ لآخر">مكان الجلوس</th>
                   <th className="p-3 font-bold">رقم مسار / البطاقة</th>
                   <th className="p-3 font-bold text-center">حالة الحضور</th>
                   <th className="p-3 font-bold text-center">عدد الملاحظات</th>
@@ -1975,12 +2002,17 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                   .map((st) => (
                     <tr key={st.seat} className="hover:bg-[#F4EFDE] transition-colors">
                       <td className="p-3 font-mono font-bold text-center text-[#2A2118]">
-                        <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0]">
-                          {st.number || st.seat}
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold" title="رقم التلميذ في لائحة القسم">
+                          {st.number || '—'}
                         </span>
                       </td>
                       <td className="p-3 font-bold text-sm text-[#2A2118]">
                         {st.name}
+                      </td>
+                      <td className="p-3 font-mono text-center text-[#5B5040]">
+                        <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-medium" title="مكان الجلوس الحالي بالقاعة">
+                          مقعد #{st.seat}
+                        </span>
                       </td>
                       <td className="p-3 font-mono text-xs text-[#5B5040]">
                         {st.massarNumber ? (

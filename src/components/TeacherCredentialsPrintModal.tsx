@@ -165,7 +165,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
 
   const handleCopyCredentials = (t: TeacherCredentialItem) => {
     const pwd = t.password && t.password.trim() ? t.password.trim() : '123456';
-    const text = `اسم الأستاذ: ${t.fullName}\nالمادة: ${t.subject || 'غير محدد'}\nاسم المستخدم: ${t.username}\nكلمة المرور: ${pwd}\nرابط المنصة: ${window.location.origin}`;
+    const text = `اسم الأستاذ: ${t.fullName}\nالمادة: ${t.subject || 'غير محدد'}\nاسم المستخدم: ${t.username}\nكلمة المرور: ${pwd}\nرابط المنصة: www.lyceecom.com`;
     navigator.clipboard.writeText(text);
     setCopiedId(t.id);
     setTimeout(() => setCopiedId(null), 2500);
@@ -500,6 +500,11 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                         <p className="text-[9px] text-[#7A6B58] leading-tight mb-2">
                           ⚠️ <strong>توجيه أمني:</strong> هذا الوصل شخصي وسري. يرجى تسجيل الدخول وتغيير كلمة المرور فوراً من خانة الملف الشخصي لضمان حماية حسابكم.
                         </p>
+
+                        <div className="flex items-center justify-between text-[9px] bg-white border border-[#D9CEB0] rounded px-2 py-0.5 mb-2">
+                          <span className="font-bold text-[#1E3B2C]">رابط المنصة والموقع:</span>
+                          <span className="font-mono font-bold text-[#1E3B2C] dir-ltr text-[10px]">www.lyceecom.com</span>
+                        </div>
                       </div>
 
                       {/* Teacher Receipt Signature Box */}
@@ -604,6 +609,9 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                       <p className="font-bold text-[#1E3B2C]">ملاحظة إدارية:</p>
                       <p className="text-[#6C6356] text-[11px] max-w-md">
                         تُحفظ هذه اللائحة الموقعة لدى السيد مدير المؤسسة كأرشيف رسمي يثبت تسليم حسابات الولوج لكافة أطر هيئة التدريس بالمؤسسة.
+                      </p>
+                      <p className="text-[#1E3B2C] text-[10px] font-mono font-bold mt-1 dir-ltr text-right">
+                        بوابة المنظومة: www.lyceecom.com
                       </p>
                     </div>
 

@@ -33,13 +33,13 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
           <b>الاسم الكامل:</b> {seat.name || '—'}
         </div>
         <div>
-          <b>رقم المقعد:</b> {seat.seat}
+          <b>رقم المقعد (مكان الجلوس):</b> مقعد #{seat.seat}
         </div>
         <div>
           <b>القسم والمستوى:</b> {sectionTitle}
         </div>
         <div>
-          <b>الرقم التسلسلي:</b> {seat.number || '—'}
+          <b>رقم التلميذ في القسم:</b> {seat.number || '—'}
         </div>
         <div>
           <b>الأستاذ(ة):</b> {section.teacher || settings.teacher || '—'}
@@ -74,7 +74,7 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
       </table>
 
       <div className="print-footer">
-        خرائط الأقسام — نظام إدارة الفصول وقاعدة البيانات المدمجة
+        منظومة تدبير الفصول والأقسام • الموقع الرسمي: www.lyceecom.com
       </div>
     </div>
   );

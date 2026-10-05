@@ -24,6 +24,7 @@ import {
   swapSeats,
   shuffleSectionSeats,
   orderSectionSeatsByNumber,
+  renumberSectionStudents,
   batchImportSections,
   seedTenSections,
   findUserByUsernameOrEmail,
@@ -731,6 +732,17 @@ async function startServer() {
       const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || undefined;
       const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || undefined;
       const result = orderSectionSeatsByNumber(sectionId, actorId, actorRole);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 6c3. Renumber Section Students Sequentially (إعادة ترقيم التلاميذ تسلسلياً وسد أي أرقام فارغة)
+  app.post('/api/sections/:id/renumber', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const result = renumberSectionStudents(sectionId);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

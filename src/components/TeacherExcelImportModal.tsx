@@ -354,7 +354,7 @@ export const TeacherExcelImportModal: React.FC<TeacherExcelImportModalProps> = (
   };
 
   const copyTeacherCredentials = (row: any, index: number) => {
-    const text = `بيانات الدخول:\nالأستاذ(ة): ${row.fullName}\nالمادة: ${row.subject}\nاسم المستخدم: ${row.username}\nكلمة المرور: ${defaultPassword}\nالرابط: ${window.location.origin}`;
+    const text = `بيانات الدخول:\nالأستاذ(ة): ${row.fullName}\nالمادة: ${row.subject}\nاسم المستخدم: ${row.username}\nكلمة المرور: ${defaultPassword}\nرابط المنصة: www.lyceecom.com`;
     navigator.clipboard.writeText(text);
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2500);

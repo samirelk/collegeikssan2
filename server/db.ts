@@ -2543,6 +2543,168 @@ export function addStudentToSection(
   };
 }
 
+export function renumberSectionStudents(sectionId: string, runInsideTransaction: boolean = false) {
+  const now = new Date().toISOString();
+  const sec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+  if (!sec) {
+    throw new Error('القسم غير موجود');
+  }
+
+  if (!runInsideTransaction) {
+    db.exec('BEGIN TRANSACTION;');
+  }
+
+  try {
+    // 1. Get all occupied seats in this section
+    const occupiedSeats = db.prepare(`
+      SELECT seat_num, student_name, student_number, massar_number, roster_id, status_color, attendance
+      FROM seats
+      WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
+    `).all(sectionId) as any[];
+
+    // 2. Parse current roster
+    let roster: RosterItem[] = [];
+    try {
+      roster = JSON.parse(sec.roster_json || '[]');
+    } catch {
+      roster = [];
+    }
+
+    const occupiedSeatNames = new Set(occupiedSeats.map((s) => s.student_name.trim().toLowerCase()));
+    if (occupiedSeats.length > 0) {
+      roster = roster.filter((r) => occupiedSeatNames.has(r.name.trim().toLowerCase()));
+    }
+
+    // Add any occupied seats missing from roster
+    for (const seat of occupiedSeats) {
+      const sName = seat.student_name.trim();
+      const inRoster = roster.some((r) => r.name.trim().toLowerCase() === sName.toLowerCase());
+      if (!inRoster) {
+        roster.push({
+          id: seat.roster_id || `r_${sectionId}_${seat.seat_num}`,
+          name: sName,
+          number: seat.student_number || String(seat.seat_num),
+          massarNumber: seat.massar_number || undefined
+        });
+      }
+    }
+
+    // 3. Sort students by existing order (numeric student_number if valid, otherwise seat_num or alphabetical)
+    roster.sort((a, b) => {
+      const numA = parseInt(String(a.number || '0').trim(), 10);
+      const numB = parseInt(String(b.number || '0').trim(), 10);
+      if (!isNaN(numA) && !isNaN(numB) && numA > 0 && numB > 0 && numA !== numB) {
+        return numA - numB;
+      }
+      const seatA = occupiedSeats.find((s) => s.student_name.trim().toLowerCase() === a.name.trim().toLowerCase())?.seat_num || 999;
+      const seatB = occupiedSeats.find((s) => s.student_name.trim().toLowerCase() === b.name.trim().toLowerCase())?.seat_num || 999;
+      if (seatA !== seatB) return seatA - seatB;
+      return (a.name || '').localeCompare(b.name || '', 'ar');
+    });
+
+    // 4. Renumber strictly 1, 2, 3, ..., N (Zero empty/skipped numbers!)
+    const updatedRoster: RosterItem[] = [];
+    const updatedSeats: Array<{ seatNum: number; studentName: string; newNumber: string; massarNumber: string; rosterId: string }> = [];
+
+    for (let i = 0; i < roster.length; i++) {
+      const newSeqNum = String(i + 1);
+      const r = roster[i];
+      const item: RosterItem = {
+        id: r.id || `r_${sectionId}_${i + 1}`,
+        name: r.name.trim(),
+        number: newSeqNum,
+        massarNumber: r.massarNumber || undefined
+      };
+      updatedRoster.push(item);
+
+      const seat = occupiedSeats.find(
+        (s) =>
+          (r.id && s.roster_id === r.id) ||
+          (s.student_name.trim().toLowerCase() === r.name.trim().toLowerCase())
+      );
+
+      if (seat) {
+        updatedSeats.push({
+          seatNum: seat.seat_num,
+          studentName: seat.student_name.trim(),
+          newNumber: newSeqNum,
+          massarNumber: seat.massar_number || r.massarNumber || '',
+          rosterId: item.id
+        });
+      }
+    }
+
+    // 5. Update database: sections roster_json
+    db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
+      .run(JSON.stringify(updatedRoster), now, sectionId);
+
+    // 6. Update database: seats table
+    const updateSeatStmt = db.prepare(`
+      UPDATE seats SET
+        student_number = ?,
+        roster_id = ?,
+        updated_at = ?
+      WHERE section_id = ? AND seat_num = ?
+    `);
+
+    for (const s of updatedSeats) {
+      updateSeatStmt.run(s.newNumber, s.rosterId, now, sectionId, s.seatNum);
+
+      // Sync student_number in attendance_history, daily_violations, positive_participations, teacher overrides
+      db.prepare(`
+        UPDATE attendance_history SET student_number = ? WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+      `).run(s.newNumber, sectionId, s.studentName);
+
+      db.prepare(`
+        UPDATE daily_violations SET student_number = ? WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+      `).run(s.newNumber, sectionId, s.studentName);
+
+      db.prepare(`
+        UPDATE positive_participations SET student_number = ? WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+      `).run(s.newNumber, sectionId, s.studentName);
+
+      db.prepare(`
+        UPDATE teacher_seat_overrides SET student_number = ? WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+      `).run(s.newNumber, sectionId, s.studentName);
+    }
+
+    if (!runInsideTransaction) {
+      db.exec('COMMIT;');
+    }
+
+    // 7. Cloud sync
+    try {
+      const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+      if (updatedSec) cloudSaveSection(updatedSec);
+      for (const s of updatedSeats) {
+        cloudSaveSeat(sectionId, {
+          seat: s.seatNum,
+          name: s.studentName,
+          number: s.newNumber,
+          massarNumber: s.massarNumber,
+          rosterId: s.rosterId
+        });
+      }
+    } catch (syncErr: any) {
+      console.warn('[renumberSectionStudents] Cloud sync warning:', syncErr?.message || syncErr);
+    }
+
+    markDirty();
+
+    return {
+      success: true,
+      sectionId,
+      totalStudents: updatedRoster.length,
+      roster: updatedRoster
+    };
+  } catch (err) {
+    if (!runInsideTransaction) {
+      safeRollback();
+    }
+    throw err;
+  }
+}
+
 export function removeStudentFromSection(
   sectionId: string,
   seatNum: number,
@@ -2559,76 +2721,93 @@ export function removeStudentFromSection(
   const removedNumber = seat?.student_number || '';
   const rosterId = seat?.roster_id;
 
-  // 1. Vacate the seat and clear any stale absence history linked to this seat.
-  clearSeatAbsenceHistory(sectionId, seatNum);
-  db.prepare(`
-    UPDATE seats SET
-      student_name = '',
-      student_number = '',
-      roster_id = NULL,
-      attendance = NULL,
-      status_color = 'default',
-      updated_at = ?
-    WHERE section_id = ? AND seat_num = ?
-  `).run(now, sectionId, seatNum);
-
-  // 2. Remove from roster_json if present
-  let roster: RosterItem[] = [];
+  db.exec('BEGIN TRANSACTION;');
   try {
-    roster = JSON.parse(sec.roster_json || '[]');
-  } catch {
-    roster = [];
-  }
+    // 1. Vacate the seat and clear any stale absence history linked to this seat.
+    clearSeatAbsenceHistory(sectionId, seatNum);
+    db.prepare(`
+      UPDATE seats SET
+        student_name = '',
+        student_number = '',
+        massar_number = '',
+        roster_id = NULL,
+        attendance = NULL,
+        status_color = 'default',
+        updated_at = ?
+      WHERE section_id = ? AND seat_num = ?
+    `).run(now, sectionId, seatNum);
 
-  const initialCount = roster.length;
-  roster = roster.filter((r) => {
-    if (rosterId && r.id === rosterId) return false;
-    if (removedName && r.name.trim() === removedName.trim()) return false;
-    return true;
-  });
+    // 2. Remove from roster_json if present
+    let roster: RosterItem[] = [];
+    try {
+      roster = JSON.parse(sec.roster_json || '[]');
+    } catch {
+      roster = [];
+    }
 
-  if (roster.length !== initialCount) {
+    roster = roster.filter((r) => {
+      if (rosterId && r.id === rosterId) return false;
+      if (removedName && r.name.trim() === removedName.trim()) return false;
+      return true;
+    });
+
     db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
       .run(JSON.stringify(roster), now, sectionId);
+
+    // 3. Renumber all remaining students strictly from 1 to N so NO empty numbers remain!
+    const renumberResult = renumberSectionStudents(sectionId, true);
+
+    // 4. Record in audit history
+    const reasonText = reason === 'انقطاع' ? 'انقطاع عن الدراسة' : 'انتقال إلى مؤسسة أخرى';
+    db.prepare(`
+      INSERT INTO change_history (action, summary, details_json, created_at)
+      VALUES (?, ?, ?, ?)
+    `).run(
+      'remove_student',
+      `إزالة التلميذ "${removedName || `#${seatNum}`}" من القسم بسبب: ${reasonText}، وإعادة ترتيب أرقام التلاميذ تسلسلياً (1 إلى ${renumberResult.totalStudents}) بدون أرقام فارغة`,
+      JSON.stringify({
+        sectionId,
+        seatNum,
+        studentName: removedName,
+        number: removedNumber,
+        reason: reasonText,
+        renumberedCount: renumberResult.totalStudents
+      }),
+      now
+    );
+
+    db.exec('COMMIT;');
+
+    try {
+      const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
+      if (updatedSec) cloudSaveSection(updatedSec);
+      cloudSaveSeat(sectionId, {
+        seat: seatNum,
+        name: '',
+        number: '',
+        massarNumber: '',
+        rosterId: null,
+        statusColor: 'default',
+        attendance: null
+      });
+    } catch (syncErr: any) {
+      console.warn('[removeStudentFromSection] Firestore sync warning:', syncErr?.message || syncErr);
+    }
+
+    markDirty();
+
+    return {
+      success: true,
+      message: `تم شطب التلميذ (${removedName}) بنجاح بسبب: ${reasonText}، وتمت إعادة ترتيب أرقام تلاميذ القسم تسلسلياً (من 1 إلى ${renumberResult.totalStudents}) بدون أي أرقام فارغة.`,
+      removedStudentName: removedName,
+      seatNum,
+      reason: reasonText,
+      remainingRosterCount: renumberResult.totalStudents
+    };
+  } catch (err) {
+    safeRollback();
+    throw err;
   }
-
-  // 3. Record in audit history
-  const reasonText = reason === 'انقطاع' ? 'انقطاع عن الدراسة' : 'انتقال إلى مؤسسة أخرى';
-  db.prepare(`
-    INSERT INTO change_history (action, summary, details_json, created_at)
-    VALUES (?, ?, ?, ?)
-  `).run(
-    'remove_student',
-    `إزالة التلميذ "${removedName || `#${seatNum}`}" من القسم بسبب: ${reasonText}`,
-    JSON.stringify({ sectionId, seatNum, studentName: removedName, number: removedNumber, reason: reasonText }),
-    now
-  );
-
-  try {
-    const updatedSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sectionId) as any;
-    if (updatedSec) cloudSaveSection(updatedSec);
-    cloudSaveSeat(sectionId, {
-      seat: seatNum,
-      name: '',
-      number: '',
-      massarNumber: '',
-      rosterId: null,
-      statusColor: 'default',
-      attendance: null
-    });
-  } catch (syncErr: any) {
-    console.warn('[removeStudentFromSection] Firestore sync warning:', syncErr?.message || syncErr);
-  }
-
-  markDirty();
-
-  return {
-    success: true,
-    removedStudentName: removedName,
-    seatNum,
-    reason: reasonText,
-    remainingRosterCount: roster.length
-  };
 }
 
 export function transferStudentToSection(
@@ -2822,7 +3001,16 @@ export function transferStudentToSection(
         .run(targetSectionId, targetSeatNum, sourceSectionId, sourceSeatNum);
     }
 
-    // 8. Log the transfer action in change_history
+    // 8. Re-sequence and renumber both source and target sections sequentially so NO empty numbers remain!
+    const srcRenumber = renumberSectionStudents(sourceSectionId, true);
+    const tgtRenumber = renumberSectionStudents(targetSectionId, true);
+
+    const assignedTargetItem = tgtRenumber.roster.find(
+      (r) => r.name.trim().toLowerCase() === studentName.toLowerCase()
+    );
+    const assignedFinalNumber = assignedTargetItem ? assignedTargetItem.number : String(tgtRenumber.totalStudents);
+
+    // 9. Log the transfer action in change_history
     const srcTitle = `${srcSec.level} - القسم ${srcSec.class_number}`;
     const tgtTitle = `${tgtSec.level} - القسم ${tgtSec.class_number}`;
     db.prepare(`
@@ -2830,23 +3018,25 @@ export function transferStudentToSection(
       VALUES (?, ?, ?, ?)
     `).run(
       'transfer_student',
-      `نقل التلميذ "${studentName}" من قسم [${srcTitle}] (مقعد ${sourceSeatNum}) إلى قسم [${tgtTitle}] (مقعد ${targetSeatNum}) في نفس المؤسسة`,
+      `نقل التلميذ "${studentName}" من قسم [${srcTitle}] (مقعد ${sourceSeatNum}) إلى قسم [${tgtTitle}] (مقعد ${targetSeatNum}) في نفس المؤسسة، مع إعادة ترتيب أرقام تلاميذ القسمين تسلسلياً لمنع الفراغات`,
       JSON.stringify({
         studentName,
-        studentNumber: finalStudentNumber,
+        studentNumber: assignedFinalNumber,
         massarNumber,
         sourceSectionId,
         sourceSeatNum,
         targetSectionId,
         targetSeatNum,
-        transferHistory
+        transferHistory,
+        remainingSrcCount: srcRenumber.totalStudents,
+        newTgtCount: tgtRenumber.totalStudents
       }),
       now
     );
 
     db.exec('COMMIT;');
 
-    // 9. Sync changes to Firestore & Cloud Backup
+    // 10. Sync changes to Firestore & Cloud Backup
     try {
       const updatedSrcSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(sourceSectionId);
       const updatedTgtSec = db.prepare('SELECT * FROM sections WHERE id = ?').get(targetSectionId);
@@ -2854,7 +3044,7 @@ export function transferStudentToSection(
       if (updatedTgtSec) cloudSaveSection(updatedTgtSec);
 
       cloudSaveSeat(sourceSectionId, { seat: sourceSeatNum, name: '', number: '', massarNumber: '', rosterId: null });
-      cloudSaveSeat(targetSectionId, { seat: targetSeatNum, name: studentName, number: finalStudentNumber, massarNumber, rosterId: newRosterId });
+      cloudSaveSeat(targetSectionId, { seat: targetSeatNum, name: studentName, number: assignedFinalNumber, massarNumber, rosterId: newRosterId });
     } catch (syncErr: any) {
       console.warn('[transferStudentToSection] Firestore sync warning:', syncErr?.message || syncErr);
     }
@@ -2863,15 +3053,15 @@ export function transferStudentToSection(
 
     return {
       success: true,
-      message: `تم نقل التلميذ (${studentName}) بنجاح إلى قسم [${tgtTitle}] وتعيين الرقم الجديد له (${finalStudentNumber}) في آخر اللائحة (مقعد #${targetSeatNum})`,
+      message: `تم نقل التلميذ (${studentName}) بنجاح إلى قسم [${tgtTitle}] وتعيين الرقم الجديد له (${assignedFinalNumber}) في آخر اللائحة (مقعد #${targetSeatNum})، وتمت إعادة ترتيب أرقام تلاميذ القسمين تسلسلياً بدون أي أرقام فارغة.`,
       studentName,
       oldStudentNumber,
-      newStudentNumber: finalStudentNumber,
+      newStudentNumber: assignedFinalNumber,
       sourceSectionName: srcTitle,
       targetSectionName: tgtTitle,
       targetSeatNum,
-      remainingSrcCount: srcRoster.length,
-      newTgtCount: tgtRoster.length
+      remainingSrcCount: srcRenumber.totalStudents,
+      newTgtCount: tgtRenumber.totalStudents
     };
   } catch (err) {
     safeRollback();
@@ -3518,12 +3708,15 @@ export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, a
     for (let i = 0; i < assignedCount; i++) {
       const targetSeat = i + 1;
       const student = studentsToSeat[i];
+      // Separate physical seat number from student number:
+      // The student keeps their permanent student_number in the section; targetSeat is merely their sitting desk!
+      const studentNum = student.number || String(i + 1);
 
       updateSeatStmt.run(
         sectionId,
         targetSeat,
         student.name,
-        student.number,
+        studentNum,
         student.massarNumber || '',
         student.rosterId,
         student.statusColor || 'default',
@@ -3550,7 +3743,7 @@ export function orderSectionSeatsByNumber(sectionId: string, actorId?: string, a
       VALUES (?, ?, ?, ?)
     `).run(
       'order_seats_by_number',
-      `ترتيب مقاعد القسم (${sec.level} - ${sec.class_number}) حسب رقم التلميذ ابتداءً من المقعد 1 (${assignedCount} تلميذاً)`,
+      `ترتيب أماكن جلوس تلاميذ القسم (${sec.level} - ${sec.class_number}) في المقاعد حسب أرقامهم الترتيبية (المقاعد 1 إلى ${assignedCount}) مع الحفاظ على رقم كل تلميذ`,
       JSON.stringify({ sectionId, assignedCount }),
       now
     );
