@@ -2596,3 +2596,389 @@ export function printParentAbsenceNotice(options: PrintParentAbsenceNoticeOption
 
   return printReportHtml(html);
 }
+
+export interface PrintTeacherCredentialsOptions {
+  institution?: string;
+  academicYear?: string;
+  directorName?: string;
+  viewMode?: 'cards' | 'table';
+  teachers: Array<{
+    id?: string;
+    fullName: string;
+    username: string;
+    email: string;
+    password?: string;
+    subject?: string;
+    status?: string;
+  }>;
+}
+
+/**
+ * Robust Moroccan Official Printout for Teacher Accounts & Initial Passwords
+ * Dispatches cleanly via hidden iframe, avoiding modal clipping or scroll-cutoffs.
+ */
+export function printTeacherCredentialsReport(options: PrintTeacherCredentialsOptions): boolean {
+  const inst = options.institution || 'الثانوية الإعدادية ايكسان';
+  const year = options.academicYear || '2026/2027';
+  const director = options.directorName || 'السيد مدير المؤسسة';
+  const viewMode = options.viewMode || 'cards';
+  const list = options.teachers || [];
+
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution: inst,
+    academicYear: year,
+    dateLabel: 'تاريخ الاستخراج',
+    middleIcon: '🔐'
+  });
+
+  let bodyContent = '';
+
+  if (viewMode === 'cards') {
+    const cardsHtml = list.map((t, idx) => {
+      const pwd = t.password && t.password.trim() ? t.password.trim() : '123456';
+      const subj = t.subject && t.subject.trim() ? t.subject.trim() : 'هيئة التدريس';
+
+      return `
+        <div class="teacher-card">
+          <div class="cut-indicator">✂️ قـص من هـنـا (بطاقة رقم ${idx + 1})</div>
+          
+          <div class="card-top">
+            <div>
+              <span class="inst-tag">${escapeHtml(inst)} • ${escapeHtml(year)}</span>
+              <span class="card-title">وصل تسليم الحساب الشخصي (منظومة الفصول)</span>
+            </div>
+            <span class="subj-badge">${escapeHtml(subj)}</span>
+          </div>
+
+          <div class="cred-box">
+            <div class="cred-row">
+              <span class="lbl">الأستاذ(ة):</span>
+              <span class="val-name">${escapeHtml(t.fullName)}</span>
+            </div>
+            <div class="cred-row">
+              <span class="lbl">المادة الدراسية:</span>
+              <span class="val">${escapeHtml(subj)}</span>
+            </div>
+            <div class="cred-row highlight-user">
+              <span class="lbl">اسم المستخدم (Login):</span>
+              <span class="val-mono">${escapeHtml(t.username)}</span>
+            </div>
+            <div class="cred-row">
+              <span class="lbl">البريد الإلكتروني:</span>
+              <span class="val-mono-sm">${escapeHtml(t.email)}</span>
+            </div>
+            <div class="pwd-box">
+              <span class="pwd-lbl">🔒 كلمة المرور الأولية:</span>
+              <span class="pwd-val">${escapeHtml(pwd)}</span>
+            </div>
+          </div>
+
+          <p class="sec-note">
+            ⚠️ <b>توجيه أمني:</b> هذا الوصل شخصي وسري. يرجى تسجيل الدخول وتغيير كلمة المرور فوراً من خانة "الملف الشخصي" لضمان أمان حسابكم.
+          </p>
+
+          <div class="receipt-row">
+            <span>تاريخ التسليم: .... / .... / 202..</span>
+            <span>توقيع الأستاذ بالاستلام: ....................</span>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    bodyContent = `
+      <div class="cards-grid">
+        ${cardsHtml}
+      </div>
+    `;
+  } else {
+    // Master Table View
+    const rowsHtml = list.map((t, idx) => {
+      const pwd = t.password && t.password.trim() ? t.password.trim() : '123456';
+      const subj = t.subject && t.subject.trim() ? t.subject.trim() : '—';
+      return `
+        <tr>
+          <td style="text-align: center; font-weight: bold;">${idx + 1}</td>
+          <td style="font-weight: bold; color: #1E3B2C;">${escapeHtml(t.fullName)}</td>
+          <td style="text-align: center;">${escapeHtml(subj)}</td>
+          <td style="font-family: monospace; font-weight: bold;">${escapeHtml(t.username)}</td>
+          <td style="font-family: monospace; font-size: 11px;">${escapeHtml(t.email)}</td>
+          <td style="text-align: center; font-family: monospace; font-weight: bold; font-size: 13px; color: #92400e; background: #fffbeb;">${escapeHtml(pwd)}</td>
+          <td style="text-align: center; font-size: 10px; color: #666;">..... / ..... / 202..</td>
+          <td style="text-align: center;"><div style="height: 22px; border-bottom: 1px dotted #999;"></div></td>
+        </tr>
+      `;
+    }).join('');
+
+    bodyContent = `
+      <table class="master-table">
+        <thead>
+          <tr>
+            <th style="width: 35px; text-align: center;">#</th>
+            <th>الأستاذ(ة)</th>
+            <th style="text-align: center;">المادة</th>
+            <th>اسم المستخدم</th>
+            <th>البريد الإلكتروني</th>
+            <th style="text-align: center; width: 110px;">كلمة المرور الأولية</th>
+            <th style="text-align: center; width: 90px;">تاريخ التسليم</th>
+            <th style="text-align: center; width: 130px;">توقيع الأستاذ بالاستلام</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rowsHtml}
+        </tbody>
+      </table>
+
+      <div class="table-signatures">
+        <div>
+          <b>ملاحظة إدارية:</b>
+          <p style="margin: 4px 0 0 0; color: #555; font-size: 11px;">
+            تُحفظ هذه اللائحة الموقعة لدى إدارة المؤسسة كأرشيف رسمي يثبت تسليم حسابات الولوج لكافة أطر هيئة التدريس.
+          </p>
+        </div>
+        <div style="text-align: center;">
+          <b>توقيع وخاتم السيد مدير المؤسسة</b>
+          <p style="margin: 30px 0 0 0; font-size: 11px; color: #333;">${escapeHtml(director)}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  const docTitle = viewMode === 'cards'
+    ? 'بطاقات تسليم بيانات الولوج للحسابات الشخصية لهيئة التدريس'
+    : 'لائحة تسليم بيانات الولوج للحسابات الشخصية مع التوقيع بالاستلام';
+
+  const html = `
+    <!DOCTYPE html>
+    <html dir="rtl" lang="ar">
+    <head>
+      <meta charset="utf-8">
+      <title>${escapeHtml(docTitle)} - ${escapeHtml(inst)}</title>
+      <style>
+        @page {
+          size: A4 portrait;
+          margin: 10mm;
+        }
+        * {
+          box-sizing: border-box;
+          -webkit-print-color-adjust: exact !important;
+          print-color-adjust: exact !important;
+        }
+        body {
+          font-family: 'Amiri', 'Traditional Arabic', 'Segoe UI', Tahoma, sans-serif;
+          margin: 0;
+          padding: 5mm;
+          color: #111;
+          background: #fff;
+          direction: rtl;
+        }
+        ${OFFICIAL_HEADER_CSS}
+
+        .title-container {
+          text-align: center;
+          margin: 10px 0 16px 0;
+        }
+        .main-title {
+          display: inline-block;
+          font-size: 17px;
+          font-weight: bold;
+          color: #1E3B2C;
+          background: #f0fdf4;
+          border: 1.5px solid #1E3B2C;
+          border-radius: 20px;
+          padding: 5px 24px;
+          margin: 0 0 4px 0;
+        }
+        .sub-title {
+          font-size: 11px;
+          color: #666;
+        }
+
+        /* CARDS GRID */
+        .cards-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+        }
+        .teacher-card {
+          position: relative;
+          border: 1.5px dashed #78716c;
+          border-radius: 8px;
+          padding: 10px 12px;
+          background: #fff;
+          page-break-inside: avoid;
+          break-inside: avoid;
+          display: flex;
+          flex-col;
+          justify-content: space-between;
+        }
+        .cut-indicator {
+          font-size: 9px;
+          font-family: monospace;
+          color: #78716c;
+          margin-bottom: 4px;
+          padding-bottom: 3px;
+          border-bottom: 1px dotted #e7e5e4;
+        }
+        .card-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 6px;
+        }
+        .inst-tag {
+          display: block;
+          font-size: 9px;
+          color: #1E3B2C;
+          font-weight: bold;
+        }
+        .card-title {
+          display: block;
+          font-size: 11px;
+          font-weight: bold;
+          color: #1c1917;
+        }
+        .subj-badge {
+          font-size: 10px;
+          font-weight: bold;
+          background: #f5f5f4;
+          border: 1px solid #d6d3d1;
+          color: #44403c;
+          padding: 2px 7px;
+          border-radius: 12px;
+        }
+
+        .cred-box {
+          background: #fafaf9;
+          border: 1px solid #e7e5e4;
+          border-radius: 6px;
+          padding: 6px 8px;
+          margin-bottom: 6px;
+          font-size: 11px;
+        }
+        .cred-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 3px;
+        }
+        .cred-row.highlight-user {
+          border-top: 1px solid #f0edea;
+          padding-top: 3px;
+        }
+        .lbl {
+          color: #57534e;
+          font-size: 10px;
+        }
+        .val-name {
+          font-weight: bold;
+          font-size: 12px;
+          color: #1E3B2C;
+        }
+        .val {
+          font-weight: 600;
+          color: #292524;
+        }
+        .val-mono {
+          font-family: monospace;
+          font-weight: bold;
+          font-size: 12px;
+          background: #fff;
+          padding: 1px 6px;
+          border: 1px solid #d6d3d1;
+          border-radius: 4px;
+          color: #1E3B2C;
+        }
+        .val-mono-sm {
+          font-family: monospace;
+          font-size: 10px;
+          color: #44403c;
+        }
+
+        .pwd-box {
+          background: #fffbeb;
+          border: 1.5px solid #d97706;
+          border-radius: 5px;
+          padding: 4px 8px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-top: 5px;
+        }
+        .pwd-lbl {
+          font-size: 10px;
+          font-weight: bold;
+          color: #92400e;
+        }
+        .pwd-val {
+          font-family: monospace;
+          font-weight: bold;
+          font-size: 14px;
+          letter-spacing: 2px;
+          color: #78350f;
+        }
+
+        .sec-note {
+          font-size: 8.5px;
+          color: #78716c;
+          line-height: 1.3;
+          margin: 4px 0 6px 0;
+        }
+        .receipt-row {
+          border-top: 1px dotted #a8a29e;
+          padding-top: 5px;
+          display: flex;
+          justify-content: space-between;
+          font-size: 9.5px;
+          color: #44403c;
+        }
+
+        /* MASTER TABLE */
+        .master-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 11px;
+          margin-bottom: 15px;
+        }
+        .master-table th {
+          background: #1E3B2C;
+          color: #fff;
+          padding: 6px 8px;
+          border: 1px solid #1E3B2C;
+          font-size: 11px;
+        }
+        .master-table td {
+          padding: 5px 8px;
+          border: 1px solid #d6d3d1;
+        }
+        .master-table tr:nth-child(even) {
+          background: #fafaf9;
+        }
+        .table-signatures {
+          border: 1px solid #1E3B2C;
+          border-radius: 6px;
+          background: #fafaf9;
+          padding: 10px 14px;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          font-size: 11px;
+          page-break-inside: avoid;
+          break-inside: avoid;
+        }
+      </style>
+    </head>
+    <body>
+      ${headerHtml}
+
+      <div class="title-container">
+        <div class="main-title">${escapeHtml(docTitle)}</div>
+        <div class="sub-title">منظومة تدبير الفصول الدراسية وتتبع الغياب • إجمالي الأساتذة: ${list.length}</div>
+      </div>
+
+      ${bodyContent}
+    </body>
+    </html>
+  `;
+
+  return printReportHtml(html);
+}

@@ -19,6 +19,7 @@ import {
   School
 } from 'lucide-react';
 import { AppSettings, User } from '../types';
+import { printTeacherCredentialsReport } from '../utils/printNotes';
 
 export interface TeacherCredentialItem {
   id: string;
@@ -39,12 +40,14 @@ export interface TeacherCredentialsPrintModalProps {
   currentUser: User;
   settings: AppSettings;
   onClose: () => void;
+  initialTeacherId?: string;
 }
 
 export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModalProps> = ({
   currentUser,
   settings,
-  onClose
+  onClose,
+  initialTeacherId
 }) => {
   const [teachers, setTeachers] = useState<TeacherCredentialItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -77,6 +80,12 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
         if (isMounted) {
           if (data.success && Array.isArray(data.teachers)) {
             setTeachers(data.teachers);
+            if (initialTeacherId) {
+              const matched = data.teachers.find((t: any) => t.id === initialTeacherId);
+              if (matched) {
+                setSearchQuery(matched.fullName);
+              }
+            }
           } else {
             setError(data.error || 'تعذر تحميل بيانات حسابات الأساتذة');
           }
@@ -94,7 +103,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
     return () => {
       isMounted = false;
     };
-  }, [currentUser]);
+  }, [currentUser, initialTeacherId]);
 
   // Extract distinct subjects
   const distinctSubjects = useMemo(() => {
@@ -125,11 +134,34 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
   }, [teachers, searchQuery, subjectFilter]);
 
   const handlePrint = () => {
-    window.print();
+    printTeacherCredentialsReport({
+      institution: institutionName,
+      academicYear,
+      directorName: settings.teacher || currentUser.fullName || 'السيد مدير المؤسسة',
+      viewMode,
+      teachers: filteredTeachers.map(t => ({
+        ...t,
+        password: t.password && t.password.trim() ? t.password.trim() : '123456'
+      }))
+    });
+  };
+
+  const handlePrintSingle = (t: TeacherCredentialItem) => {
+    printTeacherCredentialsReport({
+      institution: institutionName,
+      academicYear,
+      directorName: settings.teacher || currentUser.fullName || 'السيد مدير المؤسسة',
+      viewMode: 'cards',
+      teachers: [{
+        ...t,
+        password: t.password && t.password.trim() ? t.password.trim() : '123456'
+      }]
+    });
   };
 
   const handleCopyCredentials = (t: TeacherCredentialItem) => {
-    const text = `اسم الأستاذ: ${t.fullName}\nالمادة: ${t.subject || 'غير محدد'}\nاسم المستخدم: ${t.username}\nكلمة المرور: ${t.password || 'غير محددة'}\nرابط المنصة: ${window.location.origin}`;
+    const pwd = t.password && t.password.trim() ? t.password.trim() : '123456';
+    const text = `اسم الأستاذ: ${t.fullName}\nالمادة: ${t.subject || 'غير محدد'}\nاسم المستخدم: ${t.username}\nكلمة المرور: ${pwd}\nرابط المنصة: ${window.location.origin}`;
     navigator.clipboard.writeText(text);
     setCopiedId(t.id);
     setTimeout(() => setCopiedId(null), 2500);
@@ -144,7 +176,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
       `"${(t.subject || '').replace(/"/g, '""')}"`,
       `"${t.username}"`,
       `"${t.email}"`,
-      `"${(t.password || '').replace(/"/g, '""')}"`,
+      `"${((t.password && t.password.trim()) || '123456').replace(/"/g, '""')}"`,
       `"${t.academicYear || academicYear}"`,
       t.status === 'active' ? 'مفعل' : 'معلق'
     ]);
@@ -441,7 +473,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                               <span>كلمة المرور الأولية:</span>
                             </span>
                             <span className="font-mono font-bold text-amber-950 text-sm tracking-wider select-all">
-                              {showPasswords ? (t.password || '—') : '••••••••'}
+                              {showPasswords ? ((t.password && t.password.trim()) || '123456') : '••••••••'}
                             </span>
                           </div>
                         </div>
@@ -463,8 +495,18 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                         </div>
                       </div>
 
-                      {/* Screen-only Copy button */}
-                      <div className="no-print mt-2 pt-2 border-t border-dashed border-[#E5DFD4] flex items-center justify-end">
+                      {/* Screen-only Actions (Copy & Print Single Slip) */}
+                      <div className="no-print mt-2 pt-2 border-t border-dashed border-[#E5DFD4] flex items-center justify-between">
+                        <button
+                          type="button"
+                          onClick={() => handlePrintSingle(t)}
+                          className="flex items-center gap-1 text-[11px] text-[#2A4D3B] hover:text-[#152B20] font-bold cursor-pointer bg-[#FAF8F5] hover:bg-[#EFE9D5] px-2.5 py-1 rounded-lg border border-[#D9CEB0] transition-colors"
+                          title="طباعة وصل هذا الأستاذ بمفرده"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-amber-600" />
+                          <span>طباعة هذا الوصل 🖨️</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleCopyCredentials(t)}
@@ -473,7 +515,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                           {copiedId === t.id ? (
                             <>
                               <Check className="w-3 h-3 text-emerald-600" />
-                              <span className="text-emerald-700">تم النسخ للحافظة!</span>
+                              <span className="text-emerald-700">تم النسخ!</span>
                             </>
                           ) : (
                             <span>نسخ البيانات</span>
@@ -520,7 +562,7 @@ export const TeacherCredentialsPrintModal: React.FC<TeacherCredentialsPrintModal
                             {t.email}
                           </td>
                           <td className="p-2 text-center font-mono font-bold text-amber-950 bg-amber-50/50 border border-[#E5DFD4]">
-                            {showPasswords ? (t.password || '—') : '••••••••'}
+                            {showPasswords ? ((t.password && t.password.trim()) || '123456') : '••••••••'}
                           </td>
                           <td className="p-2 text-center text-[10px] text-[#8C7D6B] border border-[#E5DFD4]">
                             ..... / ..... / 202..

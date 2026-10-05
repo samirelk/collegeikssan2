@@ -23,7 +23,8 @@ import {
   UserCheck,
   Stethoscope,
   Info,
-  FileSpreadsheet
+  FileSpreadsheet,
+  LogOut
 } from 'lucide-react';
 import { MassarAbsenceModal } from './MassarAbsenceModal';
 import { StudentAttendanceCardModal } from './StudentAttendanceCardModal';
@@ -577,85 +578,90 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           </div>
 
           {/* Date Picker & Navigation Controls */}
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-            <button
-              onClick={() => handleShiftDate(-1)}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors"
-              title="اليوم السابق"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-100 w-full lg:w-auto">
+            <div className="flex items-center gap-1.5 flex-1 sm:flex-none">
+              <button
+                onClick={() => handleShiftDate(-1)}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors shrink-0"
+                title="اليوم السابق"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
 
-            <div className="relative">
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
-                className="px-3 py-1.5 rounded-xl border border-slate-300 text-sm font-medium text-slate-700 focus:ring-2 focus:ring-amber-500 outline-hidden bg-slate-50"
-              />
+              <div className="relative flex-1 sm:flex-none">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={e => setSelectedDate(e.target.value)}
+                  className="w-full sm:w-auto px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-300 text-xs sm:text-sm font-medium text-slate-700 focus:ring-2 focus:ring-amber-500 outline-hidden bg-slate-50"
+                />
+              </div>
+
+              <button
+                onClick={() => handleShiftDate(1)}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors shrink-0"
+                title="اليوم التالي"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
             </div>
 
-            <button
-              onClick={() => handleShiftDate(1)}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 transition-colors"
-              title="اليوم التالي"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1.5 flex-wrap w-full sm:w-auto">
+              {selectedDate !== todayStr && (
+                <button
+                  onClick={() => setSelectedDate(todayStr)}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                >
+                  اليوم
+                </button>
+              )}
 
-            {selectedDate !== todayStr && (
+              {/* Quick Available Dates Dropdown */}
+              {availableDates.length > 0 && (
+                <select
+                  value={selectedDate}
+                  onChange={e => setSelectedDate(e.target.value)}
+                  className="px-2 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 outline-hidden max-w-[130px] sm:max-w-none truncate"
+                >
+                  <option value={selectedDate}>تصفح الأيام...</option>
+                  {availableDates.map(d => (
+                    <option key={d} value={d}>
+                      {d === todayStr ? `اليوم (${d})` : d}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               <button
-                onClick={() => setSelectedDate(todayStr)}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
+                onClick={() => fetchArchiveData(selectedDate)}
+                disabled={isLoading}
+                className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
+                title="تحديث البيانات"
               >
-                العودة لليوم
+                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-amber-600' : ''}`} />
               </button>
-            )}
 
-            {/* Quick Available Dates Dropdown */}
-            {availableDates.length > 0 && (
-              <select
-                value={selectedDate}
-                onChange={e => setSelectedDate(e.target.value)}
-                className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-xs font-medium text-slate-600 bg-slate-50 hover:bg-slate-100 outline-hidden"
+              <button
+                onClick={handlePrintDailyArchive}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium bg-slate-800 text-white hover:bg-slate-900 transition-colors shadow-xs"
               >
-                <option value={selectedDate}>تصفح سجلات الأيام...</option>
-                {availableDates.map(d => (
-                  <option key={d} value={d}>
-                    {d === todayStr ? `اليوم (${d})` : d}
-                  </option>
-                ))}
-              </select>
-            )}
-
-            <button
-              onClick={() => fetchArchiveData(selectedDate)}
-              disabled={isLoading}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors"
-              title="تحديث البيانات"
-            >
-              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-amber-600' : ''}`} />
-            </button>
-
-            <button
-              onClick={handlePrintDailyArchive}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium bg-slate-800 text-white hover:bg-slate-900 transition-colors shadow-xs"
-            >
-              <Printer className="w-4 h-4" />
-              <span>طباعة السجل</span>
-            </button>
+                <Printer className="w-4 h-4" />
+                <span className="hidden sm:inline">طباعة السجل</span>
+                <span className="sm:hidden">طباعة</span>
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Global Filter Bar: Section Selector */}
-        <div className="mt-4 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-600">تصفية حسب القسم:</span>
+        <div className="mt-3 sm:mt-4 pt-3 sm:pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+            <span className="text-xs font-semibold text-slate-600 shrink-0">القسم:</span>
             <select
               value={selectedSectionFilter}
               onChange={e => setSelectedSectionFilter(e.target.value)}
-              className="px-3 py-1 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:ring-1 focus:ring-amber-500"
+              className="flex-1 sm:flex-none px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 bg-white focus:ring-1 focus:ring-amber-500 max-w-full"
             >
               <option value="all">جميع الأقسام ({visibleSections.length} قسم)</option>
               {visibleSections.map(sec => (
@@ -667,31 +673,31 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           </div>
 
           {/* Quick Action Buttons */}
-          <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
             <button
               type="button"
               onClick={() => setShowMassarModal(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-800 hover:to-teal-900 text-white shadow-xs transition-all cursor-pointer"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-gradient-to-r from-emerald-700 to-teal-800 hover:from-emerald-800 hover:to-teal-900 text-white shadow-xs transition-all cursor-pointer"
               title="تصدير واستيراد الغيابات وفق منظومة مسار (Massar Excel / CSV)"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
-              <span>منظومة مسار (استيراد / تصدير)</span>
+              <span>مسار (استيراد/تصدير)</span>
             </button>
 
             <button
               onClick={() => setIsAddAbsenceOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>تسجيل غياب / تأخر</span>
+              <span>تسجيل غياب</span>
             </button>
 
             <button
               onClick={() => setIsAddViolationOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition-colors"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>تسجيل مخالفة / ملاحظة</span>
+              <span>تسجيل مخالفة</span>
             </button>
           </div>
         </div>
@@ -723,69 +729,69 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
       )}
 
       {/* Daily Key Indicators (بطاقات المؤشرات الإحصائية لليوم) */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
         {/* Total Absences */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs relative overflow-hidden">
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">إجمالي الغيابات</span>
-            <div className="w-8 h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
-              <UserX className="w-4 h-4" />
+            <span className="text-[11px] sm:text-xs font-bold text-slate-500">إجمالي الغيابات</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center shrink-0">
+              <UserX className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-rose-600">{stats.totalAbsences}</span>
-            <span className="text-xs text-slate-500">تلميذ</span>
+          <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-xl sm:text-2xl font-black text-rose-600">{stats.totalAbsences}</span>
+            <span className="text-[10px] sm:text-xs text-slate-500">تلميذ</span>
           </div>
-          <div className="mt-2 text-xs text-slate-500 flex items-center gap-2">
-            <span className="text-emerald-600 font-medium">{stats.justifiedCount} مبرر</span>
+          <div className="mt-1.5 text-[10px] sm:text-xs text-slate-500 flex items-center gap-1.5 flex-wrap">
+            <span className="text-emerald-600 font-semibold">{stats.justifiedCount} مبرر</span>
             <span>•</span>
-            <span className="text-rose-600 font-medium">{stats.unjustifiedCount} غير مبرر</span>
+            <span className="text-rose-600 font-semibold">{stats.unjustifiedCount} غير مبرر</span>
           </div>
         </div>
 
         {/* Total Lates */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">حالات التأخر</span>
-            <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-              <Clock className="w-4 h-4" />
+            <span className="text-[11px] sm:text-xs font-bold text-slate-500">حالات التأخر</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+              <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-amber-600">{stats.totalLates}</span>
-            <span className="text-xs text-slate-500">حالة</span>
+          <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-xl sm:text-2xl font-black text-amber-600">{stats.totalLates}</span>
+            <span className="text-[10px] sm:text-xs text-slate-500">حالة</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500">تأخر عن موعد الحصة</p>
+          <p className="mt-1.5 text-[10px] sm:text-xs text-slate-500 truncate">تأخر عن موعد الحصة</p>
         </div>
 
         {/* Total Violations */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">المخالفات والملاحظات</span>
-            <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-              <AlertTriangle className="w-4 h-4" />
+            <span className="text-[11px] sm:text-xs font-bold text-slate-500">المخالفات</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-purple-600">{stats.totalViolations}</span>
-            <span className="text-xs text-slate-500">مخالفة</span>
+          <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-xl sm:text-2xl font-black text-purple-600">{stats.totalViolations}</span>
+            <span className="text-[10px] sm:text-xs text-slate-500">مخالفة</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500">مسجلة بالسجل السلوكي</p>
+          <p className="mt-1.5 text-[10px] sm:text-xs text-slate-500 truncate">سجل السلوك المدرسي</p>
         </div>
 
         {/* Affected Sections */}
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+        <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500">الأقسام المتأثرة</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-              <Building className="w-4 h-4" />
+            <span className="text-[11px] sm:text-xs font-bold text-slate-500">الأقسام المعنية</span>
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Building className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             </div>
           </div>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-blue-600">{stats.sectionsAffected}</span>
-            <span className="text-xs text-slate-500">أقسام</span>
+          <div className="mt-1.5 sm:mt-2 flex items-baseline gap-1.5 sm:gap-2">
+            <span className="text-xl sm:text-2xl font-black text-blue-600">{stats.sectionsAffected}</span>
+            <span className="text-[10px] sm:text-xs text-slate-500">أقسام</span>
           </div>
-          <p className="mt-2 text-xs text-slate-500 truncate" title={stats.topSectionAbsences}>
+          <p className="mt-1.5 text-[10px] sm:text-xs text-slate-500 truncate" title={stats.topSectionAbsences}>
             الأكثر غياباً: {stats.topSectionAbsences || 'لا يوجد'}
           </p>
         </div>
@@ -944,8 +950,8 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 flex-wrap w-full md:w-auto">
-                <span className="text-xs text-slate-500 font-medium ml-1">الحالة:</span>
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1 w-full md:w-auto">
+                <span className="text-xs text-slate-500 font-medium ml-1 shrink-0">الحالة:</span>
                 {(['all', 'absent', 'late', 'justified', 'unjustified'] as const).map(st => {
                   const labels = {
                     all: 'الكل',
@@ -958,7 +964,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                     <button
                       key={st}
                       onClick={() => setAbsenceStatusFilter(st)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold shrink-0 transition-colors ${
                         absenceStatusFilter === st
                           ? 'bg-rose-600 text-white shadow-xs'
                           : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
@@ -973,11 +979,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                   <button
                     type="button"
                     onClick={() => setShowMassarModal(true)}
-                    className="mr-2 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+                    className="mr-2 px-3 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
                     title="استيراد وتصدير الغيابات وفق منظومة مسار (Excel / CSV)"
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300" />
-                    <span>تصدير / استيراد مسار</span>
+                    <span>تصدير مسار</span>
                   </button>
                 )}
               </div>
@@ -1376,7 +1382,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
               </div>
             </div>
 
-            {/* Violations Table */}
+            {/* Violations Table & Mobile Cards */}
             {filteredViolations.length === 0 ? (
               <div className="py-16 text-center text-slate-500">
                 <ShieldCheck className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
@@ -1386,82 +1392,176 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                    <tr>
-                      <th className="py-3 px-3">#</th>
-                      <th className="py-3 px-3">التلميذ(ة)</th>
-                      <th className="py-3 px-3">القسم</th>
-                      <th className="py-3 px-3">المقعد</th>
-                      <th className="py-3 px-3">نوع المخالفة</th>
-                      <th className="py-3 px-3">الوصف والتفاصيل</th>
-                      <th className="py-3 px-3">الإجراء المتخذ</th>
-                      <th className="py-3 px-3">الأستاذ(ة)</th>
-                      <th className="py-3 px-3">الوقت</th>
-                      <th className="py-3 px-3 text-center">إجراءات</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {filteredViolations.map((v, idx) => (
-                      <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-3 text-slate-400">{idx + 1}</td>
-                        <td className="py-3 px-3 font-bold text-slate-900">
-                          {v.studentName}
-                          <div className="flex items-center gap-1.5 mt-0.5">
+              <>
+                {/* 1. Mobile Cards for Violations */}
+                <div className="block md:hidden space-y-3">
+                  {filteredViolations.map((v, idx) => (
+                    <div
+                      key={v.id}
+                      className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                            <span className="text-slate-400 font-normal text-xs">{idx + 1}.</span>
+                            <span>{v.studentName}</span>
+                            {v.seatNum && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                                مقعد #{v.seatNum}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {v.sectionLevel} (فوج {v.sectionClass})
+                            </span>
                             {v.massarNumber && (
                               <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200" title="رقم مسار">
                                 {v.massarNumber}
                               </span>
                             )}
-                            {v.studentNumber && (
-                              <span className="text-[11px] font-normal text-slate-400">
-                                رقم: {v.studentNumber}
-                              </span>
-                            )}
+                            {v.studentNumber && <span>رقم: {v.studentNumber}</span>}
                           </div>
-                        </td>
-                        <td className="py-3 px-3 text-slate-700">
-                          <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-800 font-medium">
-                            {v.sectionLevel} (فوج {v.sectionClass})
+                        </div>
+
+                        <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-purple-100 text-purple-800 shrink-0">
+                          {v.violationType}
+                        </span>
+                      </div>
+
+                      {/* Description & Action Taken */}
+                      <div className="bg-slate-50 rounded-xl p-2.5 text-xs space-y-1.5 text-slate-700">
+                        {v.description && (
+                          <p className="leading-relaxed"><strong className="text-slate-900 font-bold">الوصف:</strong> {v.description}</p>
+                        )}
+                        <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-200/60">
+                          <span className="text-amber-900 bg-amber-100/80 px-2 py-0.5 rounded-md font-semibold">
+                            الإجراء: {v.actionTaken || 'تنبيه شفهي'}
                           </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-600">
-                          {v.seatNum ? `مقعد #${v.seatNum}` : '—'}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-purple-100 text-purple-800">
-                            {v.violationType}
+                          <span className="text-slate-500 font-mono">
+                            {v.recordedTime}
                           </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-700 max-w-sm">
-                          {v.description}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-900">
-                            {v.actionTaken || 'تنبيه شفهي'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-600">
-                          {v.teacherName || '—'}
-                        </td>
-                        <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
-                          {v.recordedTime}
-                        </td>
-                        <td className="py-3 px-3 text-center">
+                        </div>
+                      </div>
+
+                      {/* Footer Info & Actions */}
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
+                        <span className="text-slate-500 text-[11px]">
+                          الأستاذ(ة): <strong>{v.teacherName || '—'}</strong>
+                        </span>
+
+                        <div className="flex items-center gap-1.5">
                           <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedStudentForCard({
+                                studentName: v.studentName,
+                                studentNumber: v.studentNumber,
+                                massarNumber: v.massarNumber,
+                                sectionId: v.sectionId,
+                                sectionName: `${v.sectionLevel} - فوج ${v.sectionClass}`,
+                                seatNum: v.seatNum
+                              });
+                              setShowStudentCardModal(true);
+                            }}
+                            className="py-1 px-2.5 rounded-lg bg-blue-50 text-blue-700 font-bold text-xs flex items-center gap-1 border border-blue-200 cursor-pointer"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-blue-600" />
+                            <span>كشف</span>
+                          </button>
+
+                          <button
+                            type="button"
                             onClick={() => handleDeleteViolation(v.id, v.studentName)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 border border-slate-200 cursor-pointer"
                             title="حذف هذه المخالفة"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
-                        </td>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 2. Desktop Table for Violations */}
+                <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-3">#</th>
+                        <th className="py-3 px-3">التلميذ(ة)</th>
+                        <th className="py-3 px-3">القسم</th>
+                        <th className="py-3 px-3">المقعد</th>
+                        <th className="py-3 px-3">نوع المخالفة</th>
+                        <th className="py-3 px-3">الوصف والتفاصيل</th>
+                        <th className="py-3 px-3">الإجراء المتخذ</th>
+                        <th className="py-3 px-3">الأستاذ(ة)</th>
+                        <th className="py-3 px-3">الوقت</th>
+                        <th className="py-3 px-3 text-center">إجراءات</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {filteredViolations.map((v, idx) => (
+                        <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-3 text-slate-400">{idx + 1}</td>
+                          <td className="py-3 px-3 font-bold text-slate-900">
+                            {v.studentName}
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {v.massarNumber && (
+                                <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200" title="رقم مسار">
+                                  {v.massarNumber}
+                                </span>
+                              )}
+                              {v.studentNumber && (
+                                <span className="text-[11px] font-normal text-slate-400">
+                                  رقم: {v.studentNumber}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-slate-700">
+                            <span className="px-2 py-0.5 bg-slate-100 rounded text-slate-800 font-medium">
+                              {v.sectionLevel} (فوج {v.sectionClass})
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-600">
+                            {v.seatNum ? `مقعد #${v.seatNum}` : '—'}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-purple-100 text-purple-800">
+                              {v.violationType}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-700 max-w-sm">
+                            {v.description}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-900">
+                              {v.actionTaken || 'تنبيه شفهي'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-slate-600">
+                            {v.teacherName || '—'}
+                          </td>
+                          <td className="py-3 px-3 text-slate-500 font-mono text-[11px]">
+                            {v.recordedTime}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <button
+                              onClick={() => handleDeleteViolation(v.id, v.studentName)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                              title="حذف هذه المخالفة"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -1564,96 +1664,175 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-2xs">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                    <tr>
-                      <th className="p-3">#</th>
-                      <th className="p-3">اسم التلميذ(ة)</th>
-                      <th className="p-3">القسم</th>
-                      <th className="p-3 text-center">مستوى الخطورة</th>
-                      <th className="p-3 text-center">مجموع الغيابات</th>
-                      <th className="p-3 text-center">غير مبرر</th>
-                      <th className="p-3 text-center">مبرر</th>
-                      <th className="p-3">آخر تاريخ غياب</th>
-                      <th className="p-3 text-center">إجراءات المتابعة</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-medium">
-                    {repeatedStudents.map((st, i) => (
-                      <tr key={i} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="p-3 text-slate-400 font-bold">{i + 1}</td>
-                        <td className="p-3 font-bold text-slate-900">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedStudentForCard({
-                                studentName: st.studentName,
-                                studentNumber: st.studentNumber,
-                                sectionId: st.sectionId,
-                                sectionName: st.sectionName
-                              });
-                              setShowStudentCardModal(true);
-                            }}
-                            className="hover:text-emerald-700 hover:underline cursor-pointer text-right flex items-center gap-1.5"
-                          >
+              <>
+                {/* 1. Mobile Cards for Repeated Absences */}
+                <div className="block md:hidden space-y-3">
+                  {repeatedStudents.map((st, i) => (
+                    <div
+                      key={i}
+                      className="bg-white rounded-2xl p-3.5 border border-slate-200 shadow-xs space-y-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                            <span className="text-slate-400 font-normal text-xs">{i + 1}.</span>
                             <span>{st.studentName}</span>
-                            <FileText className="w-3.5 h-3.5 text-slate-400" />
-                          </button>
-                        </td>
-                        <td className="p-3 text-slate-700">
-                          <span className="px-2 py-0.5 rounded bg-slate-100 font-medium">
-                            {st.sectionName}
+                          </div>
+                          <div className="flex items-center gap-2 mt-1 text-[11px] text-slate-500 flex-wrap">
+                            <span className="font-semibold text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {st.sectionName}
+                            </span>
+                            {st.studentNumber && <span>رقم: {st.studentNumber}</span>}
+                          </div>
+                        </div>
+
+                        {st.riskLevel === 'critical' ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300 shrink-0">
+                            <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                            حرج (5+)
                           </span>
-                        </td>
-                        <td className="p-3 text-center">
-                          {st.riskLevel === 'critical' ? (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
-                              <ShieldAlert className="w-3 h-3 text-rose-600" />
-                              حرج (5+ غيابات)
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
-                              <AlertTriangle className="w-3 h-3 text-amber-600" />
-                              إنذار (3-4 غيابات)
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-3 text-center font-mono font-bold text-rose-700 text-sm">
-                          {st.absencesCount} حصة
-                        </td>
-                        <td className="p-3 text-center font-mono font-bold text-rose-900">
-                          {st.unjustifiedCount}
-                        </td>
-                        <td className="p-3 text-center font-mono font-bold text-emerald-700">
-                          {st.justifiedCount}
-                        </td>
-                        <td className="p-3 font-mono text-slate-600">
-                          {st.lastAbsenceDate || '—'}
-                        </td>
-                        <td className="p-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedStudentForCard({
-                                studentName: st.studentName,
-                                studentNumber: st.studentNumber,
-                                sectionId: st.sectionId,
-                                sectionName: st.sectionName
-                              });
-                              setShowStudentCardModal(true);
-                            }}
-                            className="px-3 py-1.5 rounded-xl bg-[#1A4E47] hover:bg-[#133E38] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
-                          >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>كشف المواظبة وإشعار ولي الأمر</span>
-                          </button>
-                        </td>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300 shrink-0">
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                            إنذار (3-4)
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Absences Stats Breakdown */}
+                      <div className="grid grid-cols-3 gap-2 bg-slate-50 rounded-xl p-2.5 text-center text-xs">
+                        <div>
+                          <span className="block text-[10px] text-slate-500">المجموع</span>
+                          <span className="font-bold text-rose-700 font-mono text-sm">{st.absencesCount} حصة</span>
+                        </div>
+                        <div>
+                          <span className="block text-[10px] text-slate-500">غير مبرر</span>
+                          <span className="font-bold text-rose-900 font-mono text-sm">{st.unjustifiedCount}</span>
+                        </div>
+                        <div>
+                          <span className="block text-[10px] text-slate-500">مبرر</span>
+                          <span className="font-bold text-emerald-700 font-mono text-sm">{st.justifiedCount}</span>
+                        </div>
+                      </div>
+
+                      {st.lastAbsenceDate && (
+                        <div className="text-[11px] text-slate-500">
+                          آخر تاريخ غياب: <strong className="font-mono text-slate-700">{st.lastAbsenceDate}</strong>
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedStudentForCard({
+                            studentName: st.studentName,
+                            studentNumber: st.studentNumber,
+                            sectionId: st.sectionId,
+                            sectionName: st.sectionName
+                          });
+                          setShowStudentCardModal(true);
+                        }}
+                        className="w-full py-2 px-3 rounded-xl bg-[#1A4E47] hover:bg-[#133E38] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5" />
+                        <span>كشف المواظبة وإشعار ولي الأمر</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 2. Desktop Table for Repeated Absences */}
+                <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl bg-white shadow-2xs">
+                  <table className="w-full text-right text-xs">
+                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                      <tr>
+                        <th className="p-3">#</th>
+                        <th className="p-3">اسم التلميذ(ة)</th>
+                        <th className="p-3">القسم</th>
+                        <th className="p-3 text-center">مستوى الخطورة</th>
+                        <th className="p-3 text-center">مجموع الغيابات</th>
+                        <th className="p-3 text-center">غير مبرر</th>
+                        <th className="p-3 text-center">مبرر</th>
+                        <th className="p-3">آخر تاريخ غياب</th>
+                        <th className="p-3 text-center">إجراءات المتابعة</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-medium">
+                      {repeatedStudents.map((st, i) => (
+                        <tr key={i} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="p-3 text-slate-400 font-bold">{i + 1}</td>
+                          <td className="p-3 font-bold text-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentForCard({
+                                  studentName: st.studentName,
+                                  studentNumber: st.studentNumber,
+                                  sectionId: st.sectionId,
+                                  sectionName: st.sectionName
+                                });
+                                setShowStudentCardModal(true);
+                              }}
+                              className="hover:text-emerald-700 hover:underline cursor-pointer text-right flex items-center gap-1.5"
+                            >
+                              <span>{st.studentName}</span>
+                              <FileText className="w-3.5 h-3.5 text-slate-400" />
+                            </button>
+                          </td>
+                          <td className="p-3 text-slate-700">
+                            <span className="px-2 py-0.5 rounded bg-slate-100 font-medium">
+                              {st.sectionName}
+                            </span>
+                          </td>
+                          <td className="p-3 text-center">
+                            {st.riskLevel === 'critical' ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+                                <ShieldAlert className="w-3 h-3 text-rose-600" />
+                                حرج (5+ غيابات)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                                <AlertTriangle className="w-3 h-3 text-amber-600" />
+                                إنذار (3-4 غيابات)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-rose-700 text-sm">
+                            {st.absencesCount} حصة
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-rose-900">
+                            {st.unjustifiedCount}
+                          </td>
+                          <td className="p-3 text-center font-mono font-bold text-emerald-700">
+                            {st.justifiedCount}
+                          </td>
+                          <td className="p-3 font-mono text-slate-600">
+                            {st.lastAbsenceDate || '—'}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentForCard({
+                                  studentName: st.studentName,
+                                  studentNumber: st.studentNumber,
+                                  sectionId: st.sectionId,
+                                  sectionName: st.sectionName
+                                });
+                                setShowStudentCardModal(true);
+                              }}
+                              className="px-3 py-1.5 rounded-xl bg-[#1A4E47] hover:bg-[#133E38] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                            >
+                              <FileText className="w-3.5 h-3.5" />
+                              <span>كشف المواظبة وإشعار ولي الأمر</span>
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
             )}
           </div>
         )}
@@ -2033,6 +2212,14 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         }}
       />
 
+      {/* Institutional Footer note without duplicate button */}
+      <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 font-medium px-2">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+          <span>{isTeacher ? 'مراقبة الغيابات الحالية — ثانوية ايكسان' : 'أرشيف الغيابات والمخالفات اليومي — ثانوية ايكسان'}</span>
+        </div>
+      </div>
+
       {/* PRINT-ONLY OFFICIAL SURVEILLANCE SHEET (تظهر فقط عند الطباعة عبر CSS) */}
       <div className="hidden print:block font-serif text-black p-6 space-y-4 text-xs">
         <table className="w-full border-collapse border-b-2 border-[#854d0e] pb-3 mb-3">
@@ -2166,16 +2353,28 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   // Modal Overlay Container
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 md:p-6 overflow-y-auto">
-      <div className="bg-slate-100 rounded-none sm:rounded-3xl max-w-6xl w-full min-h-[100dvh] sm:min-h-0 sm:max-h-[92vh] overflow-y-auto p-2.5 sm:p-5 md:p-6 shadow-2xl border-0 sm:border border-slate-300 relative">
+      <div className="bg-slate-100 rounded-none sm:rounded-3xl max-w-6xl w-full min-h-[100dvh] sm:min-h-0 sm:max-h-[92vh] overflow-y-auto p-2.5 sm:p-5 md:p-6 shadow-2xl border-0 sm:border border-slate-300 relative pb-24 sm:pb-6">
+        {/* Top Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-2.5 left-2.5 sm:top-4 sm:left-4 p-2 rounded-full bg-white/90 hover:bg-white text-slate-700 hover:text-black shadow-md z-20 transition-colors cursor-pointer"
+          className="sticky sm:absolute top-2.5 left-2.5 sm:top-4 sm:left-4 p-2 sm:p-2.5 rounded-full bg-white/95 hover:bg-white text-slate-700 hover:text-black shadow-md z-30 transition-colors cursor-pointer float-left sm:float-none"
           title="إغلاق"
         >
           <X className="w-5 h-5" />
         </button>
 
         {content}
+
+        {/* زر الخروج الوحيد أسفل يمين الصفحة */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="fixed bottom-5 right-5 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2 px-5 py-2.5 rounded-full bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-bold text-xs sm:text-sm shadow-2xl border-2 border-white/90 backdrop-blur-md transition-all cursor-pointer group"
+          title="خروج من نافذة الغيابات"
+        >
+          <LogOut className="w-4 h-4 transition-transform group-hover:translate-x-0.5" />
+          <span>خروج</span>
+        </button>
       </div>
     </div>
   );

@@ -16,10 +16,12 @@ import {
   FileText,
   UserCheck,
   UserPlus,
-  Building2
+  Building2,
+  Printer
 } from 'lucide-react';
 import { SectionAssignmentRequest, SectionItem, SentEmail, User as UserType } from '../types';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
+import { TeacherCredentialsPrintModal } from './TeacherCredentialsPrintModal';
 
 interface TeacherItem {
   id: string;
@@ -58,6 +60,8 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isPrintCredentialsOpen, setIsPrintCredentialsOpen] = useState(false);
+  const [selectedTeacherIdForPrint, setSelectedTeacherIdForPrint] = useState<string | undefined>(undefined);
 
   // Direct assign form state
   const [directSectionId, setDirectSectionId] = useState('');

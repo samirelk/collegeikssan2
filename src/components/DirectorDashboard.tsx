@@ -85,6 +85,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [isAddTeacherOpen, setIsAddTeacherOpen] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isPrintCredentialsOpen, setIsPrintCredentialsOpen] = useState(false);
+  const [selectedTeacherIdForPrint, setSelectedTeacherIdForPrint] = useState<string | undefined>(undefined);
   const [newFullName, setNewFullName] = useState('');
   const [newUsername, setNewUsername] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -1133,7 +1134,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                 <button
                   type="button"
                   id="director-print-teacher-credentials-btn"
-                  onClick={() => setIsPrintCredentialsOpen(true)}
+                  onClick={() => {
+                    setSelectedTeacherIdForPrint(undefined);
+                    setIsPrintCredentialsOpen(true);
+                  }}
                   className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#2A4D3B] hover:bg-[#1E3B2C] text-white font-bold text-xs shadow-xs cursor-pointer transition-all border border-[#1E3B2C]"
                   title="طباعة بطاقات وقسيمات حسابات الأساتذة وكلمات المرور لتوزيعها عليهم"
                 >
@@ -1302,7 +1306,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                           {/* Print Teacher Credentials */}
                           <button
                             type="button"
-                            onClick={() => setIsPrintCredentialsOpen(true)}
+                            onClick={() => {
+                              setSelectedTeacherIdForPrint(t.id);
+                              setIsPrintCredentialsOpen(true);
+                            }}
                             className="p-1.5 rounded-md hover:bg-[#E8DEC0] text-[#1E3B2C] hover:text-[#152B20] cursor-pointer"
                             title="طباعة بطاقة حساب وكلمة مرور هذا الأستاذ"
                           >
@@ -2936,7 +2943,11 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         <TeacherCredentialsPrintModal
           currentUser={currentUser}
           settings={settings}
-          onClose={() => setIsPrintCredentialsOpen(false)}
+          initialTeacherId={selectedTeacherIdForPrint}
+          onClose={() => {
+            setIsPrintCredentialsOpen(false);
+            setSelectedTeacherIdForPrint(undefined);
+          }}
         />
       )}
 
