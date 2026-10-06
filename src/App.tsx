@@ -34,6 +34,7 @@ import { SchoolActivitiesWall } from './components/SchoolActivitiesWall';
 import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { DbInfoModal } from './components/DbInfoModal';
 import { TeacherTimetable } from './components/TeacherTimetable';
+import { OfflineIndicator } from './components/OfflineIndicator';
 
 function normalizeArabicText(str?: string): string {
   if (!str) return '';
@@ -1641,6 +1642,7 @@ export default function App() {
             <span>{toastMessage}</span>
           </div>
         )}
+        <OfflineIndicator />
       </div>
     );
   }
@@ -1679,6 +1681,7 @@ export default function App() {
             <span>{toastMessage}</span>
           </div>
         )}
+        <OfflineIndicator />
       </div>
     );
   }
@@ -3133,6 +3136,7 @@ export default function App() {
           </div>
         </div>
       )}
+      <OfflineIndicator />
     </div>
   );
 }

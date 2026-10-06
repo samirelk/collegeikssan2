@@ -18,6 +18,7 @@ import {
   UserX
 } from 'lucide-react';
 import { AppSettings, DbStats, User as UserType } from '../types';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface TopbarProps {
   settings: AppSettings;
@@ -108,6 +109,9 @@ export const Topbar: React.FC<TopbarProps> = ({
       {/* Action & User Navigation Area */}
       <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
         
+        {/* PWA Mobile & Desktop Install Button */}
+        <PWAInstallButton variant="header" />
+
         {/* Quick Home / الرئيسية Button */}
         <button
           type="button"

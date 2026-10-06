@@ -19,6 +19,7 @@ import {
 import { User as UserType, AppSettings } from '../types';
 import { AppFooter } from './AppFooter';
 import { AppAdminDashboard } from './AppAdminDashboard';
+import { PWAInstallButton } from './PWAInstallButton';
 import { safeApiFetch } from '../utils/apiClient';
 
 interface AdminPortalViewProps {
@@ -197,14 +198,17 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={onNavigateHome}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all cursor-pointer border border-white/15"
-          >
-            <ArrowRight className="w-3.5 h-3.5 text-[#C98A3C]" />
-            <span>العودة للبوابة العامة والأساتذة</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <PWAInstallButton variant="header" />
+            <button
+              type="button"
+              onClick={onNavigateHome}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all cursor-pointer border border-white/15"
+            >
+              <ArrowRight className="w-3.5 h-3.5 text-[#C98A3C]" />
+              <span>العودة للبوابة العامة والأساتذة</span>
+            </button>
+          </div>
         </div>
       </header>
 

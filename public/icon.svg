@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A3B2F" />
+      <stop offset="100%" stop-color="#0F241C" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F3C669" />
+      <stop offset="100%" stop-color="#C98A3C" />
+    </linearGradient>
+    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Background Base with Rounded Corners -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
+  <rect width="512" height="512" rx="112" fill="url(#accentGrad)" />
+  <rect x="12" y="12" width="488" height="488" rx="100" fill="none" stroke="url(#goldGrad)" stroke-width="6" stroke-opacity="0.6" />
+
+  <!-- Central Emblem Group -->
+  <g filter="url(#shadow)" transform="translate(0, 0)">
+    <!-- Graduation Cap / Academy Roof -->
+    <path d="M 256 100 L 416 180 L 256 260 L 96 180 Z" fill="url(#goldGrad)" />
+    <!-- Tassel -->
+    <path d="M 400 190 L 400 280 L 416 295 L 390 295 L 400 280" fill="#F3C669" stroke="#A76E24" stroke-width="2" />
+    <circle cx="400" cy="188" r="6" fill="#F3C669" />
+
+    <!-- Cap Base Arc -->
+    <path d="M 160 215 L 160 290 C 160 340 352 340 352 290 L 352 215" fill="none" stroke="url(#goldGrad)" stroke-width="14" stroke-linecap="round" />
+
+    <!-- Classroom Seating Grid Visual (3x2 Desk arrangement) -->
+    <!-- Desk Row 1 -->
+    <rect x="156" y="340" width="56" height="34" rx="8" fill="#F2EFE9" />
+    <rect x="228" y="340" width="56" height="34" rx="8" fill="#F2EFE9" />
+    <rect x="300" y="340" width="56" height="34" rx="8" fill="#F2EFE9" />
+
+    <!-- Desk Row 2 -->
+    <rect x="156" y="394" width="56" height="34" rx="8" fill="url(#goldGrad)" />
+    <rect x="228" y="394" width="56" height="34" rx="8" fill="url(#goldGrad)" />
+    <rect x="300" y="394" width="56" height="34" rx="8" fill="url(#goldGrad)" />
+  </g>
+
+  <!-- Golden Stars or Sparks -->
+  <circle cx="120" cy="140" r="8" fill="#F3C669" opacity="0.8" />
+  <circle cx="392" cy="130" r="6" fill="#F3C669" opacity="0.8" />
+  <circle cx="256" cy="460" r="5" fill="#F3C669" opacity="0.9" />
+</svg>

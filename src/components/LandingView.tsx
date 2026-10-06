@@ -26,6 +26,7 @@ import heroClassroomImg from '../assets/images/classroom_students_1789420946355.
 import { AppFooter } from './AppFooter';
 import { SchoolActivitiesWall } from './SchoolActivitiesWall';
 import { safeApiFetch } from '../utils/apiClient';
+import { PWAInstallButton } from './PWAInstallButton';
 
 interface LandingViewProps {
   institutionName: string;
@@ -187,6 +188,9 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
         {/* Action buttons */}
         <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* PWA Mobile & Desktop Install Button */}
+          <PWAInstallButton variant="header" />
+
           {/* Dedicated Admin Portal Link */}
           <button
             type="button"
@@ -550,6 +554,11 @@ export const LandingView: React.FC<LandingViewProps> = ({
 
         </div>
 
+      </div>
+
+      {/* PWA Mobile App Install Invitation Banner */}
+      <div className="max-w-4xl mx-auto w-full mb-8">
+        <PWAInstallButton variant="banner" />
       </div>
 
       {/* School Activities & Photos Wall (Order requested by user: bottom of page above footer) */}
