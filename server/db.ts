@@ -1024,8 +1024,6 @@ export function matchStudent(
   const tName = normalizeArabic(targetName);
   const rName = normalizeArabic(recordName);
 
-  if (!tName && !rName) return false;
-
   // 1. If Massar number matches, it's definitively the exact same student
   const tMassar = (targetMassar || '').trim().toUpperCase();
   const rMassar = (recordMassar || '').trim().toUpperCase();
@@ -1033,15 +1031,23 @@ export function matchStudent(
     return true;
   }
 
-  // 2. If Arabic names match exactly after normalization
+  // 2. If student number in the section matches (المفتاح الأساسي للتلميذ في القسم)
+  const tNum = String(targetNum || '').trim();
+  const rNum = String(recordNum || '').trim();
+  if (tNum && rNum && tNum === rNum) {
+    // If numbers match, and names don't contradict each other (e.g. one name is empty or they overlap)
+    if (!tName || !rName || tName === rName || tName.includes(rName) || rName.includes(tName)) {
+      return true;
+    }
+  }
+
+  // 3. If Arabic names match exactly after normalization
   if (tName && rName && tName === rName) {
     return true;
   }
 
-  // 3. If one name contains the other (e.g. compound name or slight difference) AND numbers match if both present
+  // 4. If one name contains the other (e.g. compound name or slight difference) AND numbers match if both present
   if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
-    const tNum = String(targetNum || '').trim();
-    const rNum = String(recordNum || '').trim();
     if (!tNum || !rNum || tNum === rNum) {
       return true;
     }
@@ -1116,6 +1122,43 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       sectionRoster = JSON.parse(sec.roster_json || '[]');
     } catch {
       sectionRoster = [];
+    }
+
+    // Auto-synthesize roster from canonical seats if roster is empty or missing students
+    if (seatRows.length > 0) {
+      const occupiedSeats = seatRows.filter((s: any) => s.student_name && s.student_name.trim() !== '');
+      if (occupiedSeats.length > 0) {
+        const existingRosterNumbers = new Set(sectionRoster.map((r) => String(r.number || '').trim()));
+        let rosterChanged = false;
+
+        for (const s of occupiedSeats) {
+          const sNum = String(s.student_number || s.seat_num).trim();
+          if (!existingRosterNumbers.has(sNum)) {
+            sectionRoster.push({
+              id: s.roster_id || `r_${sec.id}_${s.seat_num}`,
+              name: s.student_name.trim(),
+              number: sNum,
+              massarNumber: (s.massar_number || '').trim()
+            });
+            existingRosterNumbers.add(sNum);
+            rosterChanged = true;
+          }
+        }
+
+        if (rosterChanged || (sectionRoster.length > 0 && (!sec.roster_json || sec.roster_json === '[]'))) {
+          sectionRoster.sort((a, b) => {
+            const na = parseInt(a.number, 10);
+            const nb = parseInt(b.number, 10);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            return (a.number || '').localeCompare(b.number || '', undefined, { numeric: true });
+          });
+          try {
+            db.prepare('UPDATE sections SET roster_json = ? WHERE id = ?').run(JSON.stringify(sectionRoster), sec.id);
+          } catch (e) {
+            console.error('Failed to update roster_json for section', sec.id, e);
+          }
+        }
+      }
     }
 
     // Teacher-specific private seating arrangement
