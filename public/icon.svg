@@ -1,52 +1,85 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
   <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#1A3B2F" />
-      <stop offset="100%" stop-color="#0F241C" />
+    <!-- Background Royal Sapphire Navy Gradient -->
+    <linearGradient id="schoolBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0A1E46" />
+      <stop offset="50%" stop-color="#12326C" />
+      <stop offset="100%" stop-color="#071533" />
     </linearGradient>
+    <!-- Rich Metallic Gold Gradient -->
     <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F3C669" />
-      <stop offset="100%" stop-color="#C98A3C" />
+      <stop offset="0%" stop-color="#FDE88F" />
+      <stop offset="50%" stop-color="#E5B242" />
+      <stop offset="100%" stop-color="#B8831E" />
     </linearGradient>
-    <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.25" />
-      <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0.0" />
+    <!-- Architecture Marble Accent -->
+    <linearGradient id="marbleGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" />
+      <stop offset="100%" stop-color="#E2E8F0" />
     </linearGradient>
     <filter id="shadow" x="-10%" y="-10%" width="130%" height="130%">
-      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.35" />
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.45" />
     </filter>
   </defs>
 
-  <!-- Background Base with Rounded Corners -->
-  <rect width="512" height="512" rx="112" fill="url(#bgGrad)" />
-  <rect width="512" height="512" rx="112" fill="url(#accentGrad)" />
-  <rect x="12" y="12" width="488" height="488" rx="100" fill="none" stroke="url(#goldGrad)" stroke-width="6" stroke-opacity="0.6" />
+  <!-- Squircle Base with Rounded Corners -->
+  <rect width="512" height="512" rx="112" fill="url(#schoolBg)" />
+  <rect x="12" y="12" width="488" height="488" rx="100" fill="none" stroke="url(#goldGrad)" stroke-width="4" stroke-opacity="0.35" />
 
-  <!-- Central Emblem Group -->
-  <g filter="url(#shadow)" transform="translate(0, 0)">
-    <!-- Graduation Cap / Academy Roof -->
-    <path d="M 256 100 L 416 180 L 256 260 L 96 180 Z" fill="url(#goldGrad)" />
-    <!-- Tassel -->
-    <path d="M 400 190 L 400 280 L 416 295 L 390 295 L 400 280" fill="#F3C669" stroke="#A76E24" stroke-width="2" />
-    <circle cx="400" cy="188" r="6" fill="#F3C669" />
+  <!-- School Emblem Graphic -->
+  <g filter="url(#shadow)">
+    <!-- 1. School Bell Tower & Spire -->
+    <polygon points="256,66 242,104 270,104" fill="url(#goldGrad)" />
+    <rect x="236" y="104" width="40" height="34" rx="4" fill="#071533" stroke="url(#goldGrad)" stroke-width="3.5" />
+    <circle cx="256" cy="120" r="7" fill="url(#goldGrad)" />
+    <path d="M 252 124 L 260 124 L 258 130 L 254 130 Z" fill="#FDE88F" />
 
-    <!-- Cap Base Arc -->
-    <path d="M 160 215 L 160 290 C 160 340 352 340 352 290 L 352 215" fill="none" stroke="url(#goldGrad)" stroke-width="14" stroke-linecap="round" />
+    <!-- 2. Main Triangular Pediment (Roof of Knowledge) -->
+    <polygon points="256,138 92,212 420,212" fill="url(#goldGrad)" stroke="#996912" stroke-width="2" />
+    <polygon points="256,154 126,206 386,206" fill="#0A1E46" />
 
-    <!-- Classroom Seating Grid Visual (3x2 Desk arrangement) -->
-    <!-- Desk Row 1 -->
-    <rect x="156" y="340" width="56" height="34" rx="8" fill="#F2EFE9" />
-    <rect x="228" y="340" width="56" height="34" rx="8" fill="#F2EFE9" />
-    <rect x="300" y="340" width="56" height="34" rx="8" fill="#F2EFE9" />
+    <!-- Open Book of Learning in Pediment Center -->
+    <path d="M 256 178 C 248 174 238 174 230 178 L 230 196 C 238 192 248 192 256 196 C 264 192 274 192 282 196 L 282 178 C 274 174 264 174 256 178 Z" fill="url(#goldGrad)" />
 
-    <!-- Desk Row 2 -->
-    <rect x="156" y="394" width="56" height="34" rx="8" fill="url(#goldGrad)" />
-    <rect x="228" y="394" width="56" height="34" rx="8" fill="url(#goldGrad)" />
-    <rect x="300" y="394" width="56" height="34" rx="8" fill="url(#goldGrad)" />
+    <!-- 3. Upper Entablature Architrave -->
+    <rect x="100" y="212" width="312" height="18" rx="3" fill="url(#marbleGrad)" />
+    <rect x="110" y="230" width="292" height="8" fill="url(#goldGrad)" />
+
+    <!-- 4. Classical Educational Pillars (Columns) -->
+    <rect x="122" y="238" width="34" height="136" rx="4" fill="url(#marbleGrad)" />
+    <rect x="196" y="238" width="34" height="136" rx="4" fill="url(#marbleGrad)" />
+    <rect x="282" y="238" width="34" height="136" rx="4" fill="url(#marbleGrad)" />
+    <rect x="356" y="238" width="34" height="136" rx="4" fill="url(#marbleGrad)" />
+
+    <!-- Column Capitals & Plinths -->
+    <rect x="118" y="238" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+    <rect x="192" y="238" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+    <rect x="278" y="238" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+    <rect x="352" y="238" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+
+    <rect x="118" y="368" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+    <rect x="192" y="368" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+    <rect x="278" y="368" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+    <rect x="352" y="368" width="42" height="6" rx="2" fill="url(#goldGrad)" />
+
+    <!-- 5. Grand Arched Entrance Door (School Gate) -->
+    <path d="M 238 374 L 238 290 C 238 274 274 274 274 290 L 274 374 Z" fill="#071533" stroke="url(#goldGrad)" stroke-width="4" />
+    <line x1="256" y1="282" x2="256" y2="374" stroke="url(#goldGrad)" stroke-width="2" />
+    <circle cx="251" cy="336" r="3" fill="#FDE88F" />
+    <circle cx="261" cy="336" r="3" fill="#FDE88F" />
+
+    <!-- Classical Multi-Pane Windows -->
+    <rect x="162" y="266" width="28" height="42" rx="4" fill="#071533" stroke="url(#goldGrad)" stroke-width="2" />
+    <line x1="176" y1="266" x2="176" y2="308" stroke="url(#goldGrad)" stroke-width="1.5" />
+    <line x1="162" y1="287" x2="190" y2="287" stroke="url(#goldGrad)" stroke-width="1.5" />
+
+    <rect x="322" y="266" width="28" height="42" rx="4" fill="#071533" stroke="url(#goldGrad)" stroke-width="2" />
+    <line x1="336" y1="266" x2="336" y2="308" stroke="url(#goldGrad)" stroke-width="1.5" />
+    <line x1="322" y1="287" x2="350" y2="287" stroke="url(#goldGrad)" stroke-width="1.5" />
+
+    <!-- 6. Grand Steps of Academy (Base Stairs) -->
+    <rect x="94" y="374" width="324" height="16" rx="3" fill="url(#marbleGrad)" />
+    <rect x="76" y="390" width="360" height="16" rx="3" fill="url(#marbleGrad)" />
+    <rect x="58" y="406" width="396" height="18" rx="4" fill="url(#goldGrad)" />
   </g>
-
-  <!-- Golden Stars or Sparks -->
-  <circle cx="120" cy="140" r="8" fill="#F3C669" opacity="0.8" />
-  <circle cx="392" cy="130" r="6" fill="#F3C669" opacity="0.8" />
-  <circle cx="256" cy="460" r="5" fill="#F3C669" opacity="0.9" />
 </svg>

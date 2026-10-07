@@ -17,7 +17,7 @@ export default defineConfig(() => {
           name: 'خرائط الأقسام - إدارة الفصول وقاعدة البيانات',
           short_name: 'خرائط الأقسام',
           description: 'نظام إدارة مقاعد التلاميذ بثانوية ايكسان الإعدادية مع حسابات الأساتذة، ونظام إسناد الأقسام، ولوحة الإشراف للمدير',
-          theme_color: '#1F3E32',
+          theme_color: '#1E3A8A',
           background_color: '#FAF8F5',
           display: 'standalone',
           orientation: 'any',

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'echsa-school-pwa-v1';
+const CACHE_NAME = 'echsa-school-pwa-v2';
 const PRECACHE_URLS = [
   '/',
   '/manifest.webmanifest',
