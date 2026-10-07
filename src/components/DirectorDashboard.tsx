@@ -981,11 +981,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </button>
 
         {/* حالات الغياب */}
-        <button
-          type="button"
+        <div
+          role="button"
+          tabIndex={0}
           onClick={() => navigateToTab('daily-archive')}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              navigateToTab('daily-archive');
+            }
+          }}
           title="انقر لفتح الأرشيف اليومي للغيابات والمخالفات وتتبع الحالات وتسويتها"
-          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 ${
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 select-none focus:outline-none focus:ring-2 focus:ring-[#8A5A18]/40 ${
             activeTab === 'daily-archive' && !inspectSectionId
               ? 'bg-[#FBF5EC] border-[#8A5A18] ring-2 ring-[#8A5A18]/20 shadow-xs'
               : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#8A5A18]'
@@ -1022,7 +1029,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             <span>انقر لفتح الأرشيف اليومي</span>
             <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">الأرشيف اليومي ↗</span>
           </div>
-        </button>
+        </div>
       </div>
 
       {/* 2.1 Compact Secondary Indicators */}
