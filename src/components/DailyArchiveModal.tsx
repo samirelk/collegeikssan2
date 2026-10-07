@@ -24,7 +24,8 @@ import {
   Stethoscope,
   Info,
   FileSpreadsheet,
-  LogOut
+  LogOut,
+  RotateCcw
 } from 'lucide-react';
 import { MassarAbsenceModal } from './MassarAbsenceModal';
 import { StudentAttendanceCardModal } from './StudentAttendanceCardModal';
@@ -473,6 +474,45 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     }
   };
 
+  const [isResettingActive, setIsResettingActive] = useState(false);
+
+  // Handle Reset / Zero Active Absences Counter
+  const handleResetActiveAbsences = async () => {
+    const confirmed = window.confirm(
+      'هل تريد تصفير عداد حالات الغياب وتسوية جميع الحالات الحالية؟\n\nسيتم توثيق الغيابات كمسوّاة في الأرشيف اليومي لكي يبدأ العداد من جديد (0).'
+    );
+    if (!confirmed) return;
+
+    setIsResettingActive(true);
+    try {
+      const res = await fetch('/api/daily-archive/absences/reset-active', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': currentUser?.id || '',
+          'x-user-role': currentUser?.role || 'director'
+        },
+        body: JSON.stringify({
+          actorId: currentUser?.id || '',
+          actorName: currentUser?.fullName || 'إدارة المؤسسة',
+          actorRole: currentUser?.role || 'director',
+          actorSubject: currentUser?.subject || 'الإدارة التربوية'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMsg(data.message || 'تم تصفير عداد الغيابات وتسوية الحالات بنجاح');
+        fetchArchiveData(selectedDate);
+      } else {
+        alert(data.error || 'تعذر تصفير العداد');
+      }
+    } catch (err: any) {
+      alert(err.message || 'خطأ في الاتصال بالخادم');
+    } finally {
+      setIsResettingActive(false);
+    }
+  };
+
   // Filtered Absences
   const filteredAbsences = useMemo(() => {
     return absences.filter(item => {
@@ -699,6 +739,19 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
               <Plus className="w-3.5 h-3.5" />
               <span>تسجيل مخالفة</span>
             </button>
+
+            {(currentUser?.role === 'director' || currentUser?.role === 'admin') && (
+              <button
+                type="button"
+                onClick={handleResetActiveAbsences}
+                disabled={isResettingActive}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 transition-colors cursor-pointer shadow-2xs disabled:opacity-50"
+                title="تصفير عداد حالات الغياب وتسوية كافة الحالات وتوثيقها في الأرشيف لكي يبدأ العداد من 0"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-amber-800" />
+                <span>{isResettingActive ? 'جارٍ التصفير...' : 'تصفير عداد الغياب ↺'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

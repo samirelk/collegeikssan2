@@ -139,7 +139,7 @@ export const Topbar: React.FC<TopbarProps> = ({
                 ? 'bg-[#1A4E47] text-white border-[#1A4E47]'
                 : 'bg-[#E8F2F0] hover:bg-[#D5E9E5] text-[#1A4E47] border-[#1A4E47]/20'
             }`}
-            title="بوابة المشرف العام المستقلة (/admin) — الأستاذ: سمير القراشي"
+            title="بوابة المشرف العام على التطبيق (/admin)"
           >
             <ShieldCheck className={`w-4 h-4 ${isAdminRoute ? 'text-[#C98A3C]' : 'text-[#1A4E47]'}`} />
             <span>إدارة</span>

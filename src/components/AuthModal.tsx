@@ -905,7 +905,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         id="input-forgot-identifier"
                         value={forgotIdentifier}
                         onChange={(e) => setForgotIdentifier(e.target.value)}
-                        placeholder="مثال: mrsamir069@gmail.com أو admin"
+                        placeholder="مثال: user@example.com أو اسم المستخدم"
                         required
                         className="w-full pl-3 pr-10 py-2.5 bg-[#172B24] border border-[rgba(242,239,227,0.18)] rounded-xl text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.35)] focus:outline-none focus:border-[#C98A3C]"
                       />

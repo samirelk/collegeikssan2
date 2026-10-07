@@ -207,6 +207,50 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     await Promise.all([fetchDirectorData(), onRefreshSections()]);
   };
 
+  const [isResettingAbsences, setIsResettingAbsences] = useState(false);
+
+  const handleResetAbsencesCounter = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const confirmed = window.confirm(
+      'هل تريد تصفير عداد حالات الغياب؟\n\nسيتم إنهاء وتسوية جميع حالات الغياب النشطة الحالية وتوثيقها في الأرشيف اليومي، لكي يبدأ العداد من جديد (0).'
+    );
+    if (!confirmed) return;
+
+    setIsResettingAbsences(true);
+    try {
+      const res = await fetch('/api/daily-archive/absences/reset-active', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          actorId: currentUser.id,
+          actorName: currentUser.fullName || 'إدارة المؤسسة',
+          actorRole: currentUser.role,
+          actorSubject: currentUser.subject || 'الإدارة التربوية'
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(data.message || 'تم تصفير عداد الغيابات بنجاح (العداد الحالي: 0)');
+        // Optimistically update analytics summary totalAbsences to 0 immediately
+        setAnalytics((prev: any) => prev ? {
+          ...prev,
+          summary: {
+            ...prev.summary,
+            totalAbsences: 0,
+            activeAbsences: 0
+          }
+        } : prev);
+        await Promise.all([fetchDirectorData(), onRefreshSections()]);
+      } else {
+        alert(data.error || 'تعذر تصفير العداد');
+      }
+    } catch (err: any) {
+      alert(err.message || 'خطأ في الاتصال بالخادم');
+    } finally {
+      setIsResettingAbsences(false);
+    }
+  };
+
   // Quick Teacher Creation
   const handleCreateTeacher = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -694,11 +738,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     setActiveTab(tab);
     setInspectSectionId(null);
     setTimeout(() => {
-      const element = document.getElementById('director-main-tabs');
+      if (tab === 'daily-archive') {
+        const dailyArchiveEl = document.getElementById('director-daily-archive-section');
+        if (dailyArchiveEl) {
+          dailyArchiveEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
+        }
+      }
+      const element = document.getElementById(`director-tab-${tab}`) || document.getElementById('director-main-tabs');
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
-    }, 50);
+    }, 60);
   };
 
   return (
@@ -932,30 +983,44 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         {/* حالات الغياب */}
         <button
           type="button"
-          onClick={() => navigateToTab('absences')}
-          title="انقر لفتح تتبع حالات الغياب ورصد التلاميذ الأكثر غياباً والأرشيف"
+          onClick={() => navigateToTab('daily-archive')}
+          title="انقر لفتح الأرشيف اليومي للغيابات والمخالفات وتتبع الحالات وتسويتها"
           className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 ${
-            activeTab === 'absences' && !inspectSectionId
+            activeTab === 'daily-archive' && !inspectSectionId
               ? 'bg-[#FBF5EC] border-[#8A5A18] ring-2 ring-[#8A5A18]/20 shadow-xs'
               : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#8A5A18]'
           }`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب</span>
-            <div className="w-6 h-6 rounded-lg bg-[#8A5A18]/10 flex items-center justify-center text-[#8A5A18]">
-              <UserX className="w-3.5 h-3.5" />
+            <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب النشطة</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleResetAbsencesCounter}
+                disabled={isResettingAbsences}
+                title="تصفير عداد حالات الغياب وتسوية الحالات لكي يبدأ الحساب من جديد (0)"
+                className="px-2 py-0.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-[#8A5A18] text-[10px] font-bold border border-amber-300 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 disabled:opacity-50"
+              >
+                {isResettingAbsences ? 'تصفير...' : 'تصفير العداد ↺'}
+              </button>
+              <div className="w-6 h-6 rounded-lg bg-[#8A5A18]/10 flex items-center justify-center text-[#8A5A18]">
+                <UserX className="w-3.5 h-3.5" />
+              </div>
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5">
-            {isLoading && !analytics ? (
-              <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
-            ) : (
-              analytics?.summary?.totalAbsences ?? 0
-            )}
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5 flex items-baseline gap-2">
+            <span>
+              {isLoading && !analytics ? (
+                <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
+              ) : (
+                analytics?.summary?.totalAbsences ?? 0
+              )}
+            </span>
+            <span className="text-[11px] font-normal text-[#8A5A18]/80 font-sans">غياب غير مرفوع</span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
-            <span>تسجيل غياب مرصود</span>
-            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">تتبع ↗</span>
+            <span>انقر لفتح الأرشيف اليومي</span>
+            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">الأرشيف اليومي ↗</span>
           </div>
         </button>
       </div>
@@ -2095,7 +2160,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       {/* 4.7 DAILY ARCHIVE TAB (أرشيف الغيابات والمخالفات اليومي) */}
       {activeTab === 'daily-archive' && !inspectSectionId && (
-        <div className="animate-in fade-in duration-150">
+        <div id="director-daily-archive-section" className="animate-in fade-in duration-150 scroll-mt-6">
           <DailyArchiveModal
             isOpen={true}
             onClose={() => {}}

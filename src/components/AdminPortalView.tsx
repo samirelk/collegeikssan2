@@ -167,7 +167,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
 
       // Strict enforcement: ONLY admin role can enter /admin
       if (data.user.role !== 'admin') {
-        throw new Error('صفحة /admin مخصصة حصرياً للمشرف على التطبيق (الأستاذ سمير القراشي). مدير المؤسسة والأساتذة يسجلون الدخول من البوابة المدرسية الرئيسية.');
+        throw new Error('صفحة /admin مخصصة حصرياً للمشرف العام على التطبيق. مدير المؤسسة والأساتذة يسجلون الدخول من البوابة المدرسية الرئيسية.');
       }
 
       onLoginSuccess(data.user);
@@ -230,7 +230,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               بوابة المشرف العام على التطبيق
             </h2>
             <p className="text-xs text-[#F2EFE3]/80 mt-1 font-semibold">
-              الأستاذ: سمير القراشي • الموسم: {academicYear || '2026/2027'}
+              الموسم الدراسي: {academicYear || '2026/2027'}
             </p>
           </div>
 
@@ -258,7 +258,7 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
                     required
                     value={loginIdentifier}
                     onChange={(e) => setLoginIdentifier(e.target.value)}
-                    placeholder="admin أو mrsamiro69@gmail.com"
+                    placeholder="اسم المستخدم أو البريد الإلكتروني"
                     className="w-full bg-[#FAF8F5] border border-[#D5CDC0] rounded-xl pr-10 pl-3 py-2.5 text-sm text-[#1F2926] outline-none focus:border-[#1A4E47] focus:bg-white transition-all font-mono"
                   />
                   <User className="w-4 h-4 text-[#6C6356] absolute right-3 top-1/2 -translate-y-1/2" />
@@ -310,17 +310,6 @@ export const AdminPortalView: React.FC<AdminPortalViewProps> = ({
               </button>
 
             </form>
-
-            {/* Security Notice */}
-            <div className="p-3.5 rounded-2xl bg-[#FAF8F5] border border-[#E5DFD4] text-[11px] text-[#6C6356] leading-relaxed space-y-1 text-right">
-              <div className="font-bold text-[#1F2926] flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#1A4E47]" />
-                <span>صلاحيات المشرف على التطبيق:</span>
-              </div>
-              <p>
-                إدارة المدراء (إضافة مدير، إزالة مدير)، إدارة الأساتذة (إضافة أستاذ، إزالة أستاذ)، وإدارة النسخ الاحتياطي للنظام.
-              </p>
-            </div>
 
             {/* Back to Home Link */}
             <div className="pt-2 text-center border-t border-[#E5DFD4]">

@@ -1840,44 +1840,48 @@ export function updateSeat(
           } catch {}
         }
       } else {
-        db.prepare(`
-          UPDATE attendance_history SET
-            status = ?,
-            seat_num = ?,
-            student_name = ?,
-            student_number = ?,
-            created_by = COALESCE(NULLIF(?, ''), created_by),
-            removed_by = '',
-            removed_at = '',
-            remover_name = '',
-            remover_subject = '',
-            duration_label = '1 ساعة (جاري)',
-            count_in_stats = 1
-          WHERE id = ?
-        `).run(attendance, targetSeatNum, name.trim(), number.trim(), actorId || '', existing.id);
+        const isAlreadyResolved = Boolean(existing.removed_at && String(existing.removed_at).trim() !== '');
+        if (isAlreadyResolved) {
+          // The student's absence was already lifted / resolved by administration!
+          // Maintain the resolution and ensure seat attendance remains NULL
+          db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND seat_num = ?')
+            .run(sectionId, targetSeatNum);
+        } else {
+          db.prepare(`
+            UPDATE attendance_history SET
+              status = ?,
+              seat_num = ?,
+              student_name = ?,
+              student_number = ?,
+              created_by = COALESCE(NULLIF(?, ''), created_by),
+              duration_label = '1 ساعة (جاري)',
+              count_in_stats = 1
+            WHERE id = ?
+          `).run(attendance, targetSeatNum, name.trim(), number.trim(), actorId || '', existing.id);
 
-        if (!data.skipCloudSync) {
-          try {
-            cloudSaveAttendance({
-              id: String(existing.id),
-              sectionId,
-              seatNum: targetSeatNum,
-              studentName: name.trim(),
-              studentNumber: number.trim(),
-              massarNumber: massarNumber.trim(),
-              status: attendance,
-              date: today,
-              time: now.slice(11, 16),
-              session: existing.session_period || 'غياب بالساعات',
-              subject: secInfo?.teacher_subject || '',
-              teacherName: secInfo?.teacher_name || '',
-              isJustified: false,
-              justificationReason: '',
-              absenceMode: existing.absence_mode || 'hours',
-              durationLabel: '1 ساعة (جاري)',
-              createdAt: existing.created_at || now
-            });
-          } catch {}
+          if (!data.skipCloudSync) {
+            try {
+              cloudSaveAttendance({
+                id: String(existing.id),
+                sectionId,
+                seatNum: targetSeatNum,
+                studentName: name.trim(),
+                studentNumber: number.trim(),
+                massarNumber: massarNumber.trim(),
+                status: attendance,
+                date: today,
+                time: now.slice(11, 16),
+                session: existing.session_period || 'غياب بالساعات',
+                subject: secInfo?.teacher_subject || '',
+                teacherName: secInfo?.teacher_name || '',
+                isJustified: false,
+                justificationReason: '',
+                absenceMode: existing.absence_mode || 'hours',
+                durationLabel: '1 ساعة (جاري)',
+                createdAt: existing.created_at || now
+              });
+            } catch {}
+          }
         }
       }
     } catch {
@@ -1885,18 +1889,20 @@ export function updateSeat(
     }
   } else if ((attendance === 'present' || attendance === null) && name.trim()) {
     try {
-      const today = now.slice(0, 10);
+      // Find ANY active un-removed absence for this student or seat in this section
       const absenceRow = db.prepare(`
         SELECT * FROM attendance_history
-        WHERE section_id = ? AND (seat_num = ? OR student_name = ?) AND recorded_date = ? AND (status = 'absent' OR status = 'late')
-        ${actorId && actorRole === 'teacher' ? 'AND (created_by = ? OR created_by = "")' : ''}
+        WHERE section_id = ?
+          AND (seat_num = ? OR LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
+          AND (status = 'absent' OR status = 'late')
+          AND (removed_at IS NULL OR removed_at = '')
         ORDER BY created_at DESC LIMIT 1
-      `).get(sectionId, targetSeatNum, name.trim(), today, ...(actorId && actorRole === 'teacher' ? [actorId] : [])) as any;
+      `).get(sectionId, targetSeatNum, name.trim()) as any;
 
       if (absenceRow) {
         const sameTeacher = actorId && absenceRow.created_by && actorId === absenceRow.created_by;
         const diffMs = !!absenceRow.created_at ? (Date.parse(now) - Date.parse(absenceRow.created_at)) : 0;
-        // If the SAME teacher toggles back within the same session/period (within 60 minutes), it's an accidental misclick:
+        // If the SAME teacher toggles back within 60 minutes, it's an accidental misclick:
         // Do NOT keep in archive - delete completely!
         const isQuickUndo = sameTeacher && diffMs <= 60 * 60 * 1000;
 
@@ -1918,6 +1924,9 @@ export function updateSeat(
               removerName = removerUser.full_name || '';
               removerSubject = removerUser.subject || '';
             }
+          }
+          if (!removerName) {
+            removerName = actorRole === 'admin' ? 'المشرف العام' : (actorRole === 'director' ? 'إدارة المؤسسة' : 'الأستاذ');
           }
 
           const hours = calculateHoursDifference(absenceRow.created_at, now);
@@ -2001,6 +2010,7 @@ export function batchUpdateSeats(
   try {
     const seatNums = updates.map((u) => u.seatNum);
     const placeholders = seatNums.map(() => '?').join(',');
+    const hasAttendanceUpdates = updates.some((u) => u.attendance !== undefined);
 
     if (actorRole === 'teacher' && actorId) {
       const overrides = db.prepare(`
@@ -2029,8 +2039,10 @@ export function batchUpdateSeats(
       if (writes.length > 0) {
         commitBatchDocs(writes).catch((e) => console.warn('[batchUpdateSeats] teacher cloud batch warning:', e));
       }
-    } else {
-      // Sync canonical seats
+    }
+
+    // ALWAYS sync canonical seats if attendance was updated, or if actor is admin/director
+    if (hasAttendanceUpdates || actorRole !== 'teacher' || !actorId) {
       const seats = db.prepare(`
         SELECT * FROM seats WHERE section_id = ? AND seat_num IN (${placeholders})
       `).all(sectionId, ...seatNums) as any[];
@@ -6002,20 +6014,33 @@ export function getDirectorAnalytics() {
   const dailyViolationsCount = (db.prepare('SELECT COUNT(*) as count FROM daily_violations').get() as any).count;
   const totalViolations = dailyViolationsCount;
   
-  // Accurately count absences without double counting
-  const historyAbsences = (db.prepare("SELECT COUNT(*) as count FROM attendance_history WHERE status = 'absent' AND COALESCE(count_in_stats, 1) = 1").get() as any).count;
+  // Accurately count active un-lifted absences (unresolved)
+  const activeHistoryAbsences = (db.prepare(`
+    SELECT COUNT(*) as count 
+    FROM attendance_history 
+    WHERE (status = 'absent' OR status = 'late') 
+      AND (removed_at IS NULL OR removed_at = '')
+  `).get() as any).count;
+
+  // For seats that might have attendance marked directly on the class map
+  // Only count if there is NO attendance_history record for this student/seat (if resolved, it was already lifted!)
   const unrecordedSeatAbsences = (db.prepare(`
     SELECT COUNT(*) as count FROM seats s
-    WHERE s.attendance = 'absent'
+    WHERE (s.attendance = 'absent' OR s.attendance = 'late')
     AND s.student_name IS NOT NULL AND TRIM(s.student_name) != ''
     AND NOT EXISTS (
       SELECT 1 FROM attendance_history ah 
-      WHERE ah.section_id = s.section_id AND ah.seat_num = s.seat_num 
-      AND (ah.recorded_date = ? OR ah.recorded_date = ?) AND ah.status = 'absent' AND COALESCE(ah.count_in_stats, 1) = 1
+      WHERE ah.section_id = s.section_id 
+        AND (ah.seat_num = s.seat_num OR LOWER(TRIM(ah.student_name)) = LOWER(TRIM(s.student_name)))
     )
-  `).get(todayIso, todayFr) as any).count;
+  `).get() as any).count;
 
-  const totalAbsences = historyAbsences + unrecordedSeatAbsences;
+  const totalAbsences = activeHistoryAbsences + unrecordedSeatAbsences;
+  const resolvedAbsences = (db.prepare(`
+    SELECT COUNT(*) as count 
+    FROM attendance_history 
+    WHERE removed_at IS NOT NULL AND removed_at != ''
+  `).get() as any).count;
 
   return {
     topViolations: violationRows.map((r) => ({
@@ -6067,7 +6092,9 @@ export function getDirectorAnalytics() {
       totalTeachers,
       totalSections,
       totalViolations,
-      totalAbsences
+      totalAbsences,
+      activeAbsences: totalAbsences,
+      resolvedAbsences
     }
   };
 }
@@ -7152,20 +7179,39 @@ export function resolveDailyAbsence(id: number, actor: { id?: string; name?: str
     WHERE id = ?
   `).run(actor.id || '', now, removerName, removerSubject, hours, durationLabel, id);
 
-  // Also remove absence state from active seats in class map if today
+  // Also remove absence state from active seats in class map and teacher overrides
   try {
-    const today = now.slice(0, 10);
-    if (existing.recorded_date === today) {
-      if (existing.seat_num > 0) {
-        db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND seat_num = ? AND attendance = ?')
-          .run(existing.section_id, existing.seat_num, existing.status);
-      }
-      if (existing.student_name) {
-        db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) AND attendance = ?')
-          .run(existing.section_id, existing.student_name.trim(), existing.status);
-      }
+    if (existing.seat_num > 0) {
+      db.prepare('UPDATE seats SET attendance = NULL, updated_at = ? WHERE section_id = ? AND seat_num = ?')
+        .run(now, existing.section_id, existing.seat_num);
+      try {
+        const fullSeat = db.prepare('SELECT * FROM seats WHERE section_id = ? AND seat_num = ?').get(existing.section_id, existing.seat_num) as any;
+        if (fullSeat) {
+          cloudSaveSeat(existing.section_id, {
+            ...fullSeat,
+            attendance: null,
+            updatedAt: now
+          });
+        }
+      } catch {}
     }
-  } catch {}
+    if (existing.student_name && existing.student_name.trim()) {
+      db.prepare('UPDATE seats SET attendance = NULL, updated_at = ? WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))')
+        .run(now, existing.section_id, existing.student_name.trim());
+      try {
+        const matchedSeats = db.prepare('SELECT * FROM seats WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))').all(existing.section_id, existing.student_name.trim()) as any[];
+        for (const st of matchedSeats) {
+          cloudSaveSeat(existing.section_id, {
+            ...st,
+            attendance: null,
+            updatedAt: now
+          });
+        }
+      } catch {}
+    }
+  } catch (seatErr) {
+    console.warn('[resolveDailyAbsence] Clear seat warning:', seatErr);
+  }
 
   try {
     cloudSaveAttendance({
@@ -7178,7 +7224,9 @@ export function resolveDailyAbsence(id: number, actor: { id?: string; name?: str
       durationLabel,
       countInStats: 1
     });
-  } catch {}
+  } catch (cloudErr) {
+    console.warn('[resolveDailyAbsence] cloudSaveAttendance warning:', cloudErr);
+  }
 
   return { success: true, message: 'تم إنهاء حالة الغياب الحالي وتوثيقها في الأرشيف كسجل مسوّى بنجاح' };
 }
@@ -7195,23 +7243,191 @@ export function deleteDailyAbsence(id: number) {
       console.warn('[deleteDailyAbsence] cloudDeleteAttendance warning:', err);
     }
 
-    // 2. Also reset attendance in seats table if it was today's attendance
+    // 2. Also reset attendance in seats table and overrides
     try {
-      const today = new Date().toISOString().slice(0, 10);
-      if (existing.recorded_date === today) {
-        if (existing.seat_num > 0) {
-          db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND seat_num = ? AND attendance = ?')
-            .run(existing.section_id, existing.seat_num, existing.status);
-        }
-        if (existing.student_name) {
-          db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) AND attendance = ?')
-            .run(existing.section_id, existing.student_name.trim(), existing.status);
-        }
+      const now = new Date().toISOString();
+      if (existing.seat_num > 0) {
+        db.prepare('UPDATE seats SET attendance = NULL, updated_at = ? WHERE section_id = ? AND seat_num = ?')
+          .run(now, existing.section_id, existing.seat_num);
+        try {
+          const fullSeat = db.prepare('SELECT * FROM seats WHERE section_id = ? AND seat_num = ?').get(existing.section_id, existing.seat_num) as any;
+          if (fullSeat) {
+            cloudSaveSeat(existing.section_id, {
+              ...fullSeat,
+              attendance: null,
+              updatedAt: now
+            });
+          }
+        } catch {}
+      }
+      if (existing.student_name && existing.student_name.trim()) {
+        db.prepare('UPDATE seats SET attendance = NULL, updated_at = ? WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))')
+          .run(now, existing.section_id, existing.student_name.trim());
+        try {
+          const matchedSeats = db.prepare('SELECT * FROM seats WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))').all(existing.section_id, existing.student_name.trim()) as any[];
+          for (const st of matchedSeats) {
+            cloudSaveSeat(existing.section_id, {
+              ...st,
+              attendance: null,
+              updatedAt: now
+            });
+          }
+        } catch {}
       }
     } catch {}
   }
 
   return { success: true };
+}
+
+// Reset all currently active absences in administration (Zero the counter & document as resolved in archive)
+export function resetActiveAbsencesCounter(actor: { id?: string; name?: string; role?: string; subject?: string }) {
+  const now = new Date().toISOString();
+  const removerName = actor.name || (actor.role === 'admin' ? 'المشرف العام' : 'إدارة المؤسسة');
+  const removerSubject = actor.subject || 'الإدارة التربوية';
+
+  // 1. First, document ANY seat currently marked absent/late into attendance_history so it is recorded in the archive
+  const absentSeats = db.prepare(`
+    SELECT * FROM seats
+    WHERE (attendance = 'absent' OR attendance = 'late')
+      AND student_name IS NOT NULL AND TRIM(student_name) != ''
+  `).all() as any[];
+
+  for (const s of absentSeats) {
+    const existingActive = db.prepare(`
+      SELECT id FROM attendance_history
+      WHERE section_id = ? AND (seat_num = ? OR LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
+        AND (removed_at IS NULL OR removed_at = '')
+      LIMIT 1
+    `).get(s.section_id, s.seat_num, s.student_name) as any;
+
+    if (!existingActive) {
+      const todayStr = s.updated_at ? String(s.updated_at).slice(0, 10) : now.slice(0, 10);
+      db.prepare(`
+        INSERT INTO attendance_history (
+          section_id, seat_num, student_name, student_number,
+          status, recorded_date, session_period, teacher_name, teacher_subject,
+          justified, justification_reason, notes, created_at,
+          absence_mode, duration_hours, duration_days, duration_label,
+          removed_by, removed_at, remover_name, remover_subject, count_in_stats
+        ) VALUES (?, ?, ?, ?, ?, ?, 'كامل اليوم', 'الإدارة التربوية', 'الإدارة التربوية', 'unjustified', '', '', ?, 'hours', 1, 0, 'تسوية إدارية (تصفير العداد)', ?, ?, ?, ?, 1)
+      `).run(
+        s.section_id,
+        s.seat_num,
+        s.student_name,
+        s.student_number || '',
+        s.attendance || 'absent',
+        todayStr,
+        s.updated_at || now,
+        actor.id || '',
+        now,
+        removerName,
+        removerSubject
+      );
+    }
+  }
+
+  // 2. Find all active (un-removed) attendance history rows and mark them as settled / resolved in history
+  const activeRows = db.prepare(`
+    SELECT * FROM attendance_history
+    WHERE (removed_at IS NULL OR removed_at = '')
+  `).all() as any[];
+
+  db.prepare(`
+    UPDATE attendance_history SET
+      removed_by = ?,
+      removed_at = ?,
+      remover_name = ?,
+      remover_subject = ?,
+      duration_label = 'تسوية إدارية (تصفير العداد)',
+      count_in_stats = 1
+    WHERE (removed_at IS NULL OR removed_at = '')
+  `).run(actor.id || '', now, removerName, removerSubject);
+
+  // 3. Clear attendance on all seats in seats table and fetch them for Firestore sync
+  const seatsToClear = db.prepare(`
+    SELECT * FROM seats WHERE attendance IS NOT NULL
+  `).all() as any[];
+
+  db.prepare(`
+    UPDATE seats SET attendance = NULL, updated_at = ? WHERE attendance IS NOT NULL
+  `).run(now);
+
+  // 4. Cloud sync all resolved records & cleared seats to Firestore in one batch
+  try {
+    const allResolvedHistory = db.prepare(`
+      SELECT * FROM attendance_history WHERE removed_at = ? OR removed_at IS NULL OR removed_at = ''
+    `).all(now) as any[];
+
+    const writes: Array<{ type: 'set'; collection: string; id: string; data: any }> = [];
+
+    for (const row of allResolvedHistory) {
+      writes.push({
+        type: 'set',
+        collection: 'attendance_history',
+        id: String(row.id),
+        data: {
+          id: String(row.id),
+          sectionId: row.section_id,
+          seatNum: Number(row.seat_num || 0),
+          studentName: row.student_name || '',
+          studentNumber: row.student_number || '',
+          massarNumber: row.massar_number || '',
+          status: row.status || 'absent',
+          date: row.recorded_date || '',
+          session: row.session_period || 'كامل اليوم',
+          teacherName: row.teacher_name || '',
+          teacherSubject: row.teacher_subject || '',
+          isJustified: row.justified === 'justified',
+          justificationReason: row.justification_reason || '',
+          notes: row.notes || '',
+          createdAt: row.created_at || now,
+          absenceMode: row.absence_mode || 'hours',
+          durationHours: Number(row.duration_hours || 1),
+          durationDays: Number(row.duration_days || 0),
+          durationLabel: row.duration_label || 'تسوية إدارية (تصفير العداد)',
+          removedBy: row.removed_by || actor.id || '',
+          removedAt: row.removed_at || now,
+          removerName: row.remover_name || removerName,
+          removerSubject: row.remover_subject || removerSubject,
+          countInStats: 1
+        }
+      });
+    }
+
+    for (const st of seatsToClear) {
+      const seatId = `${st.section_id}_seat_${st.seat_num}`;
+      writes.push({
+        type: 'set',
+        collection: 'seats',
+        id: seatId,
+        data: {
+          id: seatId,
+          sectionId: st.section_id,
+          seatNum: Number(st.seat_num),
+          studentName: st.student_name || '',
+          studentNumber: st.student_number || '',
+          massarNumber: st.massar_number || '',
+          rosterId: st.roster_id || null,
+          attendance: null,
+          statusColor: st.status_color || 'default',
+          updatedAt: now
+        }
+      });
+    }
+
+    if (writes.length > 0) {
+      commitBatchDocs(writes).catch((e) => console.warn('[resetActiveAbsencesCounter] batch sync warning:', e));
+    }
+  } catch (cloudErr) {
+    console.warn('[resetActiveAbsencesCounter] Cloud sync warning:', cloudErr);
+  }
+
+  return {
+    success: true,
+    resolvedCount: activeRows.length + absentSeats.length,
+    message: 'تم تصفير عداد حالات الغياب بنجاح وتسوية السجلات وتوثيقها في الأرشيف'
+  };
 }
 
 export function batchImportDailyAbsences(items: Array<{

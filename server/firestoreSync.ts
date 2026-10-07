@@ -344,6 +344,19 @@ async function syncSectionsFromFirestore(db: any) {
             }
           }
 
+          let effectiveAttendance = st.attendance || null;
+          if (effectiveAttendance) {
+            const isResolved = db.prepare(`
+              SELECT 1 FROM attendance_history
+              WHERE section_id = ? AND (seat_num = ? OR (student_name != '' AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))))
+                AND removed_at IS NOT NULL AND removed_at != ''
+              LIMIT 1
+            `).get(st.sectionId, Number(st.seatNum), st.studentName || '');
+            if (isResolved) {
+              effectiveAttendance = null;
+            }
+          }
+
           insertSeat.run(
             st.sectionId,
             Number(st.seatNum),
@@ -351,7 +364,7 @@ async function syncSectionsFromFirestore(db: any) {
             st.studentNumber || '',
             st.massarNumber || '',
             st.rosterId || null,
-            st.attendance || null,
+            effectiveAttendance,
             st.statusColor || 'default',
             st.updatedAt || new Date().toISOString()
           );
@@ -376,8 +389,9 @@ async function syncAttendanceFromFirestore(db: any) {
         id, section_id, seat_num, student_name, student_number,
         status, recorded_date, session_period, teacher_name, teacher_subject,
         justified, justification_reason, notes, created_at,
-        absence_mode, duration_hours, duration_days, duration_label
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        absence_mode, duration_hours, duration_days, duration_label,
+        removed_by, removed_at, remover_name, remover_subject, count_in_stats
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
@@ -392,6 +406,15 @@ async function syncAttendanceFromFirestore(db: any) {
 
         const fallbackDate = a.createdAt ? String(a.createdAt).slice(0, 10) : new Date().toISOString().slice(0, 10);
         const recordedDate = a.date || a.recordedDate || fallbackDate;
+
+        const localExisting = db.prepare('SELECT removed_at, remover_name, remover_subject, duration_label FROM attendance_history WHERE id = ?').get(a.id) as any;
+        const incomingRemovedAt = a.removedAt || a.removed_at || '';
+        const effectiveRemovedAt = (localExisting?.removed_at && String(localExisting.removed_at).trim() !== '')
+          ? localExisting.removed_at
+          : incomingRemovedAt;
+        const effectiveRemoverName = localExisting?.remover_name || a.removerName || a.remover_name || '';
+        const effectiveRemoverSub = localExisting?.remover_subject || a.removerSubject || a.remover_subject || '';
+        const effectiveDurationLabel = localExisting?.duration_label || a.durationLabel || '';
 
         insertStmt.run(
           a.id,
@@ -411,7 +434,12 @@ async function syncAttendanceFromFirestore(db: any) {
           a.absenceMode || 'hours',
           Number(a.durationHours || 1),
           Number(a.durationDays || 0),
-          a.durationLabel || ''
+          effectiveDurationLabel,
+          a.removedBy || a.removed_by || '',
+          effectiveRemovedAt,
+          effectiveRemoverName,
+          effectiveRemoverSub,
+          a.countInStats !== undefined ? Number(a.countInStats) : 1
         );
       } catch (rowErr: any) {
         console.warn(`[FirestoreSync] Skipping attendance record ${a.id}: ${rowErr?.message}`);
@@ -1106,14 +1134,30 @@ export function cloudSaveSeat(sectionId: string, seat: any) {
 }
 
 export function cloudSaveAttendance(att: any) {
-  return trackCloudWrite(`cloudSaveAttendance(${att.id})`, () => setDoc('attendance_history', att.id, {
-    id: att.id, sectionId: att.sectionId || att.section_id, seatNum: Number(att.seatNum || att.seat_num || 0),
-    studentName: att.studentName || att.student_name || '', studentNumber: att.studentNumber || att.student_number || '',
-    massarNumber: att.massarNumber || att.massar_number || '', status: att.status, date: att.date,
-    time: att.time || '', session: att.session || '', subject: att.subject || '',
+  const attId = String(att.id);
+  return trackCloudWrite(`cloudSaveAttendance(${attId})`, () => setDoc('attendance_history', attId, {
+    id: attId,
+    sectionId: att.sectionId || att.section_id,
+    seatNum: Number(att.seatNum || att.seat_num || 0),
+    studentName: att.studentName || att.student_name || '',
+    studentNumber: att.studentNumber || att.student_number || '',
+    massarNumber: att.massarNumber || att.massar_number || '',
+    status: att.status,
+    date: att.date || att.recorded_date || att.recordedDate,
+    time: att.time || '',
+    session: att.session || att.session_period || '',
+    subject: att.subject || att.teacher_subject || '',
     teacherName: att.teacherName || att.teacher_name || '',
-    isJustified: Boolean(att.isJustified ?? att.is_justified),
+    isJustified: Boolean(att.isJustified ?? att.is_justified ?? (att.justified === 'justified')),
     justificationReason: att.justificationReason || att.justification_reason || '',
+    removedAt: att.removedAt || att.removed_at || '',
+    removedBy: att.removedBy || att.removed_by || '',
+    removerName: att.removerName || att.remover_name || '',
+    removerSubject: att.removerSubject || att.remover_subject || '',
+    durationHours: Number(att.durationHours || att.duration_hours || 0),
+    durationDays: Number(att.durationDays || att.duration_days || 0),
+    durationLabel: att.durationLabel || att.duration_label || '',
+    countInStats: att.countInStats !== undefined ? Number(att.countInStats) : 1,
     academicYear: att.academicYear || att.academic_year || '2025/2026',
     createdAt: att.createdAt || att.created_at || new Date().toISOString()
   }));

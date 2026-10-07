@@ -1726,7 +1726,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base font-bold text-[#F2EFE3] font-['Amiri',serif]">
-                  بوابة المشرف العام ومدير المؤسسة: الأستاذ سمير القراشي
+                  بوابة المشرف العام ومدير المؤسسة
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-[#C98A3C] text-[#1E362D] font-bold text-[11px] shadow-xs">
                   الرابط المباشر /admin
