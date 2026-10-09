@@ -71,6 +71,7 @@ import {
   updateDailyAbsence,
   resolveDailyAbsence,
   deleteDailyAbsence,
+  resetAbsences,
   batchImportDailyAbsences,
   addDailyViolation,
   updateDailyViolation,
@@ -1607,6 +1608,26 @@ async function startServer() {
       const month = (req.query.month as string) || undefined;
       const result = getAttendanceMonthlySummary(month);
       res.json({ success: true, ...result });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Reset Absences (تصفير الغيابات والمواظبة)
+  app.post(['/api/attendance/reset', '/api/director/reset-absences'], async (req, res) => {
+    try {
+      const mode = (req.body.mode as 'today' | 'all' | 'section') || 'today';
+      const sectionId = req.body.sectionId || undefined;
+      const actorId = (req.headers['x-user-id'] as string) || req.body.actorId || '';
+      const actorRole = (req.headers['x-user-role'] as string) || req.body.actorRole || 'director';
+      const actorName = req.body.actorName || '';
+
+      const result = await resetAbsences({
+        mode,
+        sectionId,
+        actor: { id: actorId, role: actorRole, name: actorName }
+      });
+      res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

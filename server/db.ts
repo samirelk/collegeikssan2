@@ -6303,6 +6303,12 @@ export function getDirectorAnalytics() {
 
   const totalAbsences = historyAbsences + unrecordedSeatAbsences;
 
+  // Additional fine-grained stats for Director Absence Counter Settings
+  const todayHistoryAbsences = (db.prepare("SELECT COUNT(*) as count FROM attendance_history WHERE status = 'absent' AND (recorded_date = ? OR recorded_date = ?) AND COALESCE(count_in_stats, 1) = 1").get(todayIso, todayFr) as any)?.count || 0;
+  const todayAbsences = todayHistoryAbsences + unrecordedSeatAbsences;
+  const unjustifiedAbsences = (db.prepare("SELECT COUNT(*) as count FROM attendance_history WHERE status = 'absent' AND (justified = 'unjustified' OR justified IS NULL OR justified = '') AND COALESCE(count_in_stats, 1) = 1").get() as any)?.count || 0;
+  const totalLates = (db.prepare("SELECT COUNT(*) as count FROM attendance_history WHERE status = 'late'").get() as any)?.count || 0;
+
   return {
     topViolations: violationRows.map((r) => ({
       sectionId: r.section_id,
@@ -6353,7 +6359,10 @@ export function getDirectorAnalytics() {
       totalTeachers,
       totalSections,
       totalViolations,
-      totalAbsences
+      totalAbsences,
+      todayAbsences,
+      unjustifiedAbsences,
+      totalLates
     }
   };
 }
@@ -7498,6 +7507,89 @@ export function deleteDailyAbsence(id: number) {
   }
 
   return { success: true };
+}
+
+/**
+ * Reset Absences (تصفير الغيابات والمواظبة)
+ * Supports:
+ * - 'today': Clear today's live absences from seats table & delete today's attendance_history records
+ * - 'section': Clear all absences for a specific section
+ * - 'all': Full reset of all attendance history and seat absences
+ */
+export async function resetAbsences(options: {
+  mode: 'today' | 'all' | 'section';
+  sectionId?: string;
+  actor?: { id: string; role: string; name?: string };
+}) {
+  const { mode, sectionId, actor } = options;
+  const now = new Date().toISOString();
+  const today = now.slice(0, 10);
+  const nowUtc = new Date();
+  const todayFr = `${String(nowUtc.getUTCDate()).padStart(2, '0')}/${String(nowUtc.getUTCMonth() + 1).padStart(2, '0')}/${nowUtc.getUTCFullYear()}`;
+
+  let clearedSeats = 0;
+  let clearedHistory = 0;
+
+  if (mode === 'today') {
+    if (sectionId) {
+      const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE section_id = ? AND (attendance = 'absent' OR attendance = 'late')`).run(sectionId);
+      clearedSeats = Number(res.changes);
+      const histRes = db.prepare(`DELETE FROM attendance_history WHERE section_id = ? AND (recorded_date = ? OR recorded_date = ?)`).run(sectionId, today, todayFr);
+      clearedHistory = Number(histRes.changes);
+    } else {
+      const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'`).run();
+      clearedSeats = Number(res.changes);
+      const histRes = db.prepare(`DELETE FROM attendance_history WHERE recorded_date = ? OR recorded_date = ?`).run(today, todayFr);
+      clearedHistory = Number(histRes.changes);
+    }
+  } else if (mode === 'section' && sectionId) {
+    const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE section_id = ? AND (attendance = 'absent' OR attendance = 'late')`).run(sectionId);
+    clearedSeats = Number(res.changes);
+    const histRes = db.prepare(`DELETE FROM attendance_history WHERE section_id = ?`).run(sectionId);
+    clearedHistory = Number(histRes.changes);
+  } else if (mode === 'all') {
+    const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'`).run();
+    clearedSeats = Number(res.changes);
+    const histRes = db.prepare(`DELETE FROM attendance_history`).run();
+    clearedHistory = Number(histRes.changes);
+
+    // Cloud Firestore cleanup for attendance_history if enabled
+    try {
+      const { listDocs, batchDeleteDocs } = await import('./firestoreService.ts');
+      const docs = await listDocs('attendance_history');
+      if (Array.isArray(docs) && docs.length > 0) {
+        const ids = docs.map((d: any) => d.id).filter(Boolean);
+        if (ids.length > 0) {
+          await batchDeleteDocs('attendance_history', ids);
+        }
+      }
+    } catch (e: any) {
+      console.warn('[resetAbsences] Cloud cleanup warning:', e?.message);
+    }
+  }
+
+  // Record action in change_history
+  const actorName = actor?.name || (actor?.role === 'admin' ? 'المشرف العام' : (actor?.role === 'director' ? 'إدارة المؤسسة' : 'الأستاذ'));
+  db.prepare(`
+    INSERT INTO change_history (action, summary, details_json, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    'reset_absences',
+    `تصفير سجل الغيابات (${mode === 'today' ? 'غيابات اليوم اللحظية' : mode === 'section' ? `قسم ${sectionId}` : 'جميع الغيابات بالكامل'}) بواسطة ${actorName}`,
+    JSON.stringify({ mode, sectionId, clearedSeats, clearedHistory, actor }),
+    now
+  );
+
+  return {
+    success: true,
+    message: mode === 'today'
+      ? `تم تصفير غيابات اليوم بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل)`
+      : mode === 'section'
+      ? `تم تصفير غيابات القسم المحدد بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل)`
+      : `تم تصفير جميع سجلات الغياب بالمؤسسة بالكامل بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل)`,
+    clearedSeats,
+    clearedHistory
+  };
 }
 
 export function batchImportDailyAbsences(items: Array<{

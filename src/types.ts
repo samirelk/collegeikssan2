@@ -390,6 +390,9 @@ export interface DirectorAnalytics {
     totalSections: number;
     totalViolations: number;
     totalAbsences: number;
+    todayAbsences?: number;
+    unjustifiedAbsences?: number;
+    totalLates?: number;
   };
 }
 
@@ -501,8 +504,6 @@ export interface DailyArchiveResponse {
   success: boolean;
   date: string;
   absences: DailyAbsenceItem[];
-  activeAbsences?: DailyAbsenceItem[];
-  allActiveCount?: number;
   violations: DailyViolationItem[];
   stats: DailyArchiveStats;
   availableDates: string[];

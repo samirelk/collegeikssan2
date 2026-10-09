@@ -33,7 +33,10 @@ import {
   ArrowUp,
   ArrowDown,
   Hash,
-  ArrowUpDown
+  ArrowUpDown,
+  RotateCcw,
+  SlidersHorizontal,
+  Settings2
 } from 'lucide-react';
 import {
   SectionItem,
@@ -167,6 +170,33 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   } | null>(null);
   const [targetRankInput, setTargetRankInput] = useState<string>('');
 
+  // Absence Counter Settings State (إعدادات وتخصيص عداد الغيابات للمدير)
+  const [absenceSettings, setAbsenceSettings] = useState<{
+    period: 'all' | 'today' | 'month';
+    filterType: 'all' | 'unjustified' | 'with_late';
+    alertThreshold: number;
+    displayLimit: number | 'all';
+  }>(() => {
+    const defaults = {
+      period: 'all' as const,
+      filterType: 'all' as const,
+      alertThreshold: 3,
+      displayLimit: 10 as const
+    };
+    try {
+      const saved = localStorage.getItem('director_absence_settings');
+      if (saved) return { ...defaults, ...JSON.parse(saved) };
+    } catch {}
+    return defaults;
+  });
+
+  const [isAbsenceSettingsOpen, setIsAbsenceSettingsOpen] = useState(false);
+  const [isResetAbsencesModalOpen, setIsResetAbsencesModalOpen] = useState(false);
+  const [resetAbsencesMode, setResetAbsencesMode] = useState<'today' | 'all' | 'section'>('today');
+  const [resetAbsencesSectionId, setResetAbsencesSectionId] = useState<string>('');
+  const [isResettingAbsences, setIsResettingAbsences] = useState(false);
+  const [absencesSectionFilter, setAbsencesSectionFilter] = useState<string>('all');
+
   // Auth headers for backend RBAC verification
   const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
@@ -223,6 +253,74 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     setIsRefreshing(true);
     await Promise.all([fetchDirectorData(), onRefreshSections()]);
   };
+
+  const handleSaveAbsenceSettings = (newSettings: typeof absenceSettings) => {
+    setAbsenceSettings(newSettings);
+    try {
+      localStorage.setItem('director_absence_settings', JSON.stringify(newSettings));
+    } catch {}
+    setIsAbsenceSettingsOpen(false);
+    setSuccessMessage('تم حفظ إعدادات عداد وتتبع الغيابات وتطبيقها بنجاح ✓');
+  };
+
+  const handleResetAbsences = async () => {
+    setIsResettingAbsences(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetch('/api/attendance/reset', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          mode: resetAbsencesMode,
+          sectionId: resetAbsencesMode === 'section' ? resetAbsencesSectionId : undefined,
+          actorId: currentUser.id,
+          actorRole: currentUser.role,
+          actorName: currentUser.fullName
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'تعذر تصفير الغيابات');
+      }
+      setSuccessMessage(data.message || 'تم تصفير الغيابات بنجاح ✓');
+      setIsResetAbsencesModalOpen(false);
+      await Promise.all([fetchDirectorData(), onRefreshSections()]);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'حدث خطأ أثناء تصفير الغيابات');
+    } finally {
+      setIsResettingAbsences(false);
+    }
+  };
+
+  const displayedAbsenceCount = useMemo(() => {
+    if (!analytics?.summary) return 0;
+    if (absenceSettings.period === 'today') {
+      return analytics.summary.todayAbsences ?? 0;
+    }
+    if (absenceSettings.filterType === 'unjustified') {
+      return analytics.summary.unjustifiedAbsences ?? analytics.summary.totalAbsences ?? 0;
+    }
+    return analytics.summary.totalAbsences ?? 0;
+  }, [analytics, absenceSettings]);
+
+  const displayedAbsencesList = useMemo(() => {
+    if (!analytics?.topAbsences && !analytics?.allAbsences) return [];
+    let list = (analytics.topAbsences || []).slice();
+
+    if (absencesSectionFilter !== 'all') {
+      list = list.filter((ab) => ab.sectionId === absencesSectionFilter);
+    }
+
+    if (absenceSettings.period === 'today') {
+      list = list.filter((ab) => ab.currentAttendance === 'absent' || ab.currentAttendance === 'late');
+    }
+
+    if (absenceSettings.displayLimit !== 'all') {
+      list = list.slice(0, Number(absenceSettings.displayLimit));
+    }
+
+    return list;
+  }, [analytics, absencesSectionFilter, absenceSettings]);
 
   // Quick Teacher Creation
   const handleCreateTeacher = async (e: React.FormEvent) => {
@@ -1026,34 +1124,63 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </button>
 
         {/* حالات الغياب */}
-        <button
-          type="button"
+        <div
           onClick={() => navigateToTab('absences')}
           title="انقر لفتح تتبع حالات الغياب ورصد التلاميذ الأكثر غياباً والأرشيف"
-          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 ${
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 relative ${
             activeTab === 'absences' && !inspectSectionId
               ? 'bg-[#FBF5EC] border-[#8A5A18] ring-2 ring-[#8A5A18]/20 shadow-xs'
               : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#8A5A18]'
           }`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب</span>
-            <div className="w-6 h-6 rounded-lg bg-[#8A5A18]/10 flex items-center justify-center text-[#8A5A18]">
-              <UserX className="w-3.5 h-3.5" />
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب</span>
+              <span className="text-[10px] px-1.5 py-0.2 rounded font-sans font-semibold bg-[#8A5A18]/10 text-[#8A5A18]" title="نطاق الاحتساب حسب الإعدادات">
+                {absenceSettings.period === 'today' ? 'اليوم' : absenceSettings.period === 'month' ? 'هذا الشهر' : 'الموسم'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsAbsenceSettingsOpen(true);
+                }}
+                className="w-6 h-6 rounded-md bg-[#8A5A18]/10 hover:bg-[#8A5A18]/25 text-[#8A5A18] flex items-center justify-center transition-colors cursor-pointer"
+                title="إعدادات عداد وتتبع الغيابات"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setResetAbsencesMode('today');
+                  setIsResetAbsencesModalOpen(true);
+                }}
+                className="w-6 h-6 rounded-md bg-rose-100 hover:bg-rose-200 text-rose-700 flex items-center justify-center transition-colors cursor-pointer"
+                title="تصفير الغيابات"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5">
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5 flex items-baseline justify-between">
             {isLoading && !analytics ? (
               <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
             ) : (
-              analytics?.summary?.totalAbsences ?? 0
+              <span>{displayedAbsenceCount}</span>
             )}
+            <span className="text-[11px] font-sans font-normal text-[#7A6B58]">
+              {absenceSettings.filterType === 'unjustified' ? 'غير مبرر' : 'حالة مسجلة'}
+            </span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
             <span>تسجيل غياب مرصود</span>
             <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">تتبع ↗</span>
           </div>
-        </button>
+        </div>
       </div>
 
       {/* 2.1 Compact Secondary Indicators */}
@@ -1586,36 +1713,143 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </div>
       )}
 
-      {/* TAB 3: TOP 10 ABSENCES */}
+      {/* TAB 3: ABSENCES MONITORING & TRACKING */}
       {activeTab === 'absences' && !inspectSectionId && (
         <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl p-5 shadow-xs space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E4DBC0] pb-4">
             <div>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#FEF08A] text-[#713F12] mb-1">
-                <UserX className="w-3.5 h-3.5" />
-                <span>رصد المواظبة والغياب</span>
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#FEF08A] text-[#713F12]">
+                  <UserX className="w-3.5 h-3.5" />
+                  <span>رصد وتتبع حالات الغياب والمواظبة</span>
+                </div>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                  <span>عتبة التنبيه: {absenceSettings.alertThreshold} غيابات</span>
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#EFE9D5] text-[#5B5040]">
+                  <span>النطاق: {absenceSettings.period === 'today' ? 'اليوم' : absenceSettings.period === 'month' ? 'هذا الشهر' : 'كامل الموسم'}</span>
+                </span>
               </div>
               <h2 className="text-xl font-bold font-serif text-[#2A2118]">
-                قائمة أكثر 10 تلاميذ تسجيلاً للغياب
+                سجل رصد ومتابعة الغيابات {absenceSettings.displayLimit !== 'all' ? `(أعلى ${absenceSettings.displayLimit} مسجلين)` : '(جميع المسجلين)'}
               </h2>
               <p className="text-xs text-[#7A6B58] mt-0.5">
-                حصر التلاميذ الأكثر تغيباً عن الحصص الدراسية لاتخاذ التدابير الإدارية والتواصل مع أولياء الأمور.
+                حصر ومتابعة التلاميذ الأكثر تسجيلاً للغياب، كشف حالات الخطر المبكر، وضبط سجلات الحضور.
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => handlePrint('absences')}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-200 transition-colors cursor-pointer self-start sm:self-auto"
-            >
-              <Printer className="w-3.5 h-3.5 text-amber-700" />
-              <span>طباعة لائحة وسجل الغياب</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => setIsAbsenceSettingsOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#2A2118] font-bold text-xs border border-[#D9CEB0] shadow-2xs transition-colors cursor-pointer"
+                title="تخصيص نطاق الحساب، نوع الغياب، وعتبة التنبيه"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-[#8A5A18]" />
+                <span>إعدادات العداد</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setResetAbsencesMode('today');
+                  setIsResetAbsencesModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs border border-rose-300 shadow-2xs transition-colors cursor-pointer"
+                title="تصفير غيابات اليوم أو قسم معين أو سجل الغياب بالكامل"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-700" />
+                <span>تصفير الغيابات</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handlePrint('absences')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-200 transition-colors cursor-pointer"
+              >
+                <Printer className="w-3.5 h-3.5 text-amber-700" />
+                <span>طباعة لائحة الغياب</span>
+              </button>
+            </div>
           </div>
 
-          {!analytics?.topAbsences || analytics.topAbsences.length === 0 ? (
+          {/* Quick Filter & Scope Toolbar */}
+          <div className="bg-[#F4EFDE] border border-[#E4DBC0] rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold text-[#7A6B58] text-[11px]">فلترة النطاق:</span>
+              <div className="inline-flex rounded-lg border border-[#D9CEB0] bg-white p-0.5">
+                {[
+                  { id: 'all', label: 'كامل الموسم' },
+                  { id: 'today', label: 'اليوم فقط' },
+                  { id: 'month', label: 'هذا الشهر' }
+                ].map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => {
+                      const next = { ...absenceSettings, period: p.id as any };
+                      handleSaveAbsenceSettings(next);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      absenceSettings.period === p.id
+                        ? 'bg-[#8A5A18] text-white shadow-2xs'
+                        : 'text-[#5B5040] hover:text-[#2A2118]'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="inline-flex rounded-lg border border-[#D9CEB0] bg-white p-0.5">
+                {[
+                  { id: 'all', label: 'جميع الغيابات' },
+                  { id: 'unjustified', label: 'غير المبررة' },
+                  { id: 'with_late', label: 'مع التأخرات' }
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      const next = { ...absenceSettings, filterType: f.id as any };
+                      handleSaveAbsenceSettings(next);
+                    }}
+                    className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                      absenceSettings.filterType === f.id
+                        ? 'bg-[#1A4E47] text-white shadow-2xs'
+                        : 'text-[#5B5040] hover:text-[#2A2118]'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-[#7A6B58] text-[11px]">القسم:</span>
+              <select
+                value={absencesSectionFilter}
+                onChange={(e) => setAbsencesSectionFilter(e.target.value)}
+                className="bg-white border border-[#D9CEB0] rounded-lg px-2.5 py-1 text-xs font-bold text-[#2A2118]"
+              >
+                <option value="all">جميع الأقسام ({sections.length})</option>
+                {sections.map((sec) => (
+                  <option key={sec.id} value={sec.id}>
+                    {sec.level} — {sec.classNumber}
+                  </option>
+                ))}
+              </select>
+
+              <div className="px-2.5 py-1 rounded-lg bg-[#EFE9D5] text-[#5B5040] font-bold text-[11px]">
+                المعروض: <strong>{displayedAbsencesList.length}</strong> حالة
+              </div>
+            </div>
+          </div>
+
+          {displayedAbsencesList.length === 0 ? (
             <div className="py-12 text-center text-sm text-[#7A6B58] bg-[#F4EFDE] rounded-xl border border-dashed border-[#D9CEB0]">
-              لم يتم رصد أي حالات غياب حتى الآن. الحضور كامل وممتاز!
+              لم يتم رصد أي حالات غياب تطابق المعايير المختارة. الحضور ممتاز!
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -1628,65 +1862,85 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                     <th className="p-3 font-bold">القسم والمستوى</th>
                     <th className="p-3 font-bold">الأستاذ المسؤول / المادة</th>
                     <th className="p-3 font-bold text-center">مجموع الغيابات</th>
+                    <th className="p-3 font-bold text-center">تنبيه المواظبة</th>
                     <th className="p-3 font-bold">الحالة اللحظية</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E4DBC0]">
-                  {analytics.topAbsences.map((ab, idx) => (
-                    <tr key={`${ab.sectionId}-${ab.seatNum}`} className="hover:bg-[#F4EFDE] transition-colors">
-                      <td className="p-3 text-center font-bold">
-                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
-                          idx === 0 ? 'bg-[#8A5A18] text-white' : idx === 1 ? 'bg-[#C98A3C] text-white' : idx === 2 ? 'bg-[#E8DEC0] text-[#2A2118]' : 'bg-[rgba(42,33,24,0.06)] text-[#5B5040]'
-                        }`}>
-                          {idx + 1}
-                        </span>
-                      </td>
-                      <td className="p-3 font-bold text-sm text-[#2A2118]">
-                        {ab.studentName}
-                      </td>
-                      <td className="p-3 font-mono text-xs text-[#5B5040]">
-                        {ab.massarNumber ? (
-                          <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-bold text-[#1A4E47]">
-                            {ab.massarNumber}
+                  {displayedAbsencesList.map((ab, idx) => {
+                    const isOverThreshold = ab.absencesCount >= absenceSettings.alertThreshold;
+                    return (
+                      <tr
+                        key={`${ab.sectionId}-${ab.seatNum}`}
+                        className={`transition-colors ${isOverThreshold ? 'bg-amber-50/40 hover:bg-amber-100/50' : 'hover:bg-[#F4EFDE]'}`}
+                      >
+                        <td className="p-3 text-center font-bold">
+                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ${
+                            idx === 0 ? 'bg-[#8A5A18] text-white' : idx === 1 ? 'bg-[#C98A3C] text-white' : idx === 2 ? 'bg-[#E8DEC0] text-[#2A2118]' : 'bg-[rgba(42,33,24,0.06)] text-[#5B5040]'
+                          }`}>
+                            {idx + 1}
                           </span>
-                        ) : ab.studentNumber ? (
-                          <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0]">
-                            N° {ab.studentNumber}
+                        </td>
+                        <td className="p-3 font-bold text-sm text-[#2A2118]">
+                          {ab.studentName}
+                        </td>
+                        <td className="p-3 font-mono text-xs text-[#5B5040]">
+                          {ab.massarNumber ? (
+                            <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-bold text-[#1A4E47]">
+                              {ab.massarNumber}
+                            </span>
+                          ) : ab.studentNumber ? (
+                            <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0]">
+                              N° {ab.studentNumber}
+                            </span>
+                          ) : (
+                            `المقعد ${ab.seatNum}`
+                          )}
+                        </td>
+                        <td className="p-3">
+                          <span className="font-bold text-[#2A2118]">{ab.sectionLevel}</span>
+                          <span className="text-[#7A6B58] text-[11px] block">({ab.sectionClass})</span>
+                        </td>
+                        <td className="p-3 text-[#5B5040]">
+                          <div>{ab.teacherName}</div>
+                          <div className="text-[11px] text-[#7A6B58]">{ab.teacherSubject}</div>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className={`px-3 py-1 rounded-full font-bold text-xs ${
+                            isOverThreshold ? 'bg-rose-100 text-rose-800 border border-rose-300' : 'bg-[#FEF08A] text-[#713F12]'
+                          }`}>
+                            {ab.absencesCount} غياب
                           </span>
-                        ) : (
-                          `المقعد ${ab.seatNum}`
-                        )}
-                      </td>
-                      <td className="p-3">
-                        <span className="font-bold text-[#2A2118]">{ab.sectionLevel}</span>
-                        <span className="text-[#7A6B58] text-[11px] block">({ab.sectionClass})</span>
-                      </td>
-                      <td className="p-3 text-[#5B5040]">
-                        <div>{ab.teacherName}</div>
-                        <div className="text-[11px] text-[#7A6B58]">{ab.teacherSubject}</div>
-                      </td>
-                      <td className="p-3 text-center">
-                        <span className="px-3 py-1 rounded-full font-bold text-xs bg-[#FEF08A] text-[#713F12]">
-                          {ab.absencesCount} غياب
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        {ab.currentAttendance === 'absent' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#FDE8E8] text-[#9B1C1C]">
-                            ✕ غائب اليوم
-                          </span>
-                        ) : ab.currentAttendance === 'late' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#FEF08A] text-[#713F12]">
-                            ⏳ متأخر
-                          </span>
-                        ) : (
-                          <span className="text-[#7A6B58] text-xs">
-                            مسجل مسبقاً
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="p-3 text-center">
+                          {isOverThreshold ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-200">
+                              ⚠️ تجاوز العتبة ({ab.absencesCount})
+                            </span>
+                          ) : (
+                            <span className="text-[11px] text-[#7A6B58]">
+                              ضمن النطاق العادي
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3">
+                          {ab.currentAttendance === 'absent' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#FDE8E8] text-[#9B1C1C]">
+                              ✕ غائب اليوم
+                            </span>
+                          ) : ab.currentAttendance === 'late' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#FEF08A] text-[#713F12]">
+                              ⏳ متأخر
+                            </span>
+                          ) : (
+                            <span className="text-[#7A6B58] text-xs">
+                              مسجل مسبقاً
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -2050,6 +2304,19 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               >
                 <ListOrdered className="w-3.5 h-3.5 text-amber-700" />
                 <span>ترتيب الأرقام تصاعدياً (1..N)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setResetAbsencesMode('section');
+                  setResetAbsencesSectionId(activeInspectSection.id);
+                  setIsResetAbsencesModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 font-bold text-xs border border-rose-300 shadow-2xs transition-colors cursor-pointer"
+                title="تصفير حالات الغياب المسجلة في هذا القسم"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-700" />
+                <span>تصفير غيابات القسم</span>
               </button>
               <button
                 type="button"
@@ -3294,6 +3561,330 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           absencesData={analytics?.allAbsences || []}
           onClose={() => setPrintModalMode(null)}
         />
+      )}
+
+      {/* Reset Absences Modal (تصفير الغيابات والمواظبة) */}
+      {isResetAbsencesModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto" onClick={() => setIsResetAbsencesModalOpen(false)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-100/70">
+              <div className="flex items-center gap-2.5 text-rose-900">
+                <div className="w-9 h-9 rounded-xl bg-rose-200/80 flex items-center justify-center text-rose-800">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold font-serif text-[#2A2118]">
+                    تصفير سجل الغيابات والمواظبة
+                  </h3>
+                  <p className="text-xs text-[#7A6B58]">
+                    حدد نطاق التصفير لتفريغ أو إعادة تعيين عداد وسجلات الغياب
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetAbsencesModalOpen(false)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#7A6B58] hover:bg-[#EFE9D5] cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <p className="text-xs text-[#5B5040] leading-relaxed font-semibold">
+                اختر النمط المناسب لتصفير الغيابات وفق الاحتياج الإداري للمؤسسة:
+              </p>
+
+              <div className="space-y-2.5">
+                {/* Mode 1: Today */}
+                <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  resetAbsencesMode === 'today'
+                    ? 'bg-[#FEF08A]/30 border-[#8A5A18] ring-2 ring-[#8A5A18]/30'
+                    : 'bg-white border-[#E4DBC0] hover:bg-[#FAF8F5]'
+                }`}>
+                  <input
+                    type="radio"
+                    name="reset_absence_mode"
+                    value="today"
+                    checked={resetAbsencesMode === 'today'}
+                    onChange={() => setResetAbsencesMode('today')}
+                    className="mt-1 text-[#8A5A18] focus:ring-[#8A5A18]"
+                  />
+                  <div className="space-y-1">
+                    <div className="font-bold text-sm text-[#2A2118] flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-[#8A5A18]" />
+                      <span>تصفير غيابات اليوم اللحظية فقط (المقاعد النشطة)</span>
+                    </div>
+                    <p className="text-[#7A6B58] text-[11px] leading-relaxed">
+                      مسح وإلغاء حالات الغياب والتأخر المسجلة على مقاعد التلاميذ لهذا اليوم الحالي للبدء بيوم دراسي جديد مع الحفاظ التام على الأرشيف التراكمي السابق وسجلات الأيام الماضية.
+                    </p>
+                  </div>
+                </label>
+
+                {/* Mode 2: Section */}
+                <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  resetAbsencesMode === 'section'
+                    ? 'bg-[#FEF08A]/30 border-[#8A5A18] ring-2 ring-[#8A5A18]/30'
+                    : 'bg-white border-[#E4DBC0] hover:bg-[#FAF8F5]'
+                }`}>
+                  <input
+                    type="radio"
+                    name="reset_absence_mode"
+                    value="section"
+                    checked={resetAbsencesMode === 'section'}
+                    onChange={() => {
+                      setResetAbsencesMode('section');
+                      if (!resetAbsencesSectionId && sections.length > 0) {
+                        setResetAbsencesSectionId(sections[0].id);
+                      }
+                    }}
+                    className="mt-1 text-[#8A5A18] focus:ring-[#8A5A18]"
+                  />
+                  <div className="space-y-2 w-full">
+                    <div className="font-bold text-sm text-[#2A2118] flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-[#8A5A18]" />
+                      <span>تصفير غيابات قسم دراسي محدد</span>
+                    </div>
+                    <p className="text-[#7A6B58] text-[11px] leading-relaxed">
+                      مسح حالات الغياب المسجلة لتلاميذ قسم معين فقط دون المساس بباقي أقسام المؤسسة.
+                    </p>
+                    {resetAbsencesMode === 'section' && (
+                      <div className="pt-2">
+                        <label className="block text-[11px] font-bold text-[#5B5040] mb-1">
+                          اختر القسم المستهدف:
+                        </label>
+                        <select
+                          value={resetAbsencesSectionId}
+                          onChange={(e) => setResetAbsencesSectionId(e.target.value)}
+                          className="w-full bg-[#F4EFDE] border border-[#D9CEB0] rounded-xl px-3 py-2 text-xs text-[#2A2118] font-bold"
+                        >
+                          {sections.map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.level} — {s.classNumber}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                </label>
+
+                {/* Mode 3: All */}
+                <label className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  resetAbsencesMode === 'all'
+                    ? 'bg-rose-50 border-rose-400 ring-2 ring-rose-400/30'
+                    : 'bg-white border-[#E4DBC0] hover:bg-[#FAF8F5]'
+                }`}>
+                  <input
+                    type="radio"
+                    name="reset_absence_mode"
+                    value="all"
+                    checked={resetAbsencesMode === 'all'}
+                    onChange={() => setResetAbsencesMode('all')}
+                    className="mt-1 text-rose-600 focus:ring-rose-500"
+                  />
+                  <div className="space-y-1">
+                    <div className="font-bold text-sm text-rose-950 flex items-center gap-1.5">
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>تصفير سجل الغيابات بالكامل (إعادة العداد إلى 0)</span>
+                    </div>
+                    <p className="text-rose-800 text-[11px] leading-relaxed">
+                      مسح كافة تسجيلات الغياب في جميع الأقسام وإعادة تعيين عداد الغيابات الإجمالي إلى الصفر نهائياً. يتم توثيق هذا الإجراء في سجل العمليات.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              {resetAbsencesMode === 'all' && (
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-amber-700" />
+                  <span>تنبيه: سيتم مسح سجلات الغياب والأرشيف التراكمي وتصفير العداد إلى صفر مع الحفاظ على قوائم التلاميذ ومقاعدهم.</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[#E4DBC0] bg-[#F4EFDE]">
+              <button
+                type="button"
+                onClick={() => setIsResetAbsencesModalOpen(false)}
+                disabled={isResettingAbsences}
+                className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-100 text-[#5B5040] font-bold text-xs border border-[#D9CEB0] cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleResetAbsences}
+                disabled={isResettingAbsences || (resetAbsencesMode === 'section' && !resetAbsencesSectionId)}
+                className="px-5 py-2 rounded-xl bg-rose-700 hover:bg-rose-800 text-white font-bold text-xs shadow-md cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+              >
+                <RotateCcw className={`w-4 h-4 ${isResettingAbsences ? 'animate-spin' : ''}`} />
+                <span>{isResettingAbsences ? 'جاري تصفير الغيابات...' : 'تأكيد تصفير الغيابات'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Absence Counter Settings Modal (إعدادات عداد وتتبع الغيابات) */}
+      {isAbsenceSettingsOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto" onClick={() => setIsAbsenceSettingsOpen(false)}>
+          <div className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-[#EFE9D5]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#8A5A18]/15 flex items-center justify-center text-[#8A5A18]">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold font-serif text-[#2A2118]">
+                    إعدادات عداد وتتبع الغيابات
+                  </h3>
+                  <p className="text-xs text-[#7A6B58]">
+                    تخصيص معايير حساب العداد وفترات الرصد وعتبات التنبيه
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAbsenceSettingsOpen(false)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-[#7A6B58] hover:bg-[#E4DBC0] cursor-pointer text-sm font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {/* Setting 1: Period Scope */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#2A2118]">
+                  1. فترة احتساب عداد الغيابات (النطاق الزمني):
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'all', label: 'كامل الموسم الدراسي', desc: 'تراكمي لجميع الحصص' },
+                    { id: 'today', label: 'اليوم فقط', desc: 'حالات غياب اليوم الحالي' },
+                    { id: 'month', label: 'هذا الشهر', desc: 'الشهر الميلادي الجاري' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setAbsenceSettings((prev) => ({ ...prev, period: opt.id as any }))}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
+                        absenceSettings.period === opt.id
+                          ? 'bg-[#8A5A18] text-white border-[#8A5A18] shadow-xs'
+                          : 'bg-white text-[#2A2118] border-[#E4DBC0] hover:bg-[#FAF8F5]'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">{opt.label}</div>
+                      <div className={`text-[10px] mt-0.5 ${absenceSettings.period === opt.id ? 'text-amber-100' : 'text-[#7A6B58]'}`}>{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Setting 2: Filter Type */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-[#2A2118]">
+                  2. نوع الحالات المحتسبة في العداد:
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    { id: 'all', label: 'جميع حالات الغياب', desc: 'مبرر وغير مبرر' },
+                    { id: 'unjustified', label: 'غير المبررة فقط', desc: 'بدون شهادة طبية' },
+                    { id: 'with_late', label: 'الغياب والتأخر', desc: 'احتساب التأخرات أيضاً' }
+                  ].map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setAbsenceSettings((prev) => ({ ...prev, filterType: opt.id as any }))}
+                      className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
+                        absenceSettings.filterType === opt.id
+                          ? 'bg-[#1A4E47] text-white border-[#1A4E47] shadow-xs'
+                          : 'bg-white text-[#2A2118] border-[#E4DBC0] hover:bg-[#FAF8F5]'
+                      }`}
+                    >
+                      <div className="font-bold text-xs">{opt.label}</div>
+                      <div className={`text-[10px] mt-0.5 ${absenceSettings.filterType === opt.id ? 'text-emerald-100' : 'text-[#7A6B58]'}`}>{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Setting 3: Alert Threshold */}
+              <div className="space-y-1.5 pt-2 border-t border-[#E4DBC0]">
+                <label className="block text-xs font-bold text-[#2A2118]">
+                  3. عتبة التنبيه بالغياب المتكرر (Alert Threshold):
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={absenceSettings.alertThreshold}
+                    onChange={(e) => setAbsenceSettings((prev) => ({ ...prev, alertThreshold: Math.max(1, Number(e.target.value) || 1) }))}
+                    className="w-24 bg-white border border-[#D9CEB0] rounded-xl px-3 py-2 text-sm font-bold text-center text-[#2A2118]"
+                  />
+                  <span className="text-xs text-[#7A6B58]">
+                    غيابات مسجلة (سيتم تمييز التلاميذ المتجاوزين للعتبة بعلامة تنبيه حمراء)
+                  </span>
+                </div>
+              </div>
+
+              {/* Setting 4: Display Limit */}
+              <div className="space-y-1.5 pt-2 border-t border-[#E4DBC0]">
+                <label className="block text-xs font-bold text-[#2A2118]">
+                  4. عدد التلاميذ في لائحة رصد الغياب:
+                </label>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {[10, 20, 50, 'all'].map((lim) => (
+                    <button
+                      key={String(lim)}
+                      type="button"
+                      onClick={() => setAbsenceSettings((prev) => ({ ...prev, displayLimit: lim as any }))}
+                      className={`px-3.5 py-1.5 rounded-lg border text-xs font-bold transition-all cursor-pointer ${
+                        absenceSettings.displayLimit === lim
+                          ? 'bg-[#C98A3C] text-[#2A1B06] border-[#C98A3C]'
+                          : 'bg-white text-[#5B5040] border-[#D9CEB0] hover:bg-[#FAF8F5]'
+                      }`}
+                    >
+                      {lim === 'all' ? 'عرض جميع المسجلين' : `أكثر ${lim} تلاميذ`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 border-t border-[#E4DBC0] bg-[#F4EFDE]">
+              <button
+                type="button"
+                onClick={() => {
+                  const defaults = { period: 'all' as const, filterType: 'all' as const, alertThreshold: 3, displayLimit: 10 as const };
+                  handleSaveAbsenceSettings(defaults);
+                }}
+                className="px-3 py-1.5 rounded-xl bg-white hover:bg-neutral-100 text-[#7A6B58] text-xs font-bold border border-[#D9CEB0] cursor-pointer"
+              >
+                استعادة الافتراضي
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsAbsenceSettingsOpen(false)}
+                  className="px-4 py-2 rounded-xl bg-white hover:bg-neutral-100 text-[#5B5040] font-bold text-xs border border-[#D9CEB0] cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveAbsenceSettings(absenceSettings)}
+                  className="px-5 py-2 rounded-xl bg-[#8A5A18] hover:bg-[#724a13] text-white font-bold text-xs shadow-md cursor-pointer flex items-center gap-1.5"
+                >
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>حفظ وتطبيق الإعدادات</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Teacher Credentials Print Modal (قسيمات وبطاقات تسليم الحسابات وكلمات المرور) */}

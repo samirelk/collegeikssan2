@@ -667,6 +667,56 @@ if ($segments[0] === 'daily-archive') {
     }
 }
 
+// تصفير الغيابات والمواظبة (Attendance Reset)
+if (($segments[0] === 'attendance' && ($segments[1] ?? '') === 'reset') || ($segments[0] === 'director' && ($segments[1] ?? '') === 'reset-absences')) {
+    if ($method !== 'POST') {
+        jsonResponse(['error' => 'Method not allowed'], 405);
+    }
+    $input = getJsonInput();
+    $mode = $input['mode'] ?? 'today';
+    $sectionId = $input['sectionId'] ?? null;
+    $today = date('Y-m-d');
+
+    $clearedSeats = 0;
+    $clearedHistory = 0;
+
+    if ($mode === 'today') {
+        if ($sectionId) {
+            $stmt = $pdo->prepare("UPDATE seats SET attendance = NULL WHERE section_id = ? AND (attendance = 'absent' OR attendance = 'late')");
+            $stmt->execute([$sectionId]);
+            $clearedSeats = $stmt->rowCount();
+            $hStmt = $pdo->prepare("DELETE FROM attendance_history WHERE section_id = ? AND recorded_date = ?");
+            $hStmt->execute([$sectionId, $today]);
+            $clearedHistory = $hStmt->rowCount();
+        } else {
+            $stmt = $pdo->query("UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'");
+            $clearedSeats = $stmt->rowCount();
+            $hStmt = $pdo->prepare("DELETE FROM attendance_history WHERE recorded_date = ?");
+            $hStmt->execute([$today]);
+            $clearedHistory = $hStmt->rowCount();
+        }
+    } elseif ($mode === 'section' && $sectionId) {
+        $stmt = $pdo->prepare("UPDATE seats SET attendance = NULL WHERE section_id = ? AND (attendance = 'absent' OR attendance = 'late')");
+        $stmt->execute([$sectionId]);
+        $clearedSeats = $stmt->rowCount();
+        $hStmt = $pdo->prepare("DELETE FROM attendance_history WHERE section_id = ?");
+        $hStmt->execute([$sectionId]);
+        $clearedHistory = $hStmt->rowCount();
+    } elseif ($mode === 'all') {
+        $stmt = $pdo->query("UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'");
+        $clearedSeats = $stmt->rowCount();
+        $hStmt = $pdo->query("DELETE FROM attendance_history");
+        $clearedHistory = $hStmt->rowCount();
+    }
+
+    jsonResponse([
+        'success' => true,
+        'message' => 'تم تصفير الغيابات بنجاح',
+        'clearedSeats' => $clearedSeats,
+        'clearedHistory' => $clearedHistory
+    ]);
+}
+
 // -------------------------------------------------------------
 // 7. المواسم الدراسية (Academic Years)
 // -------------------------------------------------------------
