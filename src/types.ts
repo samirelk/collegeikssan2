@@ -501,6 +501,8 @@ export interface DailyArchiveResponse {
   success: boolean;
   date: string;
   absences: DailyAbsenceItem[];
+  activeAbsences?: DailyAbsenceItem[];
+  allActiveCount?: number;
   violations: DailyViolationItem[];
   stats: DailyArchiveStats;
   availableDates: string[];

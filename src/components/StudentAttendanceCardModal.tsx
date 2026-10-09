@@ -89,6 +89,7 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
 
   const absences = historyData?.absences || [];
   const totalAbsences = absences.filter((a) => a.status === 'absent').length;
+  const totalDays = historyData?.totalDays || 0;
   const totalLates = absences.filter((a) => a.status === 'late').length;
   const justifiedCount = absences.filter((a) => a.justified && a.justified !== 'unjustified').length;
   const unjustifiedCount = absences.filter((a) => !a.justified || a.justified === 'unjustified').length;
@@ -277,8 +278,12 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <div className="p-3 bg-white rounded-xl border border-[#D9CEB0] text-center">
                   <div className="text-[10px] text-[#7A6B58] font-bold">إجمالي الغيابات</div>
-                  <div className="text-lg font-bold font-mono text-rose-700">{totalAbsences}</div>
-                  <div className="text-[10px] text-[#7A6B58]">حصة دراسية</div>
+                  <div className="text-lg font-bold font-mono text-rose-700">
+                    {totalAbsences}
+                  </div>
+                  <div className="text-[10px] text-[#7A6B58]">
+                    {totalDays >= 1 ? `${totalDays} يوم (${totalAbsences} حصة)` : 'حصة دراسية'}
+                  </div>
                 </div>
 
                 <div className="p-3 bg-white rounded-xl border border-[#D9CEB0] text-center">
@@ -350,7 +355,12 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
                                 {ab.recordedDate}
                               </td>
                               <td className="p-2.5 text-[#5B5040]">
-                                {ab.sessionPeriod || 'كامل اليوم'}
+                                <div>{ab.sessionPeriod || 'كامل اليوم'}</div>
+                                {ab.durationLabel && (
+                                  <div className="text-[10px] text-amber-800 font-bold mt-0.5">
+                                    ⏱️ {ab.durationLabel}
+                                  </div>
+                                )}
                               </td>
                               <td className="p-2.5">
                                 {ab.status === 'absent' ? (

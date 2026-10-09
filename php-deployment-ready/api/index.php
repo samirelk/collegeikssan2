@@ -474,6 +474,81 @@ if ($segments[0] === 'sections') {
         $stmt->execute([$pId]);
         jsonResponse(['success' => true, 'message' => 'تم حذف المشاركة الإيجابية']);
     }
+
+    // إعادة ترتيب وترقيم تلاميذ القسم تسلسلياً وتصاعدياً (Renumber & Reorder Students)
+    if (isset($segments[1]) && isset($segments[2]) && ($segments[2] === 'renumber' || $segments[2] === 'reorder-students') && $method === 'POST') {
+        $secId = $segments[1];
+        $input = getJsonInput();
+        $sourceIdx = isset($input['sourceIndex']) ? (int)$input['sourceIndex'] : null;
+        $targetIdx = isset($input['targetIndex']) ? (int)$input['targetIndex'] : null;
+        $targetName = trim($input['studentName'] ?? '');
+        $newPos = isset($input['newPosition']) ? (int)$input['newPosition'] : null;
+
+        // جلب المقاعد المشغولة
+        $stStmt = $pdo->prepare("SELECT * FROM seats WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != '' ORDER BY CAST(student_number AS UNSIGNED) ASC, seat_num ASC");
+        $stStmt->execute([$secId]);
+        $occupied = $stStmt->fetchAll();
+
+        if (empty($occupied)) {
+            jsonResponse(['success' => true, 'totalStudents' => 0, 'roster' => []]);
+        }
+
+        // تطبيق الترتيب
+        if ($sourceIdx !== null && $targetIdx !== null && isset($occupied[$sourceIdx])) {
+            $moved = array_splice($occupied, $sourceIdx, 1);
+            $targetIdx = max(0, min($targetIdx, count($occupied)));
+            array_splice($occupied, $targetIdx, 0, $moved);
+        } elseif ($targetName && $newPos !== null) {
+            $foundIdx = -1;
+            foreach ($occupied as $idx => $st) {
+                if (trim($st['student_name']) === $targetName) {
+                    $foundIdx = $idx;
+                    break;
+                }
+            }
+            if ($foundIdx !== -1) {
+                $moved = array_splice($occupied, $foundIdx, 1);
+                $tgt = max(0, min($newPos - 1, count($occupied)));
+                array_splice($occupied, $tgt, 0, $moved);
+            }
+        }
+
+        // تحيين الأرقام تسلسلياً 1..N
+        $pdo->beginTransaction();
+        try {
+            $newRoster = [];
+            foreach ($occupied as $i => $st) {
+                $newNum = (string)($i + 1);
+                $updSeat = $pdo->prepare("UPDATE seats SET student_number = ?, updated_at = NOW() WHERE section_id = ? AND seat_num = ?");
+                $updSeat->execute([$newNum, $secId, $st['seat_num']]);
+
+                // تحيين السجلات الملحقة
+                $pdo->prepare("UPDATE attendance_history SET student_number = ? WHERE section_id = ? AND student_name = ?")->execute([$newNum, $secId, $st['student_name']]);
+                $pdo->prepare("UPDATE daily_violations SET student_number = ? WHERE section_id = ? AND student_name = ?")->execute([$newNum, $secId, $st['student_name']]);
+                $pdo->prepare("UPDATE positive_participations SET student_number = ? WHERE section_id = ? AND student_name = ?")->execute([$newNum, $secId, $st['student_name']]);
+
+                $newRoster[] = [
+                    'id' => $st['roster_id'] ?: 'r_' . $secId . '_' . ($i + 1),
+                    'name' => $st['student_name'],
+                    'number' => $newNum,
+                    'massarNumber' => $st['massar_number'] ?: ''
+                ];
+            }
+
+            $pdo->prepare("UPDATE sections SET roster_json = ?, updated_at = NOW() WHERE id = ?")->execute([json_encode($newRoster, JSON_UNESCAPED_UNICODE), $secId]);
+            $pdo->commit();
+
+            jsonResponse([
+                'success' => true,
+                'totalStudents' => count($newRoster),
+                'roster' => $newRoster,
+                'message' => 'تم تحيين أرقام تلاميذ القسم تصاعدياً (من 1 إلى ' . count($newRoster) . ') بنجاح'
+            ]);
+        } catch (Exception $e) {
+            $pdo->rollBack();
+            jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
 }
 
 // -------------------------------------------------------------

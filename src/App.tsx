@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award } from 'lucide-react';
+import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award, ArrowUpDown } from 'lucide-react';
 import { printNotesReport, printViolationsReport, printClassroomSeatingPlan } from './utils/printNotes';
 import {
   AppSettings,
@@ -34,7 +34,7 @@ import { SchoolActivitiesWall } from './components/SchoolActivitiesWall';
 import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { DbInfoModal } from './components/DbInfoModal';
 import { TeacherTimetable } from './components/TeacherTimetable';
-import { OfflineIndicator } from './components/OfflineIndicator';
+import { RosterReorderModal } from './components/RosterReorderModal';
 
 function normalizeArabicText(str?: string): string {
   if (!str) return '';
@@ -57,28 +57,20 @@ function matchClientStudent(
   recordNum?: string,
   recordMassar?: string
 ): boolean {
-  // 1. If Massar number matches, it's definitively the exact same student
+  if (!targetName && !recordName) return false;
+  const tName = normalizeArabicText(targetName);
+  const rName = normalizeArabicText(recordName);
+  if (!tName && !rName) return false;
+
   const tMassar = (targetMassar || '').trim().toUpperCase();
   const rMassar = (recordMassar || '').trim().toUpperCase();
   if (tMassar && rMassar && tMassar === rMassar) return true;
 
-  const tNum = String(targetNum || '').trim();
-  const rNum = String(recordNum || '').trim();
-  const tName = normalizeArabicText(targetName || '');
-  const rName = normalizeArabicText(recordName || '');
-
-  // 2. If student number in the section matches (المفتاح الأساسي للتلميذ في القسم)
-  if (tNum && rNum && tNum === rNum) {
-    if (!tName || !rName || tName === rName || tName.includes(rName) || rName.includes(tName)) {
-      return true;
-    }
-  }
-
-  // 3. If Arabic names match exactly after normalization
   if (tName && rName && tName === rName) return true;
 
-  // 4. Overlapping names with matching numbers if both present
   if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
+    const tNum = String(targetNum || '').trim();
+    const rNum = String(recordNum || '').trim();
     if (!tNum || !rNum || tNum === rNum) return true;
   }
   return false;
@@ -152,6 +144,7 @@ export default function App() {
   const [sectionToDelete, setSectionToDelete] = useState<string | null>(null);
   const [showDeleteAllSectionsModal, setShowDeleteAllSectionsModal] = useState(false);
   const [isDeletingAllSections, setIsDeletingAllSections] = useState(false);
+  const [showRosterReorderModal, setShowRosterReorderModal] = useState(false);
 
   // Violations & Notes Modal state
   const [activeSeatModal, setActiveSeatModal] = useState<{
@@ -626,19 +619,10 @@ export default function App() {
           ...(sec.seats.flatMap((s) => s.positiveParticipations || [])),
           ...(sec.roster?.flatMap((r) => r.positiveParticipations || []) || [])
         ];
-        const seenParts = new Set<string>();
+        const seen = new Set<string>();
         const uniqueParts = allParts.filter((p) => {
-          if (seenParts.has(p.id)) return false;
-          seenParts.add(p.id);
-          return true;
-        });
-
-        // Collect all violations pool for this section
-        const allViols = sec.seats.flatMap((s) => s.violations || []);
-        const seenViols = new Set<string>();
-        const uniqueViols = allViols.filter((v) => {
-          if (seenViols.has(v.id)) return false;
-          seenViols.add(v.id);
+          if (seen.has(p.id)) return false;
+          seen.add(p.id);
           return true;
         });
 
@@ -648,26 +632,18 @@ export default function App() {
             if (st.seat !== seatNum) return st;
             const updated = { ...st, [field]: value };
 
-            // Positive participations and violations follow the student, not the seat
-            if (field === 'name' || field === 'rosterId' || field === 'number') {
+            // Positive participations follow the student, not the seat
+            if (field === 'name' || field === 'rosterId') {
               const effectiveName = (updated.name || '').trim();
-              if (!effectiveName && !updated.number) {
+              if (!effectiveName) {
                 updated.positiveParticipations = [];
                 updated.positiveParticipationCount = 0;
-                updated.violations = [];
               } else {
                 const studentParts = uniqueParts.filter((p) =>
                   matchClientStudent(effectiveName, updated.number, updated.massarNumber, p.studentName, p.studentNumber, p.massarNumber)
                 );
                 updated.positiveParticipations = studentParts;
                 updated.positiveParticipationCount = studentParts.reduce((sum, p) => sum + (p.points || 1), 0);
-
-                const studentViols = uniqueViols.filter((v) =>
-                  matchClientStudent(effectiveName, updated.number, updated.massarNumber, v.studentName, v.studentNumber, v.massarNumber)
-                );
-                if (studentViols.length > 0) {
-                  updated.violations = studentViols;
-                }
               }
             }
 
@@ -1667,7 +1643,6 @@ export default function App() {
             <span>{toastMessage}</span>
           </div>
         )}
-        <OfflineIndicator />
       </div>
     );
   }
@@ -1706,7 +1681,6 @@ export default function App() {
             <span>{toastMessage}</span>
           </div>
         )}
-        <OfflineIndicator />
       </div>
     );
   }
@@ -1751,7 +1725,7 @@ export default function App() {
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-base font-bold text-[#F2EFE3] font-['Amiri',serif]">
-                  بوابة المشرف العام ومدير المؤسسة
+                  بوابة المشرف العام ومدير المؤسسة: الأستاذ سمير القراشي
                 </span>
                 <span className="px-2.5 py-0.5 rounded-full bg-[#C98A3C] text-[#1E362D] font-bold text-[11px] shadow-xs">
                   الرابط المباشر /admin
@@ -2056,13 +2030,23 @@ export default function App() {
 
                   <button
                     id="order-by-number-btn"
-                    className="btn btn-ghost btn-sm text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/10 flex items-center gap-1.5"
+                    className="btn btn-ghost btn-sm text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/10 flex items-center gap-1.5 cursor-pointer"
                     onClick={handleOrderByNumber}
                     disabled={isOrdering}
                     title="الترتيب الافتراضي للتلاميذ حسب الرقم تصاعدياً ابتداءً من الرقم 1 في المقعد 1"
                   >
                     <ListOrdered className="w-3.5 h-3.5 text-emerald-400" />
                     <span>{isOrdering ? 'جاري الترتيب...' : 'ترتيب حسب الرقم (1-40)'}</span>
+                  </button>
+
+                  <button
+                    id="manage-roster-order-btn"
+                    className="btn btn-ghost btn-sm text-cyan-200 border-cyan-500/40 hover:bg-cyan-500/15 flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    onClick={() => setShowRosterReorderModal(true)}
+                    title="سحب وترتيب لائحة التلاميذ سابقاً أو لاحقاً مع تحيين الأرقام تلقائياً"
+                  >
+                    <ArrowUpDown className="w-3.5 h-3.5 text-cyan-300" />
+                    <span>ترتيب التلاميذ وتحيين الأرقام ⇅</span>
                   </button>
 
                   <button
@@ -2315,8 +2299,6 @@ export default function App() {
                                 sectionId={activeSection.id}
                                 seat={seat1}
                                 roster={activeSection.roster}
-                                allSeats={activeSection.seats}
-                                onToast={showToast}
                                 onSeatChange={handleSeatChange}
                                 onOpenNotes={() => openStudentRecord(seat1)}
                                 onOpenPositiveParticipation={() => {
@@ -2361,8 +2343,6 @@ export default function App() {
                                 sectionId={activeSection.id}
                                 seat={seat2}
                                 roster={activeSection.roster}
-                                allSeats={activeSection.seats}
-                                onToast={showToast}
                                 onSeatChange={handleSeatChange}
                                 onOpenNotes={() => openStudentRecord(seat2)}
                                 onOpenPositiveParticipation={() => {
@@ -3109,6 +3089,25 @@ export default function App() {
         sections={sections}
       />
 
+      {/* Roster Reorder & Renumber Modal (سحب وترتيب التلاميذ وتحيين الأرقام) */}
+      {showRosterReorderModal && activeSection && (
+        <RosterReorderModal
+          isOpen={showRosterReorderModal}
+          onClose={() => setShowRosterReorderModal(false)}
+          section={activeSection}
+          currentUser={currentUser}
+          onRefresh={async () => {
+            const secRes = await fetch('/api/sections', {
+              headers: currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {}
+            }).then((r) => r.json());
+            if (secRes.success && Array.isArray(secRes.sections)) {
+              setSections(secRes.sections);
+            }
+          }}
+          onToast={showToast}
+        />
+      )}
+
       {/* Print Sheet Area (Only rendered when printing) */}
       {activeSeatModal && activeSection && (
         <div id="print-area" style={{ display: 'none' }}>
@@ -3128,12 +3127,9 @@ export default function App() {
               <b>الأستاذ:</b> {activeSection.teacher || settings.teacher || '—'}
             </div>
             <div>
-              <b>رقم المقعد (مكان الجلوس):</b> مقعد #{activeSeatModal.seatNum}
+              <b>رقم المقعد:</b> {activeSeatModal.seatNum}
             </div>
-            <div>
-              <b>رقم التلميذ في القسم:</b> {activeSection.seats.find((s) => s.seat === activeSeatModal.seatNum)?.number || '—'}
-            </div>
-            <div>
+            <div style={{ gridColumn: '1 / -1' }}>
               <b>اسم التلميذ:</b> {activeSeatModal.name || '—'}
             </div>
           </div>
@@ -3161,11 +3157,10 @@ export default function App() {
           </table>
 
           <div className="print-footer">
-            منظومة تدبير الفصول والأقسام • الموقع: www.lyceecom.com | طُبعت بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (GMT)
+            تم استخراج هذه الوثيقة من نظام خرائط الأقسام بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
           </div>
         </div>
       )}
-      <OfflineIndicator />
     </div>
   );
 }
@@ -3177,8 +3172,6 @@ interface SeatCardProps {
   sectionId: string;
   seat: SeatItem;
   roster: RosterItem[];
-  allSeats?: SeatItem[];
-  onToast?: (msg: string) => void;
   onSeatChange: (
     sectionId: string,
     seatNum: number,
@@ -3210,8 +3203,6 @@ function SeatCard({
   sectionId,
   seat,
   roster,
-  allSeats = [],
-  onToast,
   onSeatChange,
   onOpenNotes,
   onOpenPositiveParticipation,
@@ -3241,97 +3232,21 @@ function SeatCard({
     }
   }, [showColorPicker]);
 
+  const hasRoster = roster && roster.length > 0;
   const hasStudent = Boolean(seat.name && seat.name.trim());
   const currentStatusColor = seat.statusColor || 'default';
 
-  // Build unified section students roster (اعتماد رقم التلميذ كمفتاح أساسي)
-  const availableStudents = useMemo(() => {
-    const map = new Map<string, { id: string; name: string; number: string; massarNumber: string }>();
-
-    // 1. From official section roster
-    if (roster && roster.length > 0) {
-      for (const r of roster) {
-        if (r.name && r.name.trim()) {
-          const num = String(r.number || '').trim();
-          const key = num || r.id;
-          map.set(key, {
-            id: r.id,
-            name: r.name.trim(),
-            number: num,
-            massarNumber: (r.massarNumber || '').trim()
-          });
-        }
-      }
-    }
-
-    // 2. From all assigned seats in section
-    if (allSeats && allSeats.length > 0) {
-      for (const s of allSeats) {
-        if (s.name && s.name.trim()) {
-          const num = String(s.number || s.seat).trim();
-          const key = num || s.name.trim();
-          if (!map.has(key)) {
-            map.set(key, {
-              id: s.rosterId || `seat_${s.seat}`,
-              name: s.name.trim(),
-              number: num,
-              massarNumber: (s.massarNumber || '').trim()
-            });
-          }
-        }
-      }
-    }
-
-    return Array.from(map.values()).sort((a, b) => {
-      const na = parseInt(a.number, 10);
-      const nb = parseInt(b.number, 10);
-      if (!isNaN(na) && !isNaN(nb)) return na - nb;
-      return (a.number || '').localeCompare(b.number || '', undefined, { numeric: true });
-    });
-  }, [roster, allSeats]);
-
-  // Primary Key Student Selection: selecting by student number auto-fetches all other data
-  const handleSelectStudentByNumber = (selectedVal: string) => {
-    if (!selectedVal || selectedVal === '__clear__') {
+  const handleSelectStudent = (rosterId: string) => {
+    if (!rosterId) {
       onSeatChange(sectionId, seat.seat, 'rosterId', null);
-      onSeatChange(sectionId, seat.seat, 'name', '');
-      onSeatChange(sectionId, seat.seat, 'number', '');
-      onSeatChange(sectionId, seat.seat, 'massarNumber', '');
-      onSeatChange(sectionId, seat.seat, 'attendance', null);
-      if (selectedVal === '__clear__') {
-        onToast?.(`تم تفريغ المقعد ${seat.seat}`);
-      }
       return;
     }
-
-    const matched = availableStudents.find(
-      (item) => String(item.number).trim() === String(selectedVal).trim() || item.id === selectedVal
-    );
-
-    if (matched) {
-      // Check if student was previously sitting in another seat in this section
-      const previousSeat = allSeats.find(
-        (s) => s.seat !== seat.seat && (String(s.number).trim() === String(matched.number).trim() || (s.name && s.name.trim() === matched.name.trim()))
-      );
-
-      if (previousSeat) {
-        // Clear previous seat to smoothly transfer student
-        onSeatChange(sectionId, previousSeat.seat, 'rosterId', null);
-        onSeatChange(sectionId, previousSeat.seat, 'name', '');
-        onSeatChange(sectionId, previousSeat.seat, 'number', '');
-        onSeatChange(sectionId, previousSeat.seat, 'massarNumber', '');
-        onSeatChange(sectionId, previousSeat.seat, 'attendance', null);
-        onToast?.(`تم نقل التلميذ(ة) ${matched.name} من المقعد ${previousSeat.seat} إلى المقعد ${seat.seat}`);
-      } else {
-        onToast?.(`تم جلب معطيات التلميذ(ة) ${matched.name} (رقم ${matched.number}) في المقعد ${seat.seat}`);
-      }
-
-      onSeatChange(sectionId, seat.seat, 'rosterId', matched.id);
-      onSeatChange(sectionId, seat.seat, 'name', matched.name);
-      onSeatChange(sectionId, seat.seat, 'number', matched.number);
-      onSeatChange(sectionId, seat.seat, 'massarNumber', matched.massarNumber || '');
-    } else {
-      onSeatChange(sectionId, seat.seat, 'number', selectedVal);
+    const student = roster.find((r) => r.id === rosterId);
+    if (student) {
+      onSeatChange(sectionId, seat.seat, 'rosterId', student.id);
+      onSeatChange(sectionId, seat.seat, 'name', student.name);
+      onSeatChange(sectionId, seat.seat, 'number', student.number);
+      onSeatChange(sectionId, seat.seat, 'massarNumber', student.massarNumber || '');
     }
   };
 
@@ -3451,75 +3366,68 @@ function SeatCard({
         </div>
       )}
 
-      {/* Student Number & Primary Key Selector */}
+      {/* Name field */}
       <div className="field">
-        <div className="flex items-center justify-between gap-1 mb-0.5">
-          <label htmlFor={`seat-num-select-${seat.seat}`} className="text-[10px] font-bold text-[#5B5040] block" title="رقم التلميذ في القسم هو المفتاح الأساسي للتلميذ">
-            رقم التلميذ بالقسم
-          </label>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onSelectForSwap?.(seat.seat)}
-              className={`swap-action-btn ${isSelectedForSwap ? 'bg-blue-600 text-white font-bold' : ''}`}
-              title={isSelectedForSwap ? 'إلغاء التحديد' : 'تحديد المقعد ثم النقر على مقعد آخر للتبديل'}
-            >
-              <ArrowLeftRight className="w-3 h-3 shrink-0" />
-              <span>{isSelectedForSwap ? 'محدد ✓' : 'تبديل'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Dropdown list of numbers with student details */}
-        <select
-          id={`seat-num-select-${seat.seat}`}
-          value={seat.number || ''}
-          onChange={(e) => handleSelectStudentByNumber(e.target.value)}
-          className="w-full text-xs font-mono text-right bg-white/95 border border-[#D9CEB0] rounded-md py-1 px-1.5 focus:border-[#A96E28] focus:ring-1 focus:ring-[#A96E28] outline-hidden cursor-pointer shadow-2xs"
-          title="اختر رقم التلميذ للتعرف الفوري على معطياته وجلبها"
-        >
-          <option value="">— اختر رقم التلميذ ({availableStudents.length} تلميذ) —</option>
-          {availableStudents.map((st) => {
-            const isCurrentSeat = seat.seat && (String(seat.number).trim() === String(st.number).trim() || (seat.name && seat.name.trim() === st.name.trim()));
-            const otherSeat = !isCurrentSeat ? allSeats.find((s) => s.seat !== seat.seat && (String(s.number).trim() === String(st.number).trim() || (s.name && s.name.trim() === st.name.trim()))) : null;
-            return (
-              <option key={st.id || st.number} value={st.number}>
-                رقم {st.number} : {st.name} {st.massarNumber ? `[${st.massarNumber}]` : ''} {isCurrentSeat ? '✓ (المقعد الحالي)' : otherSeat ? `[في المقعد ${otherSeat.seat}]` : ''}
-              </option>
-            );
-          })}
-          {hasStudent && (
-            <option value="__clear__" className="text-rose-700 font-bold">
-              ✕ تفريغ المقعد (إلغاء تعيين التلميذ)
-            </option>
-          )}
-        </select>
-      </div>
-
-      {/* Name and Massar Field */}
-      <div className="field">
-        <div className="flex items-center justify-between gap-1 mb-0.5">
-          <label htmlFor={`seat-name-${seat.seat}`} className="text-[10px] font-bold text-[#5B5040]">
-            الاسم الكامل
-          </label>
-          {seat.massarNumber && (
-            <span
-              className="text-[9px] font-mono text-emerald-800 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-300 font-semibold inline-flex items-center gap-1 shadow-2xs"
-              title={`رقم مسار: ${seat.massarNumber}`}
-            >
-              <span>مسار:</span>
-              <span>{seat.massarNumber}</span>
-            </span>
-          )}
-        </div>
+        <label htmlFor={`seat-name-${seat.seat}`}>اسم التلميذ</label>
         <input
           id={`seat-name-${seat.seat}`}
           type="text"
-          placeholder="اختر الرقم أعلاه أو اكتب الاسم"
+          placeholder="اسم التلميذ"
           value={seat.name}
           onChange={(e) => onSeatChange(sectionId, seat.seat, 'name', e.target.value)}
-          className="w-full text-xs"
         />
+      </div>
+
+      {/* Student Number field */}
+      <div className="field">
+        <div className="flex items-center justify-between gap-2">
+          <label htmlFor={`seat-num-input-${seat.seat}`} className="text-[10px] font-bold text-[#5B5040] block mb-0.5">
+            رقم
+          </label>
+          <button
+            type="button"
+            onClick={() => onSelectForSwap?.(seat.seat)}
+            className={`swap-action-btn ${isSelectedForSwap ? 'bg-blue-600 text-white font-bold' : ''}`}
+            title={isSelectedForSwap ? 'إلغاء التحديد' : 'تحديد المقعد ثم النقر على مقعد آخر للتبديل'}
+          >
+            <ArrowLeftRight className="w-3 h-3 shrink-0" />
+            <span>{isSelectedForSwap ? 'محدد ✓' : 'تبديل'}</span>
+          </button>
+        </div>
+        {hasRoster ? (
+          <select
+            id={`seat-num-input-${seat.seat}`}
+            value={seat.number}
+            onChange={(e) => {
+              const match = roster.find((item) => item.number === e.target.value);
+              if (match) {
+                handleSelectStudent(match.id);
+              } else {
+                onSeatChange(sectionId, seat.seat, 'number', e.target.value);
+              }
+            }}
+            className="w-full text-xs font-mono text-center"
+          >
+            <option value="">— اختر الرقم —</option>
+            {roster.map((r) => (
+              <option key={r.id} value={r.number}>{r.number}</option>
+            ))}
+          </select>
+        ) : (
+          <input
+            id={`seat-num-input-${seat.seat}`}
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="1"
+            value={seat.number}
+            onChange={(e) => {
+              const clean = e.target.value.replace(/[^0-9]/g, '');
+              onSeatChange(sectionId, seat.seat, 'number', clean);
+            }}
+            className="w-full text-xs font-mono text-center"
+          />
+        )}
       </div>
 
       {/* Daily Attendance Recording Toolbar */}

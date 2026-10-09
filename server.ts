@@ -25,6 +25,7 @@ import {
   shuffleSectionSeats,
   orderSectionSeatsByNumber,
   renumberSectionStudents,
+  reorderSectionStudents,
   batchImportSections,
   seedTenSections,
   findUserByUsernameOrEmail,
@@ -70,7 +71,6 @@ import {
   updateDailyAbsence,
   resolveDailyAbsence,
   deleteDailyAbsence,
-  resetActiveAbsencesCounter,
   batchImportDailyAbsences,
   addDailyViolation,
   updateDailyViolation,
@@ -744,6 +744,34 @@ async function startServer() {
     try {
       const sectionId = req.params.id;
       const result = renumberSectionStudents(sectionId);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // 6c4. Reorder Section Students (سحب ووضع التلميذ سابقاً أو لاحقاً مع تحيين الأرقام تصاعدياً)
+  app.post('/api/sections/:id/reorder-students', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const { sourceIndex, targetIndex, orderedStudentNames, studentName, newPosition, reorderSeatsToo } = req.body || {};
+      const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || undefined;
+      const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || undefined;
+
+      const result = reorderSectionStudents(
+        sectionId,
+        {
+          sourceIndex: typeof sourceIndex === 'number' ? sourceIndex : undefined,
+          targetIndex: typeof targetIndex === 'number' ? targetIndex : undefined,
+          orderedStudentNames: Array.isArray(orderedStudentNames) ? orderedStudentNames : undefined,
+          studentName: typeof studentName === 'string' ? studentName : undefined,
+          newPosition: typeof newPosition === 'number' ? newPosition : undefined,
+          reorderSeatsToo: !!reorderSeatsToo
+        },
+        false,
+        actorId,
+        actorRole
+      );
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -1760,26 +1788,6 @@ async function startServer() {
       const id = Number(req.params.id);
       deleteDailyAbsence(id);
       res.json({ success: true, message: 'تم حذف سجل الغياب بنجاح' });
-    } catch (err: any) {
-      res.status(400).json({ success: false, error: err.message });
-    }
-  });
-
-  // Reset all active absences in administration (zero counter, archive resolved)
-  app.post('/api/daily-archive/absences/reset-active', (req, res) => {
-    try {
-      const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || '';
-      const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || 'director';
-      const actorName = req.body?.actorName || '';
-      const actorSubject = req.body?.actorSubject || '';
-
-      const result = resetActiveAbsencesCounter({
-        id: actorId,
-        role: actorRole,
-        name: actorName,
-        subject: actorSubject
-      });
-      res.json(result);
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }

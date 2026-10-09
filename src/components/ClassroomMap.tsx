@@ -16,10 +16,12 @@ import {
   Star,
   Sparkles,
   Award,
-  Trophy
+  Trophy,
+  ArrowUpDown
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SectionItem, SeatItem } from '../types';
+import { RosterReorderModal } from './RosterReorderModal';
 
 interface ClassroomMapProps {
   section: SectionItem;
@@ -35,6 +37,7 @@ interface ClassroomMapProps {
   onSwapSeats?: (seatA: number, seatB: number) => void;
   onShuffleSeats?: () => void;
   onOrderByNumber?: () => void;
+  onRefreshSection?: () => Promise<void> | void;
 }
 
 export const ClassroomMap: React.FC<ClassroomMapProps> = ({
@@ -50,13 +53,15 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
   onToast,
   onSwapSeats,
   onShuffleSeats,
-  onOrderByNumber
+  onOrderByNumber,
+  onRefreshSection
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [draggingSeat, setDraggingSeat] = useState<number | null>(null);
   const [dropTargetSeat, setDropTargetSeat] = useState<number | null>(null);
   const [swapSourceSeat, setSwapSourceSeat] = useState<number | null>(null);
+  const [showReorderModal, setShowReorderModal] = useState<boolean>(false);
 
   const sectionTitle = `${section.level || 'بدون مستوى'} - ${section.classNumber ? `القسم ${section.classNumber}` : 'بدون قسم'}`;
   const hasRoster = section.roster && section.roster.length > 0;
@@ -282,12 +287,12 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           setDropTargetSeat(null);
         }}
       >
-        {/* Seat Number Badge (مكان الجلوس بالقاعة) */}
+        {/* Seat Number Badge */}
         <div
-          className="absolute -top-2.5 -right-2.5 px-1.5 h-6 min-w-[26px] rounded-full bg-[#1F3E32] text-[#F2EFE3] border-2 border-[#C98A3C] flex items-center justify-center text-[10px] font-black shadow-xs z-10"
-          title={`المقعد رقم ${seat.seat} (مكان الجلوس بالقاعة - يمكن أن يتغير من قاعة أو أستاذ لآخر)`}
+          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-[#1F3E32] text-[#F2EFE3] border-2 border-[#C98A3C] flex items-center justify-center text-xs font-black shadow-xs z-10"
+          title={`المقعد رقم ${seat.seat}`}
         >
-          <span className="text-[8px] text-amber-300 ml-0.5 font-bold">مقعد</span>{seat.seat}
+          {seat.seat}
         </div>
 
         {/* Top Mini Drag & Swap Bar */}
@@ -321,8 +326,8 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
         {/* Student Number field */}
         <div className="mb-2">
           <div className="flex items-center justify-between gap-2">
-            <label className="block text-[10px] font-bold text-[#5B5040] mb-0.5" title="الرقم الترتيبي للتلميذ في القسم (محدد أساسي لا يتغير)">
-              رقم التلميذ بالقسم
+            <label className="block text-[10px] font-bold text-[#5B5040] mb-0.5">
+              رقم
             </label>
             <button
               type="button"
@@ -516,6 +521,17 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
             </button>
           )}
 
+          {/* Manage Roster Order & Numbers Button */}
+          <button
+            type="button"
+            onClick={() => setShowReorderModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold text-cyan-200 bg-cyan-950/60 hover:bg-cyan-900/80 border border-cyan-500/40 transition-all cursor-pointer shadow-xs"
+            title="سحب وترتيب لائحة التلاميذ سابقاً أو لاحقاً مع تحيين الأرقام تلقائياً"
+          >
+            <ArrowUpDown className="w-3.5 h-3.5 text-cyan-400" />
+            <span>ترتيب التلاميذ وتحيين الأرقام ⇅</span>
+          </button>
+
           {/* Shuffle Seats Button */}
           {onShuffleSeats && (
             <button
@@ -624,6 +640,20 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           );
         })}
       </div>
+      
+      {/* Roster Reorder & Renumber Modal */}
+      {showReorderModal && (
+        <RosterReorderModal
+          isOpen={showReorderModal}
+          onClose={() => setShowReorderModal(false)}
+          section={section}
+          currentUser={null}
+          onRefresh={async () => {
+            if (onRefreshSection) await onRefreshSection();
+          }}
+          onToast={onToast}
+        />
+      )}
 
     </div>
   );

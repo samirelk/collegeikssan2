@@ -28,7 +28,12 @@ import {
   Building2,
   MoreHorizontal,
   ArrowLeftRight,
-  ListOrdered
+  ListOrdered,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  Hash,
+  ArrowUpDown
 } from 'lucide-react';
 import {
   SectionItem,
@@ -150,6 +155,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [transferStudentHistory, setTransferStudentHistory] = useState<boolean>(true);
   const [isRemovingStudent, setIsRemovingStudent] = useState(false);
 
+  // Student Drag & Drop Reordering state in Inspect Section
+  const [draggedStudentIndex, setDraggedStudentIndex] = useState<number | null>(null);
+  const [dragOverStudentIndex, setDragOverStudentIndex] = useState<number | null>(null);
+  const [dropPosition, setDropPosition] = useState<'before' | 'after' | null>(null);
+  const [isReorderingStudents, setIsReorderingStudents] = useState<boolean>(false);
+  const [movingRankStudent, setMovingRankStudent] = useState<{
+    name: string;
+    currentRank: number;
+    total: number;
+  } | null>(null);
+  const [targetRankInput, setTargetRankInput] = useState<string>('');
+
   // Auth headers for backend RBAC verification
   const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
@@ -205,50 +222,6 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await Promise.all([fetchDirectorData(), onRefreshSections()]);
-  };
-
-  const [isResettingAbsences, setIsResettingAbsences] = useState(false);
-
-  const handleResetAbsencesCounter = async (e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const confirmed = window.confirm(
-      'هل تريد تصفير عداد حالات الغياب؟\n\nسيتم إنهاء وتسوية جميع حالات الغياب النشطة الحالية وتوثيقها في الأرشيف اليومي، لكي يبدأ العداد من جديد (0).'
-    );
-    if (!confirmed) return;
-
-    setIsResettingAbsences(true);
-    try {
-      const res = await fetch('/api/daily-archive/absences/reset-active', {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({
-          actorId: currentUser.id,
-          actorName: currentUser.fullName || 'إدارة المؤسسة',
-          actorRole: currentUser.role,
-          actorSubject: currentUser.subject || 'الإدارة التربوية'
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSuccessMessage(data.message || 'تم تصفير عداد الغيابات بنجاح (العداد الحالي: 0)');
-        // Optimistically update analytics summary totalAbsences to 0 immediately
-        setAnalytics((prev: any) => prev ? {
-          ...prev,
-          summary: {
-            ...prev.summary,
-            totalAbsences: 0,
-            activeAbsences: 0
-          }
-        } : prev);
-        await Promise.all([fetchDirectorData(), onRefreshSections()]);
-      } else {
-        alert(data.error || 'تعذر تصفير العداد');
-      }
-    } catch (err: any) {
-      alert(err.message || 'خطأ في الاتصال بالخادم');
-    } finally {
-      setIsResettingAbsences(false);
-    }
   };
 
   // Quick Teacher Creation
@@ -504,6 +477,85 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     }
   };
 
+  // Handle reordering student order (drag & drop or buttons) and automatically renumber all students
+  const handleReorderStudent = async (
+    sectionId: string,
+    sourceIdx: number,
+    targetIdx: number,
+    position: 'before' | 'after' = 'before'
+  ) => {
+    try {
+      setIsReorderingStudents(true);
+      // Determine final destination index
+      let finalTarget = position === 'after' ? targetIdx + 1 : targetIdx;
+      if (sourceIdx < targetIdx && position === 'after') {
+        finalTarget = targetIdx;
+      } else if (sourceIdx < targetIdx && position === 'before') {
+        finalTarget = Math.max(0, targetIdx - 1);
+      }
+      finalTarget = Math.max(0, finalTarget);
+
+      const res = await fetch(`/api/sections/${sectionId}/reorder-students`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          sourceIndex: sourceIdx,
+          targetIndex: finalTarget
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'تعذر إعادة ترتيب التلميذ');
+
+      setSuccessMessage(data.message || `تم تحيين ترتيب التلميذ وتحديث أرقام القسم تصاعدياً بنجاح!`);
+      await Promise.all([onRefreshSections(), fetchDirectorData()]);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'حدث خطأ أثناء إعادة ترتيب التلميذ');
+    } finally {
+      setIsReorderingStudents(false);
+      setDraggedStudentIndex(null);
+      setDragOverStudentIndex(null);
+      setDropPosition(null);
+    }
+  };
+
+  // Move earlier (سابقاً / للأعلى)
+  const handleMoveStudentEarlier = (sectionId: string, currentIndex: number) => {
+    if (currentIndex <= 0 || isReorderingStudents) return;
+    handleReorderStudent(sectionId, currentIndex, currentIndex - 1, 'before');
+  };
+
+  // Move later (لاحقاً / للأسفل)
+  const handleMoveStudentLater = (sectionId: string, currentIndex: number, total: number) => {
+    if (currentIndex >= total - 1 || isReorderingStudents) return;
+    handleReorderStudent(sectionId, currentIndex, currentIndex + 1, 'after');
+  };
+
+  // Jump to specific rank
+  const handleJumpToRank = async (sectionId: string, studentName: string, newPosition: number) => {
+    try {
+      setIsReorderingStudents(true);
+      const res = await fetch(`/api/sections/${sectionId}/reorder-students`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          studentName,
+          newPosition
+        })
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'تعذر تغيير رتبة التلميذ');
+
+      setSuccessMessage(data.message || `تم نقل التلميذ (${studentName}) إلى الرتبة #${newPosition} وتحيين أرقام كافة تلاميذ القسم بنجاح!`);
+      setMovingRankStudent(null);
+      setTargetRankInput('');
+      await Promise.all([onRefreshSections(), fetchDirectorData()]);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'حدث خطأ أثناء تغيير رتبة التلميذ');
+    } finally {
+      setIsReorderingStudents(false);
+    }
+  };
+
   // Delete teacher (open confirmation modal)
   const handleDeleteTeacher = (teacher: TeacherItem) => {
     setTeacherToDelete(teacher);
@@ -738,18 +790,11 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
     setActiveTab(tab);
     setInspectSectionId(null);
     setTimeout(() => {
-      if (tab === 'daily-archive') {
-        const dailyArchiveEl = document.getElementById('director-daily-archive-section');
-        if (dailyArchiveEl) {
-          dailyArchiveEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          return;
-        }
-      }
-      const element = document.getElementById(`director-tab-${tab}`) || document.getElementById('director-main-tabs');
+      const element = document.getElementById('director-main-tabs');
       if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }
-    }, 60);
+    }, 50);
   };
 
   return (
@@ -981,55 +1026,34 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </button>
 
         {/* حالات الغياب */}
-        <div
-          role="button"
-          tabIndex={0}
-          onClick={() => navigateToTab('daily-archive')}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              navigateToTab('daily-archive');
-            }
-          }}
-          title="انقر لفتح الأرشيف اليومي للغيابات والمخالفات وتتبع الحالات وتسويتها"
-          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 select-none focus:outline-none focus:ring-2 focus:ring-[#8A5A18]/40 ${
-            activeTab === 'daily-archive' && !inspectSectionId
+        <button
+          type="button"
+          onClick={() => navigateToTab('absences')}
+          title="انقر لفتح تتبع حالات الغياب ورصد التلاميذ الأكثر غياباً والأرشيف"
+          className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 ${
+            activeTab === 'absences' && !inspectSectionId
               ? 'bg-[#FBF5EC] border-[#8A5A18] ring-2 ring-[#8A5A18]/20 shadow-xs'
               : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#8A5A18]'
           }`}
         >
           <div className="flex items-center justify-between text-xs font-bold text-[#7A6B58] mb-1">
-            <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب النشطة</span>
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={handleResetAbsencesCounter}
-                disabled={isResettingAbsences}
-                title="تصفير عداد حالات الغياب وتسوية الحالات لكي يبدأ الحساب من جديد (0)"
-                className="px-2 py-0.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-[#8A5A18] text-[10px] font-bold border border-amber-300 transition-all cursor-pointer shadow-2xs hover:scale-105 active:scale-95 disabled:opacity-50"
-              >
-                {isResettingAbsences ? 'تصفير...' : 'تصفير العداد ↺'}
-              </button>
-              <div className="w-6 h-6 rounded-lg bg-[#8A5A18]/10 flex items-center justify-center text-[#8A5A18]">
-                <UserX className="w-3.5 h-3.5" />
-              </div>
+            <span className="group-hover:text-[#8A5A18] transition-colors">حالات الغياب</span>
+            <div className="w-6 h-6 rounded-lg bg-[#8A5A18]/10 flex items-center justify-center text-[#8A5A18]">
+              <UserX className="w-3.5 h-3.5" />
             </div>
           </div>
-          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5 flex items-baseline gap-2">
-            <span>
-              {isLoading && !analytics ? (
-                <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
-              ) : (
-                analytics?.summary?.totalAbsences ?? 0
-              )}
-            </span>
-            <span className="text-[11px] font-normal text-[#8A5A18]/80 font-sans">غياب غير مرفوع</span>
+          <div className="text-xl sm:text-2xl font-bold font-serif text-[#8A5A18] my-0.5">
+            {isLoading && !analytics ? (
+              <span className="text-xs font-sans text-[#7A6B58]">تحميل...</span>
+            ) : (
+              analytics?.summary?.totalAbsences ?? 0
+            )}
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
-            <span>انقر لفتح الأرشيف اليومي</span>
-            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">الأرشيف اليومي ↗</span>
+            <span>تسجيل غياب مرصود</span>
+            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">تتبع ↗</span>
           </div>
-        </div>
+        </button>
       </div>
 
       {/* 2.1 Compact Secondary Indicators */}
@@ -1758,9 +1782,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               <table className="w-full text-right text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#EFE9D5] text-[#2A2118] border-b border-[#D9CEB0]">
-                    <th className="p-3 font-bold w-20 text-center" title="رقم التلميذ في القسم (محدد أساسي لا يتغير)">رقم التلميذ</th>
+                    <th className="p-3 font-bold w-16 text-center">الرقم</th>
                     <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
-                    <th className="p-3 font-bold text-center w-20" title="المقعد مجرد مكان جلوس يمكن أن يتغير من قاعة لأخرى">المقعد</th>
                     <th className="p-3 font-bold">رقم مسار / البطاقة</th>
                     <th className="p-3 font-bold">القسم والمستوى</th>
                     <th className="p-3 font-bold">الأستاذ المسؤول والمادة</th>
@@ -1773,17 +1796,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                   {filteredStudents.map((st, i) => (
                     <tr key={`${st.sectionId}-${st.seatNum}`} className="hover:bg-[#F4EFDE] transition-colors">
                       <td className="p-3 font-mono font-bold text-center text-[#2A2118]">
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold" title="رقم التلميذ في لائحة القسم">
-                          {st.studentNumber || '—'}
-                        </span>
+                        {st.studentNumber ? (
+                          <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0]">
+                            {st.studentNumber}
+                          </span>
+                        ) : (
+                          <span className="text-[#7A6B58]">
+                            #{st.seatNum}
+                          </span>
+                        )}
                       </td>
                       <td className="p-3 font-bold text-sm text-[#2A2118]">
                         {st.studentName}
-                      </td>
-                      <td className="p-3 font-mono text-center text-[#5B5040]">
-                        <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-medium" title="مكان الجلوس بالقاعة">
-                          مقعد #{st.seatNum}
-                        </span>
                       </td>
                       <td className="p-3 font-mono text-xs">
                         {st.massarNumber ? (
@@ -2025,7 +2049,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                 title="إعادة ترتيب أرقام التلاميذ تسلسلياً (من 1 إلى N) لمنع وسد أي أرقام فارغة"
               >
                 <ListOrdered className="w-3.5 h-3.5 text-amber-700" />
-                <span>ترتيب الأرقام ومنع الفراغات</span>
+                <span>ترتيب الأرقام تصاعدياً (1..N)</span>
               </button>
               <button
                 type="button"
@@ -2054,120 +2078,350 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-right text-xs border-collapse">
-              <thead>
-                <tr className="bg-[#EFE9D5] text-[#2A2118] border-b border-[#D9CEB0]">
-                  <th className="p-3 font-bold w-20 text-center" title="رقم التلميذ في القسم (محدد أساسي لا يتغير بتغير القاعة)">رقم التلميذ</th>
-                  <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
-                  <th className="p-3 font-bold text-center w-24" title="المقعد مجرد مكان جلوس يمكن أن يتغير من قاعة أو أستاذ لآخر">مكان الجلوس</th>
-                  <th className="p-3 font-bold">رقم مسار / البطاقة</th>
-                  <th className="p-3 font-bold text-center">حالة الحضور</th>
-                  <th className="p-3 font-bold text-center">عدد الملاحظات</th>
-                  <th className="p-3 font-bold">نصوص الملاحظات المسجلة</th>
-                  <th className="p-3 font-bold text-center">إجراء المدير</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#E4DBC0]">
-                {activeInspectSection.seats
-                  .filter((s) => s.name && s.name.trim())
-                  .map((st) => (
-                    <tr key={st.seat} className="hover:bg-[#F4EFDE] transition-colors">
-                      <td className="p-3 font-mono font-bold text-center text-[#2A2118]">
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold" title="رقم التلميذ في لائحة القسم">
-                          {st.number || '—'}
-                        </span>
-                      </td>
-                      <td className="p-3 font-bold text-sm text-[#2A2118]">
-                        {st.name}
-                      </td>
-                      <td className="p-3 font-mono text-center text-[#5B5040]">
-                        <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-medium" title="مكان الجلوس الحالي بالقاعة">
-                          مقعد #{st.seat}
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono text-xs text-[#5B5040]">
-                        {st.massarNumber ? (
-                          <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-bold text-[#1A4E47]">
-                            {st.massarNumber}
-                          </span>
-                        ) : (
-                          <span className="text-[#7A6B58]">—</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
-                        {st.attendance === 'present' ? (
-                          <span className="text-[#03543F] font-bold">✓ حاضر</span>
-                        ) : st.attendance === 'absent' ? (
-                          <span className="px-2 py-0.5 rounded-full font-bold bg-[#FDE8E8] text-[#9B1C1C]">
-                            ✕ غائب
-                          </span>
-                        ) : st.attendance === 'late' ? (
-                          <span className="px-2 py-0.5 rounded-full font-bold bg-[#FEF08A] text-[#713F12]">
-                            ⏳ متأخر
-                          </span>
-                        ) : (
-                          <span className="text-[#7A6B58]">—</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center font-bold">
-                        {st.notes && st.notes.length > 0 ? (
-                          <span className="px-2 py-0.5 rounded-full bg-[#FDE8E8] text-[#9B1C1C]">
-                            {st.notes.length}
-                          </span>
-                        ) : (
-                          <span className="text-[#7A6B58]">0</span>
-                        )}
-                      </td>
-                      <td className="p-3 max-w-sm">
-                        {st.notes && st.notes.length > 0 ? (
-                          <ul className="space-y-1">
-                            {st.notes.map((n) => (
-                              <li key={n.id} className="text-[11px] text-[#2A2118] bg-[#EFE9D5] p-1.5 rounded-md">
-                                <span className="font-mono text-[#7A6B58] text-[10px] ml-1">{n.date}:</span>
-                                <span>{n.text}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <span className="text-[#7A6B58] text-[11px]">لا توجد ملاحظات</span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
+          {(() => {
+            const sortedInspectStudents = [...activeInspectSection.seats.filter((s) => s.name && s.name.trim())].sort((a, b) => {
+              const numA = parseInt(String(a.number || a.seat || '0'), 10);
+              const numB = parseInt(String(b.number || b.seat || '0'), 10);
+              if (!isNaN(numA) && !isNaN(numB) && numA > 0 && numB > 0 && numA !== numB) {
+                return numA - numB;
+              }
+              return (a.name || '').localeCompare(b.name || '', 'ar');
+            });
+
+            return (
+              <>
+                {/* Reordering Instructions Banner */}
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 mb-4 text-xs text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base shrink-0">💡</span>
+                    <span>
+                      <strong>ترتيب وسحب التلاميذ مع تحيين الأرقام:</strong> يمكن للإدارة سحب أي تلميذ عبر مقبض السحب <span className="inline-block px-1 bg-amber-200 text-amber-900 rounded font-mono font-bold">⠿</span> ووضعه سابقاً (قبله) أو لاحقاً (بعده)، أو استخدام أزرار <span className="inline-block px-1 bg-amber-200 text-amber-900 rounded font-bold">⬆️ سابقاً</span> و <span className="inline-block px-1 bg-amber-200 text-amber-900 rounded font-bold">⬇️ لاحقاً</span>، وسيتم تحيين أرقام كافة تلاميذ القسم فورياً وبشكل تصاعدي متسلسل من 1 إلى {sortedInspectStudents.length}!
+                    </span>
+                  </div>
+                  {isReorderingStudents && (
+                    <span className="inline-flex items-center gap-1.5 font-bold text-amber-800 animate-pulse text-xs bg-amber-100 px-2.5 py-1 rounded-lg shrink-0">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري تحيين الأرقام...</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-right text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-[#EFE9D5] text-[#2A2118] border-b border-[#D9CEB0]">
+                        <th className="p-3 font-bold w-24 text-center">الرقم الترتيبي</th>
+                        <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
+                        <th className="p-3 font-bold">رقم مسار / البطاقة</th>
+                        <th className="p-3 font-bold text-center">المقعد بالقاعة</th>
+                        <th className="p-3 font-bold text-center">حالة الحضور</th>
+                        <th className="p-3 font-bold text-center">عدد الملاحظات</th>
+                        <th className="p-3 font-bold">نصوص الملاحظات المسجلة</th>
+                        <th className="p-3 font-bold text-center">تقديم / تأخير (تحيين)</th>
+                        <th className="p-3 font-bold text-center">إجراء المدير</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#E4DBC0]">
+                      {sortedInspectStudents.map((st, idx) => {
+                        const isBeingDragged = draggedStudentIndex === idx;
+                        const isOverThis = dragOverStudentIndex === idx;
+                        const currentRankNum = idx + 1;
+
+                        return (
+                          <React.Fragment key={st.seat + '_' + st.name}>
+                            {/* Drag Indicator Above Row (Drop Position: Before / سابقاً) */}
+                            {isOverThis && dropPosition === 'before' && (
+                              <tr>
+                                <td colSpan={9} className="p-0">
+                                  <div className="bg-emerald-600 text-white text-center py-1 font-bold text-xs flex items-center justify-center gap-2 shadow-sm animate-pulse">
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                    <span>إفلات هنا لوضع التلميذ سابقاً (قبل: {st.name}) وتحيين الأرقام تصاعدياً ⬆️</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+
+                            <tr
+                              draggable={!isReorderingStudents}
+                              onDragStart={(e) => {
+                                e.dataTransfer.setData('text/plain', String(idx));
+                                setDraggedStudentIndex(idx);
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault();
+                                if (draggedStudentIndex === null || draggedStudentIndex === idx) return;
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                const isTop = (e.clientY - rect.top) < rect.height / 2;
+                                setDragOverStudentIndex(idx);
+                                setDropPosition(isTop ? 'before' : 'after');
+                              }}
+                              onDragLeave={() => {
+                                if (dragOverStudentIndex === idx) {
+                                  setDragOverStudentIndex(null);
+                                  setDropPosition(null);
+                                }
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                if (draggedStudentIndex === null || draggedStudentIndex === idx) return;
+                                const pos = dropPosition || 'before';
+                                handleReorderStudent(activeInspectSection.id, draggedStudentIndex, idx, pos);
+                              }}
+                              onDragEnd={() => {
+                                setDraggedStudentIndex(null);
+                                setDragOverStudentIndex(null);
+                                setDropPosition(null);
+                              }}
+                              className={`transition-colors ${
+                                isBeingDragged
+                                  ? 'opacity-40 bg-amber-100 border-2 border-dashed border-amber-600'
+                                  : isOverThis
+                                  ? 'bg-emerald-50'
+                                  : 'hover:bg-[#F4EFDE]'
+                              }`}
+                            >
+                              {/* Order & Number with Drag Handle */}
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <div
+                                    className="cursor-grab active:cursor-grabbing p-1 text-[#7A6B58] hover:text-[#1A4E47] hover:bg-amber-100 rounded transition-colors"
+                                    title="اسحب لوضع التلميذ سابقاً أو لاحقاً مع تحيين الأرقام تلقائياً"
+                                  >
+                                    <GripVertical className="w-4 h-4" />
+                                  </div>
+                                  <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-mono font-bold text-[#2A2118] text-xs shadow-2xs">
+                                    #{st.number || currentRankNum}
+                                  </span>
+                                </div>
+                              </td>
+
+                              {/* Student Name */}
+                              <td className="p-3 font-bold text-sm text-[#2A2118]">
+                                {st.name}
+                              </td>
+
+                              {/* Massar Number */}
+                              <td className="p-3 font-mono text-xs text-[#5B5040]">
+                                {st.massarNumber ? (
+                                  <span className="px-2 py-0.5 rounded-md bg-[#E8DEC0] font-bold text-[#1A4E47]">
+                                    {st.massarNumber}
+                                  </span>
+                                ) : (
+                                  <span className="text-[#7A6B58]">—</span>
+                                )}
+                              </td>
+
+                              {/* Seat in Classroom */}
+                              <td className="p-3 text-center">
+                                <span className="px-2 py-0.5 rounded-full bg-[rgba(42,33,24,0.06)] text-[#5B5040] font-mono text-xs border border-[#D9CEB0]">
+                                  مقعد {st.seat}
+                                </span>
+                              </td>
+
+                              {/* Attendance */}
+                              <td className="p-3 text-center">
+                                {st.attendance === 'present' ? (
+                                  <span className="text-[#03543F] font-bold">✓ حاضر</span>
+                                ) : st.attendance === 'absent' ? (
+                                  <span className="px-2 py-0.5 rounded-full font-bold bg-[#FDE8E8] text-[#9B1C1C]">
+                                    ✕ غائب
+                                  </span>
+                                ) : st.attendance === 'late' ? (
+                                  <span className="px-2 py-0.5 rounded-full font-bold bg-[#FEF08A] text-[#713F12]">
+                                    ⏳ متأخر
+                                  </span>
+                                ) : (
+                                  <span className="text-[#7A6B58]">—</span>
+                                )}
+                              </td>
+
+                              {/* Notes count */}
+                              <td className="p-3 text-center font-bold">
+                                {st.notes && st.notes.length > 0 ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-[#FDE8E8] text-[#9B1C1C]">
+                                    {st.notes.length}
+                                  </span>
+                                ) : (
+                                  <span className="text-[#7A6B58]">0</span>
+                                )}
+                              </td>
+
+                              {/* Notes texts */}
+                              <td className="p-3 max-w-sm">
+                                {st.notes && st.notes.length > 0 ? (
+                                  <ul className="space-y-1">
+                                    {st.notes.map((n) => (
+                                      <li key={n.id} className="text-[11px] text-[#2A2118] bg-[#EFE9D5] p-1.5 rounded-md">
+                                        <span className="font-mono text-[#7A6B58] text-[10px] ml-1">{n.date}:</span>
+                                        <span>{n.text}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <span className="text-[#7A6B58] text-[11px]">لا توجد ملاحظات</span>
+                                )}
+                              </td>
+
+                              {/* Move Earlier / Later / Specific Rank buttons */}
+                              <td className="p-3 text-center">
+                                <div className="inline-flex items-center gap-1 bg-[#EFE9D5] p-1 rounded-xl border border-[#D9CEB0]">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveStudentEarlier(activeInspectSection.id, idx)}
+                                    disabled={idx === 0 || isReorderingStudents}
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
+                                      idx === 0
+                                        ? 'text-[#A09886] opacity-40 cursor-not-allowed'
+                                        : 'bg-white hover:bg-emerald-50 text-emerald-800 hover:text-emerald-950 border border-emerald-300 shadow-2xs cursor-pointer'
+                                    }`}
+                                    title="وضع سابقاً (تقديم التلميذ رتبة للأعلى مع تحيين الأرقام)"
+                                  >
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                    <span>سابقاً</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleMoveStudentLater(activeInspectSection.id, idx, sortedInspectStudents.length)}
+                                    disabled={idx === sortedInspectStudents.length - 1 || isReorderingStudents}
+                                    className={`px-2 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all ${
+                                      idx === sortedInspectStudents.length - 1
+                                        ? 'text-[#A09886] opacity-40 cursor-not-allowed'
+                                        : 'bg-white hover:bg-amber-50 text-amber-800 hover:text-amber-950 border border-amber-300 shadow-2xs cursor-pointer'
+                                    }`}
+                                    title="وضع لاحقاً (تأخير التلميذ رتبة للأسفل مع تحيين الأرقام)"
+                                  >
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                    <span>لاحقاً</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setMovingRankStudent({
+                                        name: st.name,
+                                        currentRank: currentRankNum,
+                                        total: sortedInspectStudents.length
+                                      });
+                                      setTargetRankInput(String(currentRankNum));
+                                    }}
+                                    disabled={isReorderingStudents}
+                                    className="p-1 rounded-lg text-[#5B5040] hover:text-[#1A4E47] hover:bg-white transition-colors cursor-pointer"
+                                    title="تحديد الرتبة بالرقم مباشرة"
+                                  >
+                                    <Hash className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+
+                              {/* Director Actions (Remove / Transfer) */}
+                              <td className="p-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const otherSections = sections.filter(s => s.id !== activeInspectSection.id);
+                                    setTargetTransferSectionId(otherSections[0]?.id || '');
+                                    setTargetTransferSeatNum('');
+                                    setTransferStudentHistory(true);
+                                    setRemoveReason('نقل_داخلي');
+                                    setStudentToRemove({
+                                      sectionId: activeInspectSection.id,
+                                      sectionName: `${activeInspectSection.level} - ${activeInspectSection.classNumber}`,
+                                      seatNum: st.seat,
+                                      studentName: st.name,
+                                      studentNumber: st.number
+                                    });
+                                  }}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-300 transition-colors cursor-pointer shadow-2xs"
+                                  title="إزالة أو نقل التلميذ من هذا القسم (نقل لقسم آخر، انتقال لمؤسسة أخرى، أو انقطاع)"
+                                >
+                                  <ArrowLeftRight className="w-3.5 h-3.5 text-amber-700" />
+                                  <span>إزالة أو نقل</span>
+                                </button>
+                              </td>
+                            </tr>
+
+                            {/* Drag Indicator Below Row (Drop Position: After / لاحقاً) */}
+                            {isOverThis && dropPosition === 'after' && (
+                              <tr>
+                                <td colSpan={9} className="p-0">
+                                  <div className="bg-amber-600 text-white text-center py-1 font-bold text-xs flex items-center justify-center gap-2 shadow-sm animate-pulse">
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                    <span>إفلات هنا لوضع التلميذ لاحقاً (بعد: {st.name}) وتحيين الأرقام تصاعدياً ⬇️</span>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Direct Rank Jump Dialog */}
+                {movingRankStudent && (
+                  <div className="fixed inset-0 z-50 bg-[#0F1914]/75 backdrop-blur-xs flex items-center justify-center p-4">
+                    <div className="bg-[#F4EFDE] rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-[#E4DBC0] text-[#2A2118] animate-in fade-in zoom-in-95 duration-150">
+                      <h3 className="font-bold text-base mb-2 font-serif flex items-center gap-2">
+                        <Hash className="w-5 h-5 text-[#8A5A18]" />
+                        <span>تحديد الرتبة بالرقم مباشرة</span>
+                      </h3>
+                      <p className="text-xs text-[#5B5040] mb-4 leading-relaxed">
+                        التلميذ(ة): <strong className="text-[#2A2118]">{movingRankStudent.name}</strong>
+                        <br />
+                        الرتبة الحالية: <strong>#{movingRankStudent.currentRank}</strong> (من أصل {movingRankStudent.total} تلميذاً)
+                      </p>
+                      <div className="mb-4">
+                        <label className="block text-xs font-bold text-[#5B5040] mb-1.5">
+                          الرتبة الترتيبية الجديدة المطلوبة (من 1 إلى {movingRankStudent.total}):
+                        </label>
+                        <input
+                          type="number"
+                          min={1}
+                          max={movingRankStudent.total}
+                          value={targetRankInput}
+                          onChange={(e) => setTargetRankInput(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-[#D9CEB0] bg-[#FFFDF9] text-center font-mono font-bold text-lg focus:outline-none focus:border-[#8A5A18]"
+                          placeholder="مثال: 1"
+                          autoFocus
+                        />
+                        <p className="text-[11px] text-[#7A6B58] mt-1.5 leading-normal">
+                          💡 سيتم وضع التلميذ في هذه الرتبة بدقة، وتحيين أرقام كافة تلاميذ القسم تصاعدياً تسلسلياً (1 إلى {movingRankStudent.total}) تلقائياً.
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMovingRankStudent(null)}
+                          className="px-3.5 py-2 rounded-xl bg-[#E8DEC0] hover:bg-[#D9CEB0] text-xs font-bold cursor-pointer"
+                        >
+                          إلغاء
+                        </button>
                         <button
                           type="button"
                           onClick={() => {
-                            const otherSections = sections.filter(s => s.id !== activeInspectSection.id);
-                            setTargetTransferSectionId(otherSections[0]?.id || '');
-                            setTargetTransferSeatNum('');
-                            setTransferStudentHistory(true);
-                            setRemoveReason('نقل_داخلي');
-                            setStudentToRemove({
-                              sectionId: activeInspectSection.id,
-                              sectionName: `${activeInspectSection.level} - ${activeInspectSection.classNumber}`,
-                              seatNum: st.seat,
-                              studentName: st.name,
-                              studentNumber: st.number
-                            });
+                            const p = parseInt(targetRankInput, 10);
+                            if (!isNaN(p) && p >= 1 && p <= movingRankStudent.total) {
+                              handleJumpToRank(activeInspectSection.id, movingRankStudent.name, p);
+                            }
                           }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-300 transition-colors cursor-pointer shadow-2xs"
-                          title="إزالة أو نقل التلميذ من هذا القسم (نقل لقسم آخر، انتقال لمؤسسة أخرى، أو انقطاع)"
+                          disabled={!targetRankInput || isNaN(parseInt(targetRankInput, 10)) || isReorderingStudents}
+                          className="px-4 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white text-xs font-bold shadow-xs cursor-pointer disabled:opacity-50"
                         >
-                          <ArrowLeftRight className="w-3.5 h-3.5 text-amber-700" />
-                          <span>إزالة أو نقل التلميذ</span>
+                          {isReorderingStudents ? 'جاري التحيين...' : 'تأكيد وتحيين الأرقام'}
                         </button>
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
       {/* 4.7 DAILY ARCHIVE TAB (أرشيف الغيابات والمخالفات اليومي) */}
       {activeTab === 'daily-archive' && !inspectSectionId && (
-        <div id="director-daily-archive-section" className="animate-in fade-in duration-150 scroll-mt-6">
+        <div className="animate-in fade-in duration-150">
           <DailyArchiveModal
             isOpen={true}
             onClose={() => {}}
