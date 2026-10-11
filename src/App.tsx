@@ -655,24 +655,25 @@ export default function App() {
 
     const currentSec = sections.find((sec) => sec.id === sectionId);
     const targetSeat = currentSec?.seats.find((st) => st.seat === seatNum);
+    const queueKey = `${sectionId}_${seatNum}`;
+    const existing = pendingSeatUpdatesRef.current.get(queueKey);
+    const prev = existing?.updates || {};
 
     const updatePayload = {
-      name: field === 'name' ? value : targetSeat?.name,
-      number: field === 'number' ? value : targetSeat?.number,
-      massarNumber: field === 'massarNumber' ? value : targetSeat?.massarNumber,
-      rosterId: field === 'rosterId' ? value : targetSeat?.rosterId,
-      statusColor: field === 'statusColor' ? value : targetSeat?.statusColor,
-      attendance: field === 'attendance' ? value : targetSeat?.attendance,
+      name: field === 'name' ? value : (prev.name !== undefined ? prev.name : targetSeat?.name),
+      number: field === 'number' ? value : (prev.number !== undefined ? prev.number : targetSeat?.number),
+      massarNumber: field === 'massarNumber' ? value : (prev.massarNumber !== undefined ? prev.massarNumber : targetSeat?.massarNumber),
+      rosterId: field === 'rosterId' ? value : (prev.rosterId !== undefined ? prev.rosterId : targetSeat?.rosterId),
+      statusColor: field === 'statusColor' ? value : (prev.statusColor !== undefined ? prev.statusColor : targetSeat?.statusColor),
+      attendance: field === 'attendance' ? value : (prev.attendance !== undefined ? prev.attendance : targetSeat?.attendance),
       [field]: value
     };
 
     // Buffer into the batch update queue
-    const queueKey = `${sectionId}_${seatNum}`;
-    const existing = pendingSeatUpdatesRef.current.get(queueKey);
     pendingSeatUpdatesRef.current.set(queueKey, {
       sectionId,
       seatNum,
-      updates: { ...(existing?.updates || {}), ...updatePayload }
+      updates: updatePayload
     });
 
     // If attendance changed, flush immediately; otherwise debounce to coalesce keystrokes
@@ -682,6 +683,82 @@ export default function App() {
       if (batchFlushTimeoutRef.current) clearTimeout(batchFlushTimeoutRef.current);
       batchFlushTimeoutRef.current = setTimeout(flushPendingSeatUpdates, 400);
     }
+  };
+
+  // 6a-2. Atomic Assign Student to Seat (Ensures all fields, infractions, points and notes move with student)
+  const handleAssignStudent = (
+    sectionId: string,
+    seatNum: number,
+    student: { rosterId: string | null; name: string; number: string; massarNumber?: string }
+  ) => {
+    setSections((prev) =>
+      prev.map((sec) => {
+        if (sec.id !== sectionId) return sec;
+
+        const allParts = [
+          ...(sec.seats.flatMap((s) => s.positiveParticipations || [])),
+          ...(sec.roster?.flatMap((r) => r.positiveParticipations || []) || [])
+        ];
+        const allViols = sec.seats.flatMap((s) => s.violations || []);
+        const allNotes = sec.seats.flatMap((s) => s.notes || []);
+
+        const cleanName = (student.name || '').trim();
+        const existingSeat = sec.seats.find((s) =>
+          cleanName && matchClientStudent(cleanName, student.number, student.massarNumber || '', s.name, s.number, s.massarNumber)
+        );
+
+        const studentParts = cleanName
+          ? allParts.filter((p) => matchClientStudent(cleanName, student.number, student.massarNumber || '', p.studentName, p.studentNumber, p.massarNumber))
+          : [];
+        const studentViols = cleanName
+          ? allViols.filter((v) => matchClientStudent(cleanName, student.number, student.massarNumber || '', v.studentName, v.studentNumber, v.massarNumber))
+          : [];
+        const studentNotes = cleanName
+          ? (existingSeat?.notes || allNotes.filter((n: any) => n.studentName && matchClientStudent(cleanName, student.number, student.massarNumber || '', n.studentName, n.studentNumber, n.massarNumber)))
+          : [];
+
+        return {
+          ...sec,
+          seats: sec.seats.map((st) => {
+            if (st.seat !== seatNum) return st;
+            return {
+              ...st,
+              rosterId: student.rosterId,
+              name: student.name,
+              number: student.number,
+              massarNumber: student.massarNumber || '',
+              statusColor: existingSeat?.statusColor || st.statusColor || 'default',
+              attendance: existingSeat?.attendance || null,
+              totalAbsencesCount: existingSeat?.totalAbsencesCount || 0,
+              previousSessionAbsence: existingSeat?.previousSessionAbsence || null,
+              violations: studentViols,
+              positiveParticipations: studentParts,
+              positiveParticipationCount: studentParts.reduce((sum, p) => sum + (p.points || 1), 0),
+              notes: studentNotes
+            };
+          })
+        };
+      })
+    );
+
+    const queueKey = `${sectionId}_${seatNum}`;
+    const existing = pendingSeatUpdatesRef.current.get(queueKey);
+    const prev = existing?.updates || {};
+    const updatePayload = {
+      ...prev,
+      name: student.name,
+      number: student.number,
+      massarNumber: student.massarNumber || '',
+      rosterId: student.rosterId
+    };
+    pendingSeatUpdatesRef.current.set(queueKey, {
+      sectionId,
+      seatNum,
+      updates: updatePayload
+    });
+
+    if (batchFlushTimeoutRef.current) clearTimeout(batchFlushTimeoutRef.current);
+    batchFlushTimeoutRef.current = setTimeout(flushPendingSeatUpdates, 200);
   };
 
   // 6b. Drag and Drop / Seat Swapping
@@ -719,6 +796,8 @@ export default function App() {
                 rosterId: seatB.rosterId,
                 statusColor: seatB.statusColor,
                 attendance: seatB.attendance,
+                totalAbsencesCount: seatB.totalAbsencesCount,
+                previousSessionAbsence: seatB.previousSessionAbsence,
                 notes: seatB.notes,
                 violations: seatB.violations,
                 positiveParticipations: seatB.positiveParticipations,
@@ -734,6 +813,8 @@ export default function App() {
                 rosterId: seatA.rosterId,
                 statusColor: seatA.statusColor,
                 attendance: seatA.attendance,
+                totalAbsencesCount: seatA.totalAbsencesCount,
+                previousSessionAbsence: seatA.previousSessionAbsence,
                 notes: seatA.notes,
                 violations: seatA.violations,
                 positiveParticipations: seatA.positiveParticipations,
@@ -1987,15 +2068,11 @@ export default function App() {
                   </div>
 
                   <div className="tags">
-                    <span>
-                      الأستاذ:{' '}
-                      <b>
-                        {activeSection.assignedTeacherName ||
-                          (currentUser.role === 'teacher'
-                            ? currentUser.fullName
-                            : (activeSection.teacher || settings.teacher || 'غير محدد'))}
-                      </b>
-                    </span>
+                    {currentUser.role === 'teacher' && (
+                      <span>
+                        الأستاذ الحاضر: <b>{currentUser.fullName} {currentUser.subject ? `(${currentUser.subject})` : ''}</b>
+                      </span>
+                    )}
                     <span>
                       الموسم الدراسي: <b>{currentUser.academicYear || settings.year || '2025/2026'}</b>
                     </span>
@@ -2300,6 +2377,7 @@ export default function App() {
                                 seat={seat1}
                                 roster={activeSection.roster}
                                 onSeatChange={handleSeatChange}
+                                onAssignStudent={handleAssignStudent}
                                 onOpenNotes={() => openStudentRecord(seat1)}
                                 onOpenPositiveParticipation={() => {
                                   if (!seat1.name || !seat1.name.trim()) {
@@ -2344,6 +2422,7 @@ export default function App() {
                                 seat={seat2}
                                 roster={activeSection.roster}
                                 onSeatChange={handleSeatChange}
+                                onAssignStudent={handleAssignStudent}
                                 onOpenNotes={() => openStudentRecord(seat2)}
                                 onOpenPositiveParticipation={() => {
                                   if (!seat2.name || !seat2.name.trim()) {
@@ -3178,6 +3257,11 @@ interface SeatCardProps {
     field: 'name' | 'number' | 'massarNumber' | 'rosterId' | 'statusColor' | 'attendance',
     value: any
   ) => void;
+  onAssignStudent?: (
+    sectionId: string,
+    seatNum: number,
+    student: { rosterId: string | null; name: string; number: string; massarNumber?: string }
+  ) => void;
   onOpenNotes: () => void;
   onOpenPositiveParticipation?: () => void;
   isDragging?: boolean;
@@ -3204,6 +3288,7 @@ function SeatCard({
   seat,
   roster,
   onSeatChange,
+  onAssignStudent,
   onOpenNotes,
   onOpenPositiveParticipation,
   isDragging = false,
@@ -3238,15 +3323,28 @@ function SeatCard({
 
   const handleSelectStudent = (rosterId: string) => {
     if (!rosterId) {
-      onSeatChange(sectionId, seat.seat, 'rosterId', null);
+      if (onAssignStudent) {
+        onAssignStudent(sectionId, seat.seat, { rosterId: null, name: '', number: '', massarNumber: '' });
+      } else {
+        onSeatChange(sectionId, seat.seat, 'rosterId', null);
+      }
       return;
     }
     const student = roster.find((r) => r.id === rosterId);
     if (student) {
-      onSeatChange(sectionId, seat.seat, 'rosterId', student.id);
-      onSeatChange(sectionId, seat.seat, 'name', student.name);
-      onSeatChange(sectionId, seat.seat, 'number', student.number);
-      onSeatChange(sectionId, seat.seat, 'massarNumber', student.massarNumber || '');
+      if (onAssignStudent) {
+        onAssignStudent(sectionId, seat.seat, {
+          rosterId: student.id,
+          name: student.name,
+          number: student.number,
+          massarNumber: student.massarNumber || ''
+        });
+      } else {
+        onSeatChange(sectionId, seat.seat, 'rosterId', student.id);
+        onSeatChange(sectionId, seat.seat, 'name', student.name);
+        onSeatChange(sectionId, seat.seat, 'number', student.number);
+        onSeatChange(sectionId, seat.seat, 'massarNumber', student.massarNumber || '');
+      }
     }
   };
 

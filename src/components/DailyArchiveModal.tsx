@@ -180,10 +180,12 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
   const visibleSections = useMemo(() => {
     if (currentUser?.role !== 'teacher') return sections;
-    return sections.filter((section) =>
+    const filtered = sections.filter((section) =>
       section.assignedTeacherId === currentUser.id ||
-      section.assignedTeachers?.some((teacher) => teacher.teacherId === currentUser.id)
+      section.assignedTeachers?.some((teacher) => teacher.teacherId === currentUser.id) ||
+      (section.teacher && currentUser.fullName && section.teacher.trim().toLowerCase() === currentUser.fullName.trim().toLowerCase())
     );
+    return filtered.length > 0 ? filtered : sections;
   }, [currentUser, sections]);
 
   useEffect(() => {
@@ -520,14 +522,14 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   };
 
   // Determine the active list source:
-  // When 'current_active' is selected (or when role is teacher), we show ALL currently active/unresolved absences across all dates (activeAbsences).
+  // When 'current_active' is selected, we show ALL currently active/unresolved absences across all dates (activeAbsences).
   // When 'all_archive' is selected, we show the historical archive for the selected date (absences).
   const currentAbsencesList = useMemo(() => {
-    if (isTeacher || absenceScope === 'current_active') {
+    if (absenceScope === 'current_active') {
       return activeAbsences;
     }
     return absences;
-  }, [isTeacher, absenceScope, activeAbsences, absences]);
+  }, [absenceScope, activeAbsences, absences]);
 
   // Filtered Absences
   const filteredAbsences = useMemo(() => {
@@ -878,11 +880,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
             }`}
           >
             <UserX className="w-4 h-4 text-rose-600" />
-            <span>{isTeacher ? 'الغيابات الحالية' : 'سجل الغيابات والتأخرات اليومية'}</span>
+            <span>{absenceScope === 'current_active' ? 'الغيابات غير المسوّاة' : 'أرشيف الغيابات والتأخرات'}</span>
             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
               activeTab === 'absences' ? 'bg-rose-100 text-rose-800' : 'bg-slate-200 text-slate-700'
             }`}>
-              {isTeacher ? activeAbsencesCount : absences.length}
+              {absenceScope === 'current_active' ? activeAbsencesCount : absences.length}
             </span>
           </button>
 
@@ -938,73 +940,60 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         {/* Tab 1: Absences & Lates Table */}
         {activeTab === 'absences' && (
           <div className="p-5 space-y-4">
-            {/* Absence Scope Selector: الغياب الحالي للأستاذ vs الأرشيف الشامل للمدير */}
-            {isTeacher ? (
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl">
-                <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse"></span>
-                  <span className="text-sm font-bold text-rose-900">مراقبة حية: قائمة التلاميذ الغائبين حالياً في حصصك وأقسامك الدراسية (الذين لم تتم تسوية غيابهم بعد)</span>
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs text-rose-700 bg-white px-2.5 py-1 rounded-xl border border-rose-200 font-medium">
-                    يتم عرض كافة المتغيبين حالياً الذين لم تتم تسويتهم بعد
+            {/* Absence Scope Selector: الغياب الحالي غير المسوّى vs الأرشيف التاريخي */}
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-3.5 bg-slate-100/90 rounded-2xl border border-slate-200">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setAbsenceScope('current_active')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                    absenceScope === 'current_active'
+                      ? 'bg-rose-600 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-300 animate-pulse"></span>
+                  <span>الغياب الحالي (كافة الغيابات التي لم تسوَّ بعد)</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    absenceScope === 'current_active' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
+                  }`}>
+                    {activeAbsencesCount}
                   </span>
-                  <span className="px-3 py-1 rounded-xl text-xs font-bold bg-rose-600 text-white shadow-xs">
-                    {activeAbsencesCount} تلميذاً غائباً
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setAbsenceScope('all_archive')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                    absenceScope === 'all_archive'
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  <span>أرشيف تاريخي حسب اليوم ({selectedDate})</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    absenceScope === 'all_archive' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                  }`}>
+                    {absences.length}
+                  </span>
+                </button>
+              </div>
+
+              {absenceScope === 'current_active' ? (
+                <div className="text-xs text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200 font-medium flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-rose-600"></span>
+                  <span>
+                    {isTeacher 
+                      ? `مراقبة حية لأقسامك: جميع التلاميذ الذين لم تتم تسوية غيابهم بعد (${activeAbsencesCount} تلميذاً)`
+                      : `مراقبة حية شاملة: جميع التلاميذ الذين لم تتم تسوية غيابهم بعد عبر كافة الأقسام (${activeAbsencesCount} تلميذاً)`}
                   </span>
                 </div>
-              </div>
-            ) : (
-              <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-3.5 bg-slate-100/90 rounded-2xl border border-slate-200">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => setAbsenceScope('current_active')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                      absenceScope === 'current_active'
-                        ? 'bg-rose-600 text-white shadow-xs'
-                        : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
-                    }`}
-                  >
-                    <span className="w-2.5 h-2.5 rounded-full bg-rose-300 animate-pulse"></span>
-                    <span>الغياب الحالي (كافة الغيابات التي لم تسوَّ بعد)</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                      absenceScope === 'current_active' ? 'bg-white/20 text-white' : 'bg-rose-100 text-rose-800'
-                    }`}>
-                      {activeAbsencesCount}
-                    </span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setAbsenceScope('all_archive')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
-                      absenceScope === 'all_archive'
-                        ? 'bg-slate-800 text-white shadow-xs'
-                        : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
-                    }`}
-                  >
-                    <span>أرشيف تاريخي حسب اليوم ({selectedDate})</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                      absenceScope === 'all_archive' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
-                    }`}>
-                      {absences.length}
-                    </span>
-                  </button>
+              ) : (
+                <div className="text-xs text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200 font-medium">
+                  سجل أرشيفي موثق ليوم {selectedDate} ({resolvedAbsencesCount} تمت تسويتها وإزالتها)
                 </div>
-
-                {absenceScope === 'current_active' ? (
-                  <div className="text-xs text-rose-700 bg-rose-50 px-3 py-1.5 rounded-xl border border-rose-200 font-medium flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-rose-600"></span>
-                    <span>مراقبة حية: جميع التلاميذ الذين لم تتم تسوية غيابهم بعد عبر كافة الأيام ({activeAbsencesCount} تلميذاً)</span>
-                  </div>
-                ) : (
-                  <div className="text-xs text-slate-600 bg-white px-3 py-1.5 rounded-xl border border-slate-200 font-medium">
-                    سجل أرشيفي موثق ليوم {selectedDate} ({resolvedAbsencesCount} تمت تسويتها وإزالتها)
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Search & Status Filter */}
             <div className="flex flex-col md:flex-row items-center justify-between gap-3">

@@ -870,8 +870,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       academicYear: settings.year || '2026/2027',
       section: {
         level: activeInspectSection.level,
-        classNumber: activeInspectSection.classNumber,
-        teacher: activeInspectSection.teacher || activeInspectSection.assignedTeacherName || ''
+        classNumber: activeInspectSection.classNumber
       },
       students: filledSeats.map(s => ({
         name: s.name,
@@ -1125,10 +1124,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
         {/* حالات الغياب */}
         <div
-          onClick={() => navigateToTab('absences')}
-          title="انقر لفتح تتبع حالات الغياب ورصد التلاميذ الأكثر غياباً والأرشيف"
+          onClick={() => navigateToTab('daily-archive')}
+          title="انقر لفتح الأرشيف اليومي لتسوية الغيابات وإدارتها"
           className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 col-span-2 sm:col-span-1 relative ${
-            activeTab === 'absences' && !inspectSectionId
+            activeTab === 'daily-archive' && !inspectSectionId
               ? 'bg-[#FBF5EC] border-[#8A5A18] ring-2 ring-[#8A5A18]/20 shadow-xs'
               : 'bg-[#FBF8EF] hover:bg-white border-[#E4DBC0] hover:border-[#8A5A18]'
           }`}
@@ -1173,12 +1172,12 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               <span>{displayedAbsenceCount}</span>
             )}
             <span className="text-[11px] font-sans font-normal text-[#7A6B58]">
-              {absenceSettings.filterType === 'unjustified' ? 'غير مبرر' : 'حالة مسجلة'}
+              {absenceSettings.filterType === 'unjustified' ? 'غير مبرر' : 'لم تسوَّ بعد'}
             </span>
           </div>
           <div className="flex items-center justify-between text-[11px] text-[#7A6B58] mt-1 pt-1 border-t border-[#E4DBC0]/60">
-            <span>تسجيل غياب مرصود</span>
-            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">تتبع ↗</span>
+            <span>غيابات غير مسوّاة</span>
+            <span className="text-[10px] font-bold text-[#8A5A18] group-hover:underline">تسوية في الأرشيف ↗</span>
           </div>
         </div>
       </div>
@@ -1741,6 +1740,16 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
               <button
                 type="button"
+                onClick={() => navigateToTab('daily-archive')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#B45309] hover:bg-[#92400E] text-white font-bold text-xs shadow-2xs transition-colors cursor-pointer"
+                title="الانتقال إلى الأرشيف اليومي لتسوية الغيابات ورفعها"
+              >
+                <Calendar className="w-3.5 h-3.5 text-amber-200" />
+                <span>تسوية الغيابات في الأرشيف ↗</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setIsAbsenceSettingsOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#2A2118] font-bold text-xs border border-[#D9CEB0] shadow-2xs transition-colors cursor-pointer"
                 title="تخصيص نطاق الحساب، نوع الغياب، وعتبة التنبيه"
@@ -2040,7 +2049,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                     <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
                     <th className="p-3 font-bold">رقم مسار / البطاقة</th>
                     <th className="p-3 font-bold">القسم والمستوى</th>
-                    <th className="p-3 font-bold">الأستاذ المسؤول والمادة</th>
+                    <th className="p-3 font-bold text-center">المقعد</th>
                     <th className="p-3 font-bold text-center">المخالفات</th>
                     <th className="p-3 font-bold text-center">الغيابات</th>
                     <th className="p-3 font-bold text-center">الحالة</th>
@@ -2076,9 +2085,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                         <span className="font-bold text-[#2A2118]">{st.sectionLevel}</span>
                         <span className="text-[#7A6B58] text-[11px] block">({st.sectionClass})</span>
                       </td>
-                      <td className="p-3 text-[#5B5040]">
-                        <div>{st.teacherName}</div>
-                        <div className="text-[11px] text-[#7A6B58]">{st.teacherSubject}</div>
+                      <td className="p-3 text-center text-[#5B5040] font-mono font-bold">
+                        #{st.seatNum}
                       </td>
                       <td className="p-3 text-center">
                         {st.violationsCount > 0 ? (

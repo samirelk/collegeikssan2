@@ -478,11 +478,6 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           </h2>
 
           <div className="flex items-center gap-3 text-xs text-[rgba(242,239,227,0.7)] flex-wrap">
-            {section.teacher && (
-              <span>
-                الأستاذ(ة): <strong className="text-[#F2EFE3]">{section.teacher}</strong>
-              </span>
-            )}
             {hasRoster && (
               <span className="bg-[rgba(201,138,60,0.18)] text-[#C98A3C] font-bold px-2 py-0.5 rounded-full border border-[rgba(201,138,60,0.3)]">
                 لائحة مستوردة: {section.roster.length} تلميذاً

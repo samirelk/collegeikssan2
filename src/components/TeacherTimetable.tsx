@@ -544,10 +544,23 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
               </div>
               <div className="text-xs text-emerald-900 mt-0.5">
                 {currentSlotInfo.entry && currentSlotInfo.section ? (
-                  <span>
-                    القسم المجدول الآن: <strong className="text-emerald-950 font-bold text-sm underline">{currentSlotInfo.section.level}/{currentSlotInfo.section.classNumber}</strong>
-                    {currentSlotInfo.entry.room ? ` (القاعة: ${currentSlotInfo.entry.room})` : ''}
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span>
+                      القسم المجدول الآن: <strong className="text-emerald-950 font-bold text-sm underline">{currentSlotInfo.section.level}/{currentSlotInfo.section.classNumber}</strong>
+                      {currentSlotInfo.entry.room ? ` (القاعة: ${currentSlotInfo.entry.room})` : ''}
+                    </span>
+                    {(() => {
+                      const curAbs = currentSlotInfo.section.seats.filter((s) => s.attendance === 'absent').length;
+                      if (curAbs > 0) {
+                        return (
+                          <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white font-bold text-xs shadow-2xs">
+                            ✕ {curAbs} غياب بحصتك الآن
+                          </span>
+                        );
+                      }
+                      return null;
+                    })()}
+                  </div>
                 ) : (
                   <span className="text-emerald-800 italic">
                     لم يتم تعيين قسم لهذه الحصة بعد في استعمال الزمان.
@@ -1089,9 +1102,18 @@ const SlotCard: React.FC<SlotCardProps> = ({
                 <span>{section.level} / {section.classNumber}</span>
                 <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />
               </div>
-              <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold">
-                تسجيل الغياب 📝
-              </span>
+              {(() => {
+                const absentCount = section.seats.filter((s) => s.attendance === 'absent').length;
+                return absentCount > 0 ? (
+                  <span className="text-[10px] text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full font-bold border border-rose-300 shadow-2xs">
+                    ✕ {absentCount} غياب
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-md font-bold">
+                    تسجيل الغياب 📝
+                  </span>
+                );
+              })()}
             </div>
             {(entry?.room || entry?.subject) && (
               <div className="flex items-center gap-2 mt-1 text-[11px] text-[#7A6B58] flex-wrap">

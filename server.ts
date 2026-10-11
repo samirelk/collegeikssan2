@@ -1536,22 +1536,9 @@ async function startServer() {
   app.get('/api/daily-archive', (req, res) => {
     try {
       const date = req.query.date as string | undefined;
-      let sectionId = req.query.sectionId as string | undefined;
+      const rawSectionId = req.query.sectionId as string | undefined;
       const teacherId = req.query.teacherId as string | undefined;
-      if (teacherId) {
-        const assignedRows = db.prepare(`
-          SELECT id FROM sections
-          WHERE assigned_teacher_id = ?
-          UNION
-          SELECT section_id as id FROM section_assignments
-          WHERE teacher_id = ? AND status = 'approved'
-        `).all(teacherId, teacherId) as Array<{ id: string }>;
-        const assignedIds = new Set(assignedRows.map((row) => row.id));
-        const requestedIds = sectionId && sectionId !== 'all'
-          ? sectionId.split(',').filter(Boolean)
-          : Array.from(assignedIds);
-        sectionId = requestedIds.filter((id) => assignedIds.has(id)).join(',') || '__no_assigned_sections__';
-      }
+      const sectionId = rawSectionId && rawSectionId !== 'all' ? rawSectionId : undefined;
       const data = getDailyArchive(date, sectionId, teacherId);
       res.json({ success: true, ...data });
     } catch (err: any) {

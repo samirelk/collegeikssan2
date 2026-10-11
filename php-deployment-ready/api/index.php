@@ -404,10 +404,16 @@ if ($segments[0] === 'sections') {
                                 $removerSub = $removerUser ? $removerUser['subject'] : '';
 
                                 $hours = max(1, round($diffSec / 3600));
-                                $durLabel = $hours . ' ساعة';
+                                if ($hours < 8) {
+                                    $durLabel = $hours . ' ساعة';
+                                    $durDays = 0;
+                                } else {
+                                    $durDays = max(1, round($hours / 24));
+                                    $durLabel = ($durDays == 1 ? '1 يوم' : ($durDays == 2 ? '2 يومان' : ($durDays <= 10 ? $durDays . ' أيام' : $durDays . ' يوم')));
+                                }
 
-                                $updAtt = $pdo->prepare("UPDATE attendance_history SET removed_by = ?, removed_at = NOW(), remover_name = ?, remover_subject = ?, duration_hours = ?, duration_label = ? WHERE id = ?");
-                                $updAtt->execute([$userId, $removerName, $removerSub, $hours, $durLabel, $attRow['id']]);
+                                $updAtt = $pdo->prepare("UPDATE attendance_history SET removed_by = ?, removed_at = NOW(), remover_name = ?, remover_subject = ?, duration_hours = ?, duration_days = ?, duration_label = ? WHERE id = ?");
+                                $updAtt->execute([$userId, $removerName, $removerSub, $hours, $durDays, $durLabel, $attRow['id']]);
                             }
                         }
                     }
@@ -473,6 +479,57 @@ if ($segments[0] === 'sections') {
         $stmt = $pdo->prepare("DELETE FROM positive_participations WHERE id = ?");
         $stmt->execute([$pId]);
         jsonResponse(['success' => true, 'message' => 'تم حذف المشاركة الإيجابية']);
+    }
+
+    // تبديل مقاعد التلاميذ (Swap Seats)
+    if (isset($segments[1]) && isset($segments[2]) && $segments[2] === 'swap-seats' && $method === 'POST') {
+        $secId = $segments[1];
+        $input = getJsonInput();
+        $seatA = (int)($input['seatA'] ?? 0);
+        $seatB = (int)($input['seatB'] ?? 0);
+
+        if ($seatA <= 0 || $seatB <= 0 || $seatA === $seatB) {
+            jsonResponse(['success' => false, 'message' => 'أرقام المقاعد غير صالحة'], 400);
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $stA = $pdo->prepare("SELECT * FROM seats WHERE section_id = ? AND seat_num = ?");
+            $stA->execute([$secId, $seatA]);
+            $rowA = $stA->fetch() ?: ['student_name' => '', 'student_number' => '', 'massar_number' => '', 'roster_id' => null, 'status_color' => 'default', 'attendance' => null];
+
+            $stB = $pdo->prepare("SELECT * FROM seats WHERE section_id = ? AND seat_num = ?");
+            $stB->execute([$secId, $seatB]);
+            $rowB = $stB->fetch() ?: ['student_name' => '', 'student_number' => '', 'massar_number' => '', 'roster_id' => null, 'status_color' => 'default', 'attendance' => null];
+
+            // 1. Swap in seats table
+            $upd = $pdo->prepare("UPDATE seats SET student_name = ?, student_number = ?, massar_number = ?, roster_id = ?, status_color = ?, attendance = ?, updated_at = NOW() WHERE section_id = ? AND seat_num = ?");
+            $upd->execute([$rowB['student_name'] ?? '', $rowB['student_number'] ?? '', $rowB['massar_number'] ?? '', $rowB['roster_id'] ?? null, $rowB['status_color'] ?? 'default', $rowB['attendance'] ?? null, $secId, $seatA]);
+            $upd->execute([$rowA['student_name'] ?? '', $rowA['student_number'] ?? '', $rowA['massar_number'] ?? '', $rowA['roster_id'] ?? null, $rowA['status_color'] ?? 'default', $rowA['attendance'] ?? null, $secId, $seatB]);
+
+            // 2. Move student records
+            $pdo->prepare("UPDATE notes SET seat_num = -999 WHERE section_id = ? AND seat_num = ?")->execute([$secId, $seatA]);
+            $pdo->prepare("UPDATE notes SET seat_num = ? WHERE section_id = ? AND seat_num = ?")->execute([$seatA, $secId, $seatB]);
+            $pdo->prepare("UPDATE notes SET seat_num = ? WHERE section_id = ? AND seat_num = -999")->execute([$seatB, $secId]);
+
+            $pdo->prepare("UPDATE attendance_history SET seat_num = -999 WHERE section_id = ? AND seat_num = ?")->execute([$secId, $seatA]);
+            $pdo->prepare("UPDATE attendance_history SET seat_num = ? WHERE section_id = ? AND seat_num = ?")->execute([$seatA, $secId, $seatB]);
+            $pdo->prepare("UPDATE attendance_history SET seat_num = ? WHERE section_id = ? AND seat_num = -999")->execute([$seatB, $secId]);
+
+            $pdo->prepare("UPDATE daily_violations SET seat_num = -999 WHERE section_id = ? AND seat_num = ?")->execute([$secId, $seatA]);
+            $pdo->prepare("UPDATE daily_violations SET seat_num = ? WHERE section_id = ? AND seat_num = ?")->execute([$seatA, $secId, $seatB]);
+            $pdo->prepare("UPDATE daily_violations SET seat_num = ? WHERE section_id = ? AND seat_num = -999")->execute([$seatB, $secId]);
+
+            $pdo->prepare("UPDATE positive_participations SET seat_num = -999 WHERE section_id = ? AND seat_num = ?")->execute([$secId, $seatA]);
+            $pdo->prepare("UPDATE positive_participations SET seat_num = ? WHERE section_id = ? AND seat_num = ?")->execute([$seatA, $secId, $seatB]);
+            $pdo->prepare("UPDATE positive_participations SET seat_num = ? WHERE section_id = ? AND seat_num = -999")->execute([$seatB, $secId]);
+
+            $pdo->commit();
+            jsonResponse(['success' => true, 'message' => 'تم تبديل المقاعد بنجاح']);
+        } catch (\Exception $e) {
+            $pdo->rollBack();
+            jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     // إعادة ترتيب وترقيم تلاميذ القسم تسلسلياً وتصاعدياً (Renumber & Reorder Students)
@@ -586,9 +643,22 @@ if ($segments[0] === 'daily-archive') {
         $vStmt->execute($vParams);
         $violations = $vStmt->fetchAll();
 
+        // جلب الغيابات النشطة التي لم تتم تسويتها بعد
+        $actSql = "SELECT * FROM attendance_history WHERE status = 'absent' AND (removed_at IS NULL OR removed_at = '')";
+        $actParams = [];
+        if ($secId) {
+            $actSql .= " AND section_id = ?";
+            $actParams[] = $secId;
+        }
+        $actSql .= " ORDER BY recorded_date DESC, created_at DESC";
+        $actStmt = $pdo->prepare($actSql);
+        $actStmt->execute($actParams);
+        $activeAbsences = $actStmt->fetchAll();
+
         jsonResponse([
             'success' => true,
             'absences' => $absences,
+            'activeAbsences' => $activeAbsences,
             'violations' => $violations,
             'stats' => [
                 'totalAbsences' => count($absences),
@@ -632,10 +702,16 @@ if ($segments[0] === 'daily-archive') {
             $createdTs = strtotime($existing['created_at']);
             $diffSec = time() - $createdTs;
             $hours = max(1, round($diffSec / 3600));
-            $durLabel = $hours . ' ساعة';
+            if ($hours < 8) {
+                $durLabel = $hours . ' ساعة';
+                $durDays = 0;
+            } else {
+                $durDays = max(1, round($hours / 24));
+                $durLabel = ($durDays == 1 ? '1 يوم' : ($durDays == 2 ? '2 يومان' : ($durDays <= 10 ? $durDays . ' أيام' : $durDays . ' يوم')));
+            }
 
-            $upd = $pdo->prepare("UPDATE attendance_history SET removed_by = ?, removed_at = NOW(), remover_name = ?, remover_subject = ?, duration_hours = ?, duration_label = ? WHERE id = ?");
-            $upd->execute([$userId, $actorName, $actorSub, $hours, $durLabel, $id]);
+            $upd = $pdo->prepare("UPDATE attendance_history SET removed_by = ?, removed_at = NOW(), remover_name = ?, remover_subject = ?, duration_hours = ?, duration_days = ?, duration_label = ? WHERE id = ?");
+            $upd->execute([$userId, $actorName, $actorSub, $hours, $durDays, $durLabel, $id]);
 
             // Reset active seat attendance
             if ($existing['seat_num']) {

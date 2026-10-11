@@ -1114,7 +1114,7 @@ export function printSectionRosterReport(options: {
     institution,
     academicYear,
     title: `لائحة تلاميذ القسم: ${section.level} (${section.classNumber})`,
-    filterLabel: `${section.level} - القسم ${section.classNumber} • الأستاذ: ${section.teacher || 'أستاذ المادة'}`,
+    filterLabel: `${section.level} - القسم ${section.classNumber}`,
     students: students.map(s => ({
       name: s.name,
       number: s.number,

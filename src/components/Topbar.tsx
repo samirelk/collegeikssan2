@@ -146,17 +146,17 @@ export const Topbar: React.FC<TopbarProps> = ({
           </button>
         )}
 
-        {/* For teachers: Current active absences monitor. Director/Admin have full archive in dashboard */}
+        {/* For teachers: Daily archive and active absences monitor. Director/Admin have full archive in dashboard */}
         {currentUser?.role !== 'admin' && currentUser?.role !== 'director' && (
           <button
             type="button"
             id="btn-nav-daily-archive"
             onClick={onOpenDailyArchiveModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-xs active:scale-[0.98] bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200"
-            title="مراقبة التلاميذ الغائبين حالياً في الفصول والأقسام"
+            title="أرشيف الغيابات ومراقبة التلاميذ الغائبين حالياً في الفصول والأقسام"
           >
             <UserX className="w-4 h-4 text-rose-600" />
-            <span>الغيابات الحالية</span>
+            <span>أرشيف الغيابات</span>
           </button>
         )}
 
