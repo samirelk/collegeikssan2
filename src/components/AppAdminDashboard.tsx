@@ -22,10 +22,13 @@ import {
   Layers,
   BookOpen,
   Edit3,
-  Download
+  Download,
+  Eye,
+  Activity
 } from 'lucide-react';
 import { User as UserType, TeacherItem, TEACHER_SUBJECTS, TeacherSubject, AppSettings } from '../types';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
+import { VisitorManagement } from './VisitorManagement';
 
 interface AppAdminDashboardProps {
   currentUser: UserType;
@@ -42,7 +45,7 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
   onNavigateHome,
   onOpenDbModal
 }) => {
-  const [activeTab, setActiveTab] = useState<'directors' | 'teachers' | 'system'>('directors');
+  const [activeTab, setActiveTab] = useState<'directors' | 'teachers' | 'system' | 'visitors'>('directors');
 
   // Teachers State
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
@@ -444,6 +447,23 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
             <Database className="w-4 h-4" />
             <span>صيانة النظام والنسخ الاحتياطي</span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('visitors')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'visitors'
+                ? 'bg-[#1A4E47] text-white shadow-sm'
+                : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <Eye className="w-4 h-4 text-[#C98A3C]" />
+            <span>إحصائيات وزوار التطبيق (المباشر)</span>
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+          </button>
         </div>
 
         {/* TAB 1: DIRECTORS MANAGEMENT */}
@@ -666,6 +686,13 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
                 </a>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB 4: VISITORS TRACKING & REALTIME STATS (Admin only) */}
+        {activeTab === 'visitors' && (
+          <div className="space-y-4">
+            <VisitorManagement currentUser={currentUser} />
           </div>
         )}
       </main>

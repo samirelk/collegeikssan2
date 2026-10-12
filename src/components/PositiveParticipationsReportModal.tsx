@@ -225,11 +225,11 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-1.5 sm:p-4 overflow-y-auto">
       <div
-        className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-amber-200/80 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[96vh] sm:max-h-[92vh]"
+        className="bg-[#FAF8F5] text-[#1F2926] rounded-2xl sm:rounded-3xl shadow-2xl border border-[#D5CDC0] w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[96vh] sm:max-h-[92vh]"
         dir="rtl"
       >
         {/* Modal Header */}
-        <div className="bg-gradient-to-r from-amber-700 via-amber-600 to-amber-800 text-white p-3.5 sm:p-6 pr-3.5 pl-12 sm:px-6 relative shrink-0">
+        <div className="bg-[#1A4E47] text-white border-b border-[#163F3A] p-3.5 sm:p-5 pr-3.5 pl-12 sm:px-6 relative shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -240,19 +240,19 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
           </button>
 
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-amber-300 text-amber-950 flex items-center justify-center font-bold shadow-md shrink-0">
-              <Trophy className="w-5 h-5 sm:w-7 sm:h-7 text-amber-900" />
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
+              <Trophy className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-950" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <h3 className="text-base sm:text-2xl font-bold font-serif text-white truncate">
+                <h3 className="text-base sm:text-xl font-bold font-serif text-white truncate">
                   سجل ولوحة شرف المشاركات الإيجابية
                 </h3>
-                <span className="bg-amber-300 text-amber-950 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-black">
+                <span className="bg-amber-400 text-emerald-950 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-black">
                   ⭐ للإدارة والأساتذة
                 </span>
               </div>
-              <p className="text-amber-100 text-[11px] sm:text-sm mt-0.5">
+              <p className="text-emerald-100 text-[11px] sm:text-xs mt-0.5">
                 طباعة لوحة الشرف والتعزيز الإيجابي حسب القسم أو حسب التلميذ
               </p>
             </div>
@@ -260,37 +260,37 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
         </div>
 
         {/* Filter & Controls Toolbar */}
-        <div className="bg-amber-50/70 border-b border-amber-200/70 p-2.5 sm:p-4 space-y-2.5 sm:space-y-3 shrink-0">
+        <div className="bg-[#EFE9D5] border-b border-[#D9CEB0] p-2.5 sm:p-4 space-y-2.5 sm:space-y-3 shrink-0">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
             {/* Section Selector */}
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Users className="w-4 h-4 text-amber-800 shrink-0" />
-              <span className="text-xs font-bold text-amber-900 shrink-0">القسم:</span>
+              <Users className="w-4 h-4 text-[#1A4E47] shrink-0" />
+              <span className="text-xs font-bold text-[#2A2118] shrink-0">القسم:</span>
               <select
                 value={selectedSectionId}
                 onChange={(e) => {
                   setSelectedSectionId(e.target.value);
                   setSelectedStudentName('');
                 }}
-                className="bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-amber-950 shadow-xs focus:ring-2 focus:ring-amber-500 focus:outline-none flex-1 sm:flex-none"
+                className="bg-white border border-[#D9CEB0] rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-[#1F2926] shadow-xs focus:ring-2 focus:ring-[#1A4E47] focus:outline-hidden flex-1 sm:flex-none"
               >
                 {sections.map((sec) => (
                   <option key={sec.id} value={sec.id}>
-                    {sec.level} ({sec.classNumber}) {sec.teacher ? `- ${sec.teacher}` : ''}
+                    {sec.level} ({sec.classNumber})
                   </option>
                 ))}
               </select>
             </div>
 
             {/* Scope Switcher: By Section OR By Student */}
-            <div className="grid grid-cols-2 sm:flex items-center bg-white p-1 rounded-xl border border-amber-300 shadow-xs w-full sm:w-auto">
+            <div className="grid grid-cols-2 sm:flex items-center bg-white p-1 rounded-xl border border-[#D9CEB0] shadow-xs w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => setReportScope('section')}
                 className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
                   reportScope === 'section'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'text-amber-900 hover:bg-amber-100/60'
+                    ? 'bg-[#1A4E47] text-white shadow-xs'
+                    : 'text-[#5B5040] hover:bg-[#F4EFDE]'
                 }`}
               >
                 <Users className="w-3.5 h-3.5 shrink-0" />
@@ -302,8 +302,8 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
                 onClick={() => setReportScope('student')}
                 className={`flex items-center justify-center gap-1.5 px-2.5 py-1.5 sm:py-1 rounded-lg text-[11px] sm:text-xs font-bold transition-all cursor-pointer ${
                   reportScope === 'student'
-                    ? 'bg-amber-600 text-white shadow-xs'
-                    : 'text-amber-900 hover:bg-amber-100/60'
+                    ? 'bg-[#1A4E47] text-white shadow-xs'
+                    : 'text-[#5B5040] hover:bg-[#F4EFDE]'
                 }`}
               >
                 <User className="w-3.5 h-3.5 shrink-0" />
@@ -314,14 +314,14 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
 
           {/* Student Selector when Scope is 'student' */}
           {reportScope === 'student' && (
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 pt-2 border-t border-amber-200/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 pt-2 border-t border-[#D9CEB0]/60">
               <div className="flex items-center gap-2 w-full sm:flex-1 sm:min-w-[240px]">
-                <User className="w-4 h-4 text-amber-800 shrink-0" />
-                <span className="text-xs font-bold text-amber-900 shrink-0">اختر التلميذ:</span>
+                <User className="w-4 h-4 text-[#1A4E47] shrink-0" />
+                <span className="text-xs font-bold text-[#2A2118] shrink-0">اختر التلميذ:</span>
                 <select
                   value={selectedStudentName}
                   onChange={(e) => setSelectedStudentName(e.target.value)}
-                  className="bg-white border border-amber-300 rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-amber-950 flex-1 max-w-full sm:max-w-sm shadow-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  className="bg-white border border-[#D9CEB0] rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-[#1F2926] flex-1 max-w-full sm:max-w-sm shadow-xs focus:ring-2 focus:ring-[#1A4E47] focus:outline-hidden"
                 >
                   {studentsData.map((st) => (
                     <option key={st.name} value={st.name}>

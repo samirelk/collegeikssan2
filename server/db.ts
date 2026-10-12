@@ -538,6 +538,48 @@ export function initDatabase() {
       created_at TEXT NOT NULL,
       PRIMARY KEY (type, item_id)
     );
+
+    CREATE TABLE IF NOT EXISTS visitor_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      visitor_id TEXT NOT NULL,
+      user_id TEXT DEFAULT NULL,
+      visitor_type TEXT NOT NULL DEFAULT 'guest',
+      user_name TEXT DEFAULT '',
+      user_email TEXT DEFAULT '',
+      subject TEXT DEFAULT '',
+      ip_address TEXT DEFAULT '',
+      user_agent TEXT DEFAULT '',
+      device_type TEXT DEFAULT 'desktop',
+      browser TEXT DEFAULT '',
+      os TEXT DEFAULT '',
+      path TEXT DEFAULT '/',
+      page_title TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      visit_count INTEGER DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_vl_visitor_id ON visitor_logs(visitor_id);
+    CREATE INDEX IF NOT EXISTS idx_vl_type ON visitor_logs(visitor_type);
+    CREATE INDEX IF NOT EXISTS idx_vl_last_seen ON visitor_logs(last_seen_at);
+
+    CREATE TABLE IF NOT EXISTS parent_summons (
+      id TEXT PRIMARY KEY,
+      section_id TEXT NOT NULL,
+      student_name TEXT NOT NULL,
+      student_number TEXT DEFAULT '',
+      massar_number TEXT DEFAULT '',
+      reason TEXT NOT NULL,
+      summons_date TEXT NOT NULL,
+      appointment_time TEXT DEFAULT '10:00',
+      status TEXT NOT NULL DEFAULT 'pending',
+      guardian_name TEXT DEFAULT '',
+      notes TEXT DEFAULT '',
+      created_by TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ps_section ON parent_summons(section_id);
+    CREATE INDEX IF NOT EXISTS idx_ps_date ON parent_summons(summons_date);
   `);
 
   // Seed default predefined violation types if table is empty
@@ -1164,14 +1206,15 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     const overridesBySeat = new Map(teacherOverrides.map((override) => [override.seat_num, override]));
     const hasTeacherCustomSeating = teacherOverrides.some((o) => o.student_name && o.student_name.trim() !== '');
 
-    // Today's attendance history for section-level session isolation
+    // Active attendance history for section: any unremoved absence stays attached to the student on their card
     const todayStr = new Date().toISOString().slice(0, 10);
     const todayAbsenceRows = db.prepare(`
-      SELECT ah.seat_num, ah.student_name, ah.student_number, ah.massar_number, ah.status, 
-             ah.created_by, ah.teacher_name, ah.session_period, ah.removed_at
+      SELECT ah.id, ah.seat_num, ah.student_name, ah.student_number, ah.massar_number, ah.status, 
+             ah.created_by, ah.teacher_name, ah.session_period, ah.recorded_date, ah.created_at, ah.removed_at
       FROM attendance_history ah
-      WHERE ah.section_id = ? AND ah.recorded_date = ? AND (ah.removed_at IS NULL OR ah.removed_at = '')
-    `).all(sec.id, todayStr) as any[];
+      WHERE ah.section_id = ? AND (ah.removed_at IS NULL OR ah.removed_at = '')
+      ORDER BY ah.id DESC
+    `).all(sec.id) as any[];
 
     let currentTeacherName = '';
     if (viewerRole === 'teacher' && viewerId) {
@@ -1970,16 +2013,14 @@ export function updateSeat(
     }
   } else if ((attendance === 'present' || attendance === null) && name.trim()) {
     try {
-      const today = now.slice(0, 10);
       const absenceRow = db.prepare(`
         SELECT * FROM attendance_history
         WHERE section_id = ? 
           AND (seat_num = ? OR seat_num = ? OR LOWER(TRIM(student_name)) = LOWER(TRIM(?))) 
-          AND recorded_date = ? 
           AND (status = 'absent' OR status = 'late')
           AND (removed_at IS NULL OR removed_at = '')
         ORDER BY created_at DESC LIMIT 1
-      `).get(sectionId, targetSeatNum, seatNum, name.trim(), today) as any;
+      `).get(sectionId, targetSeatNum, seatNum, name.trim()) as any;
 
       if (absenceRow) {
         const sameTeacher = actorId && absenceRow.created_by && actorId === absenceRow.created_by;
@@ -7711,18 +7752,15 @@ export function resolveDailyAbsence(id: number, actor: { id?: string; name?: str
     WHERE id = ?
   `).run(actor.id || '', now, removerName, removerSubject, hours, durationDays, durationLabel, id);
 
-  // Also remove absence state from active seats in class map if today
+  // Also remove absence state from active seats in class map
   try {
-    const today = now.slice(0, 10);
-    if (existing.recorded_date === today) {
-      if (existing.seat_num > 0) {
-        db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND seat_num = ? AND attendance = ?')
-          .run(existing.section_id, existing.seat_num, existing.status);
-      }
-      if (existing.student_name) {
-        db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) AND attendance = ?')
-          .run(existing.section_id, existing.student_name.trim(), existing.status);
-      }
+    if (existing.seat_num > 0) {
+      db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND seat_num = ? AND attendance = ?')
+        .run(existing.section_id, existing.seat_num, existing.status);
+    }
+    if (existing.student_name) {
+      db.prepare('UPDATE seats SET attendance = NULL WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) AND attendance = ?')
+        .run(existing.section_id, existing.student_name.trim(), existing.status);
     }
   } catch {}
 
@@ -8951,7 +8989,7 @@ export function getPositiveParticipationsBySection(sectionId: string, teacherId?
 
   return participations.map((p) => {
     const matchedSeat = currentSeats.find((s) =>
-      matchStudent(s.student_name, s.student_number, s.massar_number, p.studentName, p.studentNumber, p.massarNumber)
+      matchStudent(s.student_name, s.student_number, s.massarNumber, p.studentName, p.studentNumber, p.massarNumber)
     );
     return {
       ...p,
@@ -8959,6 +8997,600 @@ export function getPositiveParticipationsBySection(sectionId: string, teacherId?
     };
   });
 }
+
+// ==========================================
+// VISITOR LOGS & REAL-TIME VISITOR TRACKING
+// ==========================================
+
+export function parseUserAgent(ua: string): { device: 'mobile' | 'tablet' | 'desktop'; browser: string; os: string } {
+  const uaLower = (ua || '').toLowerCase();
+  
+  // Device
+  let device: 'mobile' | 'tablet' | 'desktop' = 'desktop';
+  if (/ipad|tablet|(android(?!.*mobile))/i.test(uaLower)) {
+    device = 'tablet';
+  } else if (/mobile|iphone|ipod|android|blackberry|opera mini|iemobile|wpdesktop/i.test(uaLower)) {
+    device = 'mobile';
+  }
+
+  // OS
+  let os = 'نظام غير معروف';
+  if (/windows nt 10\.0/i.test(uaLower)) os = 'Windows 10/11';
+  else if (/windows nt 6\.3/i.test(uaLower)) os = 'Windows 8.1';
+  else if (/windows nt 6\.1/i.test(uaLower)) os = 'Windows 7';
+  else if (/windows/i.test(uaLower)) os = 'Windows';
+  else if (/android/i.test(uaLower)) os = 'Android';
+  else if (/iphone|ipad|ipod/i.test(uaLower)) os = 'iOS';
+  else if (/macintosh|mac os x/i.test(uaLower)) os = 'macOS';
+  else if (/linux/i.test(uaLower)) os = 'Linux';
+
+  // Browser
+  let browser = 'متصفح غير معروف';
+  if (/edg\//i.test(uaLower)) browser = 'Microsoft Edge';
+  else if (/opr\/|opera/i.test(uaLower)) browser = 'Opera';
+  else if (/chrome|crios/i.test(uaLower)) browser = 'Google Chrome';
+  else if (/firefox|fxios/i.test(uaLower)) browser = 'Mozilla Firefox';
+  else if (/safari/i.test(uaLower)) browser = 'Apple Safari';
+
+  return { device, browser, os };
+}
+
+export function trackVisitorLog(data: {
+  visitorId: string;
+  userId?: string;
+  visitorType?: 'admin' | 'director' | 'teacher' | 'guest';
+  userName?: string;
+  userEmail?: string;
+  subject?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  path?: string;
+  pageTitle?: string;
+}) {
+  const now = new Date().toISOString();
+  const visitorId = (data.visitorId || '').trim();
+  if (!visitorId) return { success: false, message: 'Missing visitor ID' };
+
+  const parsed = parseUserAgent(data.userAgent || '');
+  const ipAddress = (data.ipAddress || '').trim();
+  const path = (data.path || '/').trim();
+  const pageTitle = (data.pageTitle || '').trim();
+  const visitorType = data.visitorType || (data.userId ? 'guest' : 'guest');
+  const userName = (data.userName || '').trim();
+  const userEmail = (data.userEmail || '').trim();
+  const subject = (data.subject || '').trim();
+  const userId = data.userId || null;
+
+  // Look for existing session in the last 24 hours for this visitorId
+  const existing = db.prepare(`
+    SELECT * FROM visitor_logs 
+    WHERE visitor_id = ? 
+    ORDER BY id DESC LIMIT 1
+  `).get(visitorId) as any;
+
+  if (existing) {
+    // If user logged in or upgraded status, update user info and visitor_type
+    const newType = visitorType !== 'guest' ? visitorType : existing.visitor_type;
+    const newName = userName || existing.user_name || '';
+    const newEmail = userEmail || existing.user_email || '';
+    const newUserId = userId || existing.user_id || null;
+    const newSubject = subject || existing.subject || '';
+
+    db.prepare(`
+      UPDATE visitor_logs SET
+        user_id = ?,
+        visitor_type = ?,
+        user_name = ?,
+        user_email = ?,
+        subject = ?,
+        ip_address = COALESCE(NULLIF(?, ''), ip_address),
+        user_agent = COALESCE(NULLIF(?, ''), user_agent),
+        device_type = ?,
+        browser = ?,
+        os = ?,
+        path = ?,
+        page_title = ?,
+        last_seen_at = ?,
+        visit_count = visit_count + 1
+      WHERE id = ?
+    `).run(
+      newUserId,
+      newType,
+      newName,
+      newEmail,
+      newSubject,
+      ipAddress,
+      data.userAgent || '',
+      parsed.device,
+      parsed.browser,
+      parsed.os,
+      path,
+      pageTitle,
+      now,
+      existing.id
+    );
+    return { success: true, updated: true, id: existing.id };
+  } else {
+    // Insert new visitor row
+    const res = db.prepare(`
+      INSERT INTO visitor_logs (
+        visitor_id, user_id, visitor_type, user_name, user_email, subject,
+        ip_address, user_agent, device_type, browser, os,
+        path, page_title, created_at, last_seen_at, visit_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+    `).run(
+      visitorId,
+      userId,
+      visitorType,
+      userName,
+      userEmail,
+      subject,
+      ipAddress,
+      data.userAgent || '',
+      parsed.device,
+      parsed.browser,
+      parsed.os,
+      path,
+      pageTitle,
+      now,
+      now
+    );
+    return { success: true, inserted: true, id: res.lastInsertRowid };
+  }
+}
+
+export function getVisitorAnalytics() {
+  const now = new Date();
+  const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000).toISOString();
+
+  const totalVisitorsRow = db.prepare('SELECT COUNT(DISTINCT visitor_id) as count FROM visitor_logs').get() as any;
+  const totalVisitors = Number(totalVisitorsRow?.count || 0);
+
+  const totalVisitsRow = db.prepare('SELECT COALESCE(SUM(visit_count), 0) as total FROM visitor_logs').get() as any;
+  const totalVisits = Number(totalVisitsRow?.total || 0);
+
+  const onlineNowRow = db.prepare('SELECT COUNT(DISTINCT visitor_id) as count FROM visitor_logs WHERE last_seen_at >= ?').get(fifteenMinutesAgo) as any;
+  const onlineNow = Number(onlineNowRow?.count || 0);
+
+  // Counts by visitor type
+  const typeRows = db.prepare('SELECT visitor_type, COUNT(*) as count FROM visitor_logs GROUP BY visitor_type').all() as any[];
+  const countsByType = {
+    guest: 0,
+    teacher: 0,
+    director: 0,
+    admin: 0
+  };
+  for (const r of typeRows) {
+    if (r.visitor_type in countsByType) {
+      (countsByType as any)[r.visitor_type] = Number(r.count || 0);
+    }
+  }
+
+  // Counts by device
+  const deviceRows = db.prepare('SELECT device_type, COUNT(*) as count FROM visitor_logs GROUP BY device_type').all() as any[];
+  const countsByDevice = {
+    desktop: 0,
+    mobile: 0,
+    tablet: 0
+  };
+  for (const r of deviceRows) {
+    if (r.device_type in countsByDevice) {
+      (countsByDevice as any)[r.device_type] = Number(r.count || 0);
+    }
+  }
+
+  // Recent visitors (last 150)
+  const recentRows = db.prepare(`
+    SELECT * FROM visitor_logs
+    ORDER BY last_seen_at DESC
+    LIMIT 150
+  `).all() as any[];
+
+  const recentVisitors = recentRows.map((r) => {
+    const isOnline = r.last_seen_at >= fifteenMinutesAgo;
+    return {
+      id: r.id,
+      visitorId: r.visitor_id,
+      userId: r.user_id || '',
+      visitorType: r.visitor_type,
+      userName: r.user_name || '',
+      userEmail: r.user_email || '',
+      subject: r.subject || '',
+      ipAddress: r.ip_address || '',
+      deviceType: r.device_type || 'desktop',
+      browser: r.browser || '',
+      os: r.os || '',
+      path: r.path || '/',
+      pageTitle: r.page_title || '',
+      createdAt: r.created_at,
+      lastSeenAt: r.last_seen_at,
+      visitCount: Number(r.visit_count || 1),
+      isOnline
+    };
+  });
+
+  return {
+    totalVisitors,
+    totalVisits,
+    onlineNow,
+    countsByType,
+    countsByDevice,
+    recentVisitors
+  };
+}
+
+export function clearVisitorLogs() {
+  db.prepare('DELETE FROM visitor_logs').run();
+  return { success: true, message: 'تم مسح كافة سجلات الزوار بنجاح' };
+}
+
+// ==========================================
+// Parent Summons & Commitments System
+// ==========================================
+
+export interface ParentSummonsItem {
+  id: string;
+  sectionId: string;
+  sectionLevel?: string;
+  sectionClass?: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  reason: string;
+  summonsDate: string;
+  appointmentTime: string;
+  status: 'pending' | 'attended' | 'signed_commitment' | 'absent';
+  guardianName?: string;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function getParentSummons(sectionId?: string): ParentSummonsItem[] {
+  let query = `
+    SELECT 
+      ps.*,
+      s.level as section_level,
+      s.class_number as section_class
+    FROM parent_summons ps
+    LEFT JOIN sections s ON ps.section_id = s.id
+  `;
+  const params: any[] = [];
+  if (sectionId && sectionId !== 'all') {
+    query += ` WHERE ps.section_id = ? `;
+    params.push(sectionId);
+  }
+  query += ` ORDER BY ps.summons_date DESC, ps.created_at DESC `;
+
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    sectionId: r.section_id,
+    sectionLevel: r.section_level || '',
+    sectionClass: r.section_class || '',
+    studentName: r.student_name,
+    studentNumber: r.student_number || '',
+    massarNumber: r.massar_number || '',
+    reason: r.reason,
+    summonsDate: r.summons_date,
+    appointmentTime: r.appointment_time || '10:00',
+    status: r.status || 'pending',
+    guardianName: r.guardian_name || '',
+    notes: r.notes || '',
+    createdBy: r.created_by || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
+}
+
+export function createParentSummons(data: {
+  sectionId: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  reason: string;
+  summonsDate: string;
+  appointmentTime?: string;
+  status?: string;
+  guardianName?: string;
+  notes?: string;
+  createdBy?: string;
+}): ParentSummonsItem {
+  const id = `summons_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO parent_summons (
+      id, section_id, student_name, student_number, massar_number,
+      reason, summons_date, appointment_time, status, guardian_name,
+      notes, created_by, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.sectionId,
+    data.studentName.trim(),
+    data.studentNumber || '',
+    data.massarNumber || '',
+    data.reason.trim(),
+    data.summonsDate,
+    data.appointmentTime || '10:00',
+    data.status || 'pending',
+    data.guardianName || '',
+    data.notes || '',
+    data.createdBy || '',
+    now,
+    now
+  );
+
+  return {
+    id,
+    sectionId: data.sectionId,
+    studentName: data.studentName.trim(),
+    studentNumber: data.studentNumber || '',
+    massarNumber: data.massarNumber || '',
+    reason: data.reason.trim(),
+    summonsDate: data.summonsDate,
+    appointmentTime: data.appointmentTime || '10:00',
+    status: (data.status as any) || 'pending',
+    guardianName: data.guardianName || '',
+    notes: data.notes || '',
+    createdBy: data.createdBy || '',
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+export function updateParentSummons(id: string, updates: {
+  status?: 'pending' | 'attended' | 'signed_commitment' | 'absent';
+  guardianName?: string;
+  notes?: string;
+  appointmentTime?: string;
+  reason?: string;
+}) {
+  const now = new Date().toISOString();
+  const current = db.prepare('SELECT * FROM parent_summons WHERE id = ?').get(id) as any;
+  if (!current) throw new Error('الاستدعاء غير موجود');
+
+  db.prepare(`
+    UPDATE parent_summons SET
+      status = ?,
+      guardian_name = ?,
+      notes = ?,
+      appointment_time = ?,
+      reason = ?,
+      updated_at = ?
+    WHERE id = ?
+  `).run(
+    updates.status ?? current.status,
+    updates.guardianName ?? current.guardian_name,
+    updates.notes ?? current.notes,
+    updates.appointmentTime ?? current.appointment_time,
+    updates.reason ?? current.reason,
+    now,
+    id
+  );
+
+  return { success: true };
+}
+
+export function deleteParentSummons(id: string) {
+  db.prepare('DELETE FROM parent_summons WHERE id = ?').run(id);
+  return { success: true };
+}
+
+// ==========================================
+// Advanced Institutional Analytics Engine
+// ==========================================
+
+export function getAdvancedInstitutionalAnalytics(academicYear?: string) {
+  // 1. Total Sections and Students
+  const sections = db.prepare('SELECT id, level, class_number, roster_json FROM sections ORDER BY level ASC, class_number ASC').all() as any[];
+  let totalEnrolledStudents = 0;
+  const levelCounts: Record<string, { sections: number; students: number; absences: number; justified: number }> = {};
+
+  sections.forEach(sec => {
+    let count = 0;
+    try {
+      const roster = JSON.parse(sec.roster_json || '[]');
+      count = Array.isArray(roster) ? roster.length : 0;
+    } catch {
+      count = 0;
+    }
+    totalEnrolledStudents += count;
+
+    const lvl = sec.level || 'أخرى';
+    if (!levelCounts[lvl]) {
+      levelCounts[lvl] = { sections: 0, students: 0, absences: 0, justified: 0 };
+    }
+    levelCounts[lvl].sections += 1;
+    levelCounts[lvl].students += count;
+  });
+
+  // 2. Attendance Stats
+  const attendanceRows = db.prepare(`
+    SELECT 
+      ah.id,
+      ah.section_id,
+      ah.status,
+      ah.justified,
+      ah.recorded_date,
+      ah.duration_hours,
+      ah.duration_days,
+      s.level as section_level,
+      s.class_number as section_class
+    FROM attendance_history ah
+    LEFT JOIN sections s ON ah.section_id = s.id
+  `).all() as any[];
+
+  let totalAbsenceCases = 0;
+  let totalTardyCases = 0;
+  let totalJustifiedAbsences = 0;
+  let totalUnjustifiedAbsences = 0;
+  let totalAbsenceHours = 0;
+
+  // Breakdown by Weekday (0: Sunday, 1: Monday, ... 6: Saturday)
+  const weekdayCounts: Record<number, number> = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+  const monthlyTrends: Record<string, { absences: number; tardies: number; justified: number }> = {};
+  const sectionAbsenceCounts: Record<string, { sectionId: string; label: string; count: number; hours: number }> = {};
+
+  attendanceRows.forEach(row => {
+    const isAbsence = row.status === 'absent';
+    const isTardy = row.status === 'late';
+    const isJustified = row.justified === 'justified';
+    const lvl = row.section_level || 'أخرى';
+    const secLabel = `${row.section_level || ''} - القسم ${row.section_class || ''}`.trim();
+
+    if (isAbsence) {
+      totalAbsenceCases += 1;
+      const hours = Number(row.duration_hours || 1);
+      totalAbsenceHours += hours;
+
+      if (isJustified) totalJustifiedAbsences += 1;
+      else totalUnjustifiedAbsences += 1;
+
+      if (levelCounts[lvl]) {
+        levelCounts[lvl].absences += 1;
+        if (isJustified) levelCounts[lvl].justified += 1;
+      }
+
+      if (row.section_id) {
+        if (!sectionAbsenceCounts[row.section_id]) {
+          sectionAbsenceCounts[row.section_id] = { sectionId: row.section_id, label: secLabel, count: 0, hours: 0 };
+        }
+        sectionAbsenceCounts[row.section_id].count += 1;
+        sectionAbsenceCounts[row.section_id].hours += hours;
+      }
+    } else if (isTardy) {
+      totalTardyCases += 1;
+    }
+
+    if (row.recorded_date) {
+      try {
+        const d = new Date(row.recorded_date);
+        if (!isNaN(d.getTime())) {
+          const day = d.getDay();
+          if (isAbsence) {
+            weekdayCounts[day] = (weekdayCounts[day] || 0) + 1;
+          }
+          const mKey = row.recorded_date.slice(0, 7); // YYYY-MM
+          if (!monthlyTrends[mKey]) {
+            monthlyTrends[mKey] = { absences: 0, tardies: 0, justified: 0 };
+          }
+          if (isAbsence) {
+            monthlyTrends[mKey].absences += 1;
+            if (isJustified) monthlyTrends[mKey].justified += 1;
+          } else if (isTardy) {
+            monthlyTrends[mKey].tardies += 1;
+          }
+        }
+      } catch {}
+    }
+  });
+
+  // 3. Violations Breakdown
+  const violationsRows = db.prepare(`
+    SELECT violation_type, count(*) as count
+    FROM daily_violations
+    GROUP BY violation_type
+    ORDER BY count DESC
+  `).all() as any[];
+
+  const totalViolations = violationsRows.reduce((sum, r) => sum + Number(r.count || 0), 0);
+
+  // 4. Positive Participations
+  const positiveRows = db.prepare(`
+    SELECT count(*) as total_count, coalesce(sum(points), 0) as total_points
+    FROM positive_participations
+  `).get() as any;
+
+  // 5. Parent Summons Stats
+  const summonsRows = db.prepare(`
+    SELECT status, count(*) as count
+    FROM parent_summons
+    GROUP BY status
+  `).all() as any[];
+
+  const summonsStats = {
+    total: 0,
+    pending: 0,
+    attended: 0,
+    signedCommitment: 0,
+    absent: 0
+  };
+  summonsRows.forEach(r => {
+    const c = Number(r.count || 0);
+    summonsStats.total += c;
+    if (r.status === 'pending') summonsStats.pending += c;
+    else if (r.status === 'attended') summonsStats.attended += c;
+    else if (r.status === 'signed_commitment') summonsStats.signedCommitment += c;
+    else if (r.status === 'absent') summonsStats.absent += c;
+  });
+
+  // 6. Overall Attendance Rate estimation
+  // Moroccan standard: 30 hours per student per week * approx 32 weeks = 960 hours expected attendance
+  const assumedExpectedHours = Math.max(totalEnrolledStudents * 100, 100);
+  const attendanceRate = totalEnrolledStudents > 0
+    ? Math.max(0, Math.min(100, Number((((assumedExpectedHours - totalAbsenceHours) / assumedExpectedHours) * 100).toFixed(1))))
+    : 100;
+
+  // Sorted monthly trends
+  const sortedMonthlyTrends = Object.entries(monthlyTrends)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-12)
+    .map(([month, data]) => ({
+      month,
+      absences: data.absences,
+      tardies: data.tardies,
+      justified: data.justified
+    }));
+
+  // Top absent sections
+  const topAbsentSections = Object.values(sectionAbsenceCounts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  return {
+    overview: {
+      totalStudents: totalEnrolledStudents,
+      totalSections: sections.length,
+      totalAbsenceCases,
+      totalTardyCases,
+      totalJustifiedAbsences,
+      totalUnjustifiedAbsences,
+      justifiedPercentage: totalAbsenceCases > 0 ? Number(((totalJustifiedAbsences / totalAbsenceCases) * 100).toFixed(1)) : 0,
+      totalAbsenceHours,
+      totalViolations,
+      totalPositiveParticipations: Number(positiveRows?.total_count || 0),
+      totalPositivePoints: Number(positiveRows?.total_points || 0),
+      attendanceRate,
+      summonsStats
+    },
+    levelBreakdown: Object.entries(levelCounts).map(([level, data]) => ({
+      level,
+      sectionsCount: data.sections,
+      studentsCount: data.students,
+      absencesCount: data.absences,
+      justifiedCount: data.justified,
+      absencePerStudent: data.students > 0 ? Number((data.absences / data.students).toFixed(2)) : 0
+    })),
+    weekdayBreakdown: [
+      { dayIndex: 1, name: 'الإثنين', count: weekdayCounts[1] || 0 },
+      { dayIndex: 2, name: 'الثلاثاء', count: weekdayCounts[2] || 0 },
+      { dayIndex: 3, name: 'الأربعاء', count: weekdayCounts[3] || 0 },
+      { dayIndex: 4, name: 'الخميس', count: weekdayCounts[4] || 0 },
+      { dayIndex: 5, name: 'الجمعة', count: weekdayCounts[5] || 0 },
+      { dayIndex: 6, name: 'السبت', count: weekdayCounts[6] || 0 }
+    ],
+    monthlyTrends: sortedMonthlyTrends,
+    violationsBreakdown: violationsRows.map(r => ({
+      type: r.violation_type,
+      count: Number(r.count || 0),
+      percentage: totalViolations > 0 ? Number(((Number(r.count || 0) / totalViolations) * 100).toFixed(1)) : 0
+    })),
+    topAbsentSections
+  };
+}
+
 
 
 

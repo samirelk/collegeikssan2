@@ -324,7 +324,7 @@ export const DirectorPrintModal: React.FC<DirectorPrintModalProps> = ({
                 </option>
                 {availableSectionsForLevel.map((sec) => (
                   <option key={sec.id} value={sec.id}>
-                    قسم: {sec.level} ({sec.classNumber}) {sec.teacher ? `— ${sec.teacher}` : ''}
+                    قسم: {sec.level} ({sec.classNumber})
                   </option>
                 ))}
               </select>

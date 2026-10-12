@@ -941,7 +941,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
                   <option value="">-- اختر القسم --</option>
                   {displayedSectionsForPick.map((sec) => (
                     <option key={sec.id} value={sec.id}>
-                      {sec.level} / {sec.classNumber} {sec.teacher ? `(الأستاذ: ${sec.teacher})` : ''}
+                      {sec.level} / {sec.classNumber}
                     </option>
                   ))}
                 </select>

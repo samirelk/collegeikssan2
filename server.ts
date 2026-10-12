@@ -101,6 +101,14 @@ import {
   deleteTimetableEntryById,
   wipeAllDataExceptAdmin,
   getTeachersWithCredentials,
+  trackVisitorLog,
+  getVisitorAnalytics,
+  clearVisitorLogs,
+  getParentSummons,
+  createParentSummons,
+  updateParentSummons,
+  deleteParentSummons,
+  getAdvancedInstitutionalAnalytics,
   db
 } from './server/db.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
@@ -1790,6 +1798,100 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // Advanced Institutional Analytics API
+  // ==========================================
+  app.get('/api/analytics/institutional', (req, res) => {
+    try {
+      const year = req.query.year as string | undefined;
+      const data = getAdvancedInstitutionalAnalytics(year);
+      res.json({ success: true, ...data });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Parent Summons & Commitments API
+  // ==========================================
+  app.get('/api/parent-summons', (req, res) => {
+    try {
+      const sectionId = req.query.sectionId as string | undefined;
+      const summons = getParentSummons(sectionId);
+      res.json({ success: true, summons });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/parent-summons', (req, res) => {
+    try {
+      const {
+        sectionId,
+        studentName,
+        studentNumber,
+        massarNumber,
+        reason,
+        summonsDate,
+        appointmentTime,
+        status,
+        guardianName,
+        notes
+      } = req.body;
+
+      if (!sectionId || !studentName || !reason || !summonsDate) {
+        return res.status(400).json({ success: false, error: 'القسم، اسم التلميذ، سبب الاستدعاء وتاريخ الاستدعاء مطلوبة' });
+      }
+
+      const createdBy = (req.headers['x-user-id'] as string) || '';
+      const item = createParentSummons({
+        sectionId,
+        studentName,
+        studentNumber,
+        massarNumber,
+        reason,
+        summonsDate,
+        appointmentTime,
+        status,
+        guardianName,
+        notes,
+        createdBy
+      });
+      markDirty();
+      res.json({ success: true, item, message: 'تم إنشاء استدعاء ولي الأمر بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.put('/api/parent-summons/:id', (req, res) => {
+    try {
+      const id = req.params.id;
+      const { status, guardianName, notes, appointmentTime, reason } = req.body;
+      const result = updateParentSummons(id, {
+        status,
+        guardianName,
+        notes,
+        appointmentTime,
+        reason
+      });
+      markDirty();
+      res.json({ success: true, message: 'تم تحديث حالة الاستدعاء بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/parent-summons/:id', (req, res) => {
+    try {
+      deleteParentSummons(req.params.id);
+      markDirty();
+      res.json({ success: true, message: 'تم حذف الاستدعاء بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   // Delete a daily absence record
   app.delete('/api/daily-archive/absences/:id', (req, res) => {
     try {
@@ -1869,6 +1971,61 @@ async function startServer() {
       res.json({ success: true, message: 'تم حذف سجل المخالفة بنجاح' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Visitor Tracking & Analytics API (زوار الموقع)
+  // ==========================================
+
+  app.post('/api/visitors/track', (req, res) => {
+    try {
+      const { visitorId, userId, visitorType, userName, userEmail, subject, path: clientPath, pageTitle } = req.body;
+      const rawIp = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || req.ip || '';
+      const ipAddress = rawIp.split(',')[0].trim();
+      const userAgent = (req.headers['user-agent'] as string) || '';
+
+      const result = trackVisitorLog({
+        visitorId,
+        userId,
+        visitorType,
+        userName,
+        userEmail,
+        subject,
+        ipAddress,
+        userAgent,
+        path: clientPath,
+        pageTitle
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get(['/api/visitors/analytics', '/api/visitors/stats'], (req, res) => {
+    try {
+      const role = (req.headers['x-user-role'] as string) || (req.query.role as string);
+      if (role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'غير مصرح: إحصائيات الزوار متاحة حصرياً لمدير التطبيق (Admin)' });
+      }
+      const stats = getVisitorAnalytics();
+      res.json({ success: true, ...stats });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/visitors/logs', (req, res) => {
+    try {
+      const role = (req.headers['x-user-role'] as string) || (req.query.role as string);
+      if (role !== 'admin') {
+        return res.status(403).json({ success: false, error: 'غير مصرح: مسح السجلات متاح حصرياً لمدير التطبيق (Admin)' });
+      }
+      const result = clearVisitorLogs();
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 

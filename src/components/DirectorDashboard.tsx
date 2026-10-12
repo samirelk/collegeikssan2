@@ -36,7 +36,8 @@ import {
   ArrowUpDown,
   RotateCcw,
   SlidersHorizontal,
-  Settings2
+  Settings2,
+  BarChart3
 } from 'lucide-react';
 import {
   SectionItem,
@@ -57,6 +58,7 @@ import { safeApiFetch } from '../utils/apiClient';
 import { TeacherExcelImportModal } from './TeacherExcelImportModal';
 import { DirectorPrintModal } from './DirectorPrintModal';
 import { TeacherCredentialsPrintModal } from './TeacherCredentialsPrintModal';
+import { DirectorAnalyticsDashboard } from './DirectorAnalyticsDashboard';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -79,7 +81,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   onOpenApprovalsModal,
   onYearChanged
 }) => {
-  const [activeTab, setActiveTab] = useState<'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive'>('academic-years');
+  const [activeTab, setActiveTab] = useState<'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive' | 'analytics'>('academic-years');
   const [violationsSubTab, setViolationsSubTab] = useState<'top10' | 'manage-types'>('top10');
   
   // Analytics & Teachers State
@@ -883,7 +885,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   };
 
   // Clickable Navigation & Action Trigger
-  const navigateToTab = (tab: 'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive') => {
+  const navigateToTab = (tab: 'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive' | 'analytics') => {
     setActiveTab(tab);
     setInspectSectionId(null);
     setTimeout(() => {
@@ -1339,6 +1341,24 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         >
           <Calendar className="w-3.5 h-3.5" />
           <span>الأرشيف اليومي (غيابات ومخالفات)</span>
+        </button>
+
+        {/* Analytics Tab (المقترح 5: الإحصائيات والتحليلات البيانية وتبرير الغيابات) */}
+        <button
+          type="button"
+          id="director-tab-analytics"
+          onClick={() => navigateToTab('analytics')}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] transition-all cursor-pointer ${
+            activeTab === 'analytics' && !inspectSectionId
+              ? 'bg-[#1A4E47] text-white shadow-xs'
+              : 'text-[#5B5040] hover:text-[#2A2118] hover:bg-[rgba(42,33,24,0.06)]'
+          }`}
+        >
+          <BarChart3 className="w-3.5 h-3.5 text-[#C98A3C]" />
+          <span>الإحصائيات والتحليلات</span>
+          <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#C98A3C]/20 text-[#C98A3C] font-bold">
+            جديد
+          </span>
         </button>
       </div>
 
@@ -2709,6 +2729,18 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         </div>
       )}
 
+      {/* 4.8 ANALYTICS & JUSTIFICATIONS TAB (المقترح 5: التحليلات البيانية والمؤشرات وتبرير الغيابات) */}
+      {activeTab === 'analytics' && !inspectSectionId && (
+        <div className="animate-in fade-in duration-150">
+          <DirectorAnalyticsDashboard
+            currentUser={currentUser}
+            sections={sections}
+            settings={settings}
+            onRefresh={onRefreshSections}
+          />
+        </div>
+      )}
+
       {/* MODAL: DIRECT QUICK TEACHER CREATION */}
       {isAddTeacherOpen && (
         <div
@@ -3348,7 +3380,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                             const count = s.seats?.filter(st => st.name?.trim())?.length || 0;
                             return (
                               <option key={s.id} value={s.id}>
-                                {s.level} - القسم {s.classNumber} ({count} تلميذاً مسجلاً) {s.teacher ? `| الأستاذ: ${s.teacher}` : ''}
+                                {s.level} - القسم {s.classNumber} ({count} تلميذاً مسجلاً)
                               </option>
                             );
                           })}

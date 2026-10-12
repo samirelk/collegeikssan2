@@ -243,6 +243,49 @@ export default function App() {
     }, 3000);
   };
 
+  // 0. Visitor Tracking & Presence (متابعة زوار الموقع)
+  useEffect(() => {
+    let visitorId = '';
+    try {
+      visitorId = localStorage.getItem('lyceecom_visitor_id') || '';
+      if (!visitorId) {
+        visitorId = 'vis_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now();
+        localStorage.setItem('lyceecom_visitor_id', visitorId);
+      }
+    } catch {
+      visitorId = 'vis_temp_' + Date.now();
+    }
+
+    const sendTrack = async () => {
+      try {
+        const visitorType = currentUser
+          ? (currentUser.role === 'admin' ? 'admin' : currentUser.role === 'director' ? 'director' : 'teacher')
+          : 'guest';
+
+        await fetch('/api/visitors/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            visitorId,
+            userId: currentUser?.id,
+            visitorType,
+            userName: currentUser?.fullName || '',
+            userEmail: currentUser?.email || '',
+            subject: currentUser?.subject || '',
+            path: window.location.pathname || '/',
+            pageTitle: document.title || 'منظومة خرائط الأقسام'
+          })
+        });
+      } catch {
+        // Silent
+      }
+    };
+
+    sendTrack();
+    const timer = setInterval(sendTrack, 3 * 60 * 1000); // Heartbeat every 3 minutes
+    return () => clearInterval(timer);
+  }, [currentUser]);
+
   // 1. Initial Load from Backend
   useEffect(() => {
     fetchInitialData();

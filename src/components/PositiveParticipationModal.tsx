@@ -152,11 +152,11 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-1.5 sm:p-4 overflow-y-auto">
       <div
-        className="bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-emerald-100 w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-150 flex flex-col max-h-[96vh] sm:max-h-[92vh]"
+        className="bg-[#FAF8F5] text-[#1F2926] rounded-2xl sm:rounded-3xl shadow-2xl border border-[#D5CDC0] w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[96vh] sm:max-h-[92vh]"
         dir="rtl"
       >
         {/* Header */}
-        <div className="bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 text-white p-3.5 sm:p-6 pr-3.5 pl-12 sm:px-6 relative shrink-0">
+        <div className="bg-[#1A4E47] text-white border-b border-[#163F3A] p-3.5 sm:p-5 pr-3.5 pl-12 sm:px-6 relative shrink-0">
           <button
             type="button"
             onClick={onClose}
@@ -167,26 +167,26 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
           </button>
 
           <div className="flex items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
-              <Sparkles className="w-5 h-5 sm:w-7 sm:h-7 text-emerald-900" />
+            <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-amber-400 text-emerald-950 flex items-center justify-center font-bold shadow-md shrink-0">
+              <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-900" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <h3 className="text-base sm:text-2xl font-bold font-serif text-white truncate">
+                <h3 className="text-base sm:text-xl font-bold font-serif text-white truncate">
                   المشاركات الإيجابية والتعزيز
                 </h3>
                 <span className="bg-amber-400 text-emerald-950 text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-black">
                   ⭐ نقاط التميز
                 </span>
               </div>
-              <p className="text-emerald-100 text-[11px] sm:text-sm mt-0.5">
+              <p className="text-emerald-100 text-[11px] sm:text-xs mt-0.5">
                 تحفيز التلميذ ورصد السلوكيات والمشاركات المتميزة داخل الحصة
               </p>
             </div>
           </div>
 
           {/* Student Banner */}
-          <div className="mt-3 sm:mt-4 bg-emerald-900/40 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs sm:text-sm">
+          <div className="mt-3 bg-[#133D37] border border-[#2B665E] rounded-xl sm:rounded-2xl p-2.5 sm:p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs sm:text-sm">
             <div className="flex items-center gap-2 flex-wrap">
               <User className="w-4 h-4 text-emerald-300 shrink-0" />
               <span className="text-emerald-200">التلميذ:</span>
@@ -207,7 +207,7 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
               <div className="flex items-center gap-1.5 bg-amber-400/20 border border-amber-300/40 px-2.5 py-1 rounded-xl text-amber-200 font-bold text-xs">
                 <Trophy className="w-3.5 h-3.5 text-amber-300" />
                 <span>الرصيد:</span>
-                <span className="text-white font-black px-1.5 py-0.5 bg-amber-500 rounded-md shadow-xs">
+                <span className="text-emerald-950 font-black px-1.5 py-0.5 bg-amber-400 rounded-md shadow-xs">
                   {totalPoints} ⭐
                 </span>
               </div>
@@ -231,10 +231,10 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                       mode: 'report'
                     });
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#EFE9D5] hover:bg-[#E4DBC0] text-[#1A4E47] border border-[#D9CEB0] font-bold text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
                   title="طباعة بطاقة وسجل المشاركات الإيجابية للتلميذ"
                 >
-                  <Printer className="w-3 h-3" />
+                  <Printer className="w-3 h-3 text-[#1A4E47]" />
                   <span>طباعة السجل</span>
                 </button>
 
@@ -255,7 +255,7 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                       mode: 'certificate'
                     });
                   }}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-400 hover:bg-amber-300 text-emerald-950 font-bold text-[11px] shadow-xs transition-all active:scale-95 cursor-pointer"
                   title="طباعة شهادة تقدير وتشجيع تربوي رسمية"
                 >
                   <Award className="w-3 h-3" />
@@ -267,7 +267,7 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
         </div>
 
         {/* Content body */}
-        <div className="p-3 sm:p-6 overflow-y-auto space-y-4 sm:space-y-6 flex-1 bg-stone-50/50">
+        <div className="p-3 sm:p-5 overflow-y-auto space-y-4 sm:space-y-5 flex-1 bg-[#FAF8F5]">
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-center justify-between">
               <span>{errorMsg}</span>
@@ -285,13 +285,13 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
           )}
 
           {/* Form to add participation */}
-          <form onSubmit={handleSubmit} className="bg-white p-4 sm:p-5 rounded-2xl border border-stone-200 shadow-xs space-y-4">
+          <form onSubmit={handleSubmit} className="bg-[#FBF8EF] p-4 sm:p-5 rounded-2xl border border-[#E4DBC0] shadow-xs space-y-4">
             <div className="flex items-center justify-between">
-              <h4 className="text-sm font-bold text-stone-800 flex items-center gap-2">
-                <Plus className="w-4 h-4 text-emerald-600" />
+              <h4 className="text-sm font-bold text-[#1F2926] flex items-center gap-2">
+                <Plus className="w-4 h-4 text-[#1A4E47]" />
                 <span>إضافة نقطة تميز / مشاركة إيجابية جديدة:</span>
               </h4>
-              <span className="text-xs text-stone-500">اختر نموذجاً أو اكتب مخصصاً</span>
+              <span className="text-xs text-[#7A6B58]">اختر نموذجاً أو اكتب مخصصاً</span>
             </div>
 
             {/* Presets grid */}
@@ -306,16 +306,16 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                     onClick={() => handleSelectPreset(item)}
                     className={`flex items-start gap-2.5 p-2.5 rounded-xl border text-right transition-all cursor-pointer ${
                       isSelected
-                        ? 'border-emerald-600 bg-emerald-50/80 shadow-xs ring-2 ring-emerald-500/20'
-                        : 'border-stone-200 bg-white hover:border-emerald-300 hover:bg-stone-50'
+                        ? 'border-[#1A4E47] bg-[#E8F2F0] shadow-xs ring-2 ring-[#1A4E47]/20'
+                        : 'border-[#E4DBC0] bg-white hover:border-[#1A4E47] hover:bg-[#FAF8F5]'
                     }`}
                   >
                     <div className={`p-1.5 rounded-lg border shrink-0 ${item.color}`}>
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-bold text-stone-800 leading-snug">{item.title}</div>
-                      <div className="text-[11px] text-emerald-700 font-bold mt-0.5">
+                      <div className="text-xs font-bold text-[#1F2926] leading-snug">{item.title}</div>
+                      <div className="text-[11px] text-[#1A4E47] font-bold mt-0.5">
                         +{item.points} {item.points === 1 ? 'نقطة' : 'نقاط'}
                       </div>
                     </div>
@@ -327,7 +327,7 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
             {/* Custom / edited input */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
               <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-stone-700 mb-1">
+                <label className="block text-xs font-bold text-[#2A2118] mb-1">
                   عنوان المشاركة الإيجابية:
                 </label>
                 <input
@@ -335,13 +335,13 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                   value={selectedType}
                   onChange={(e) => setSelectedType(e.target.value)}
                   placeholder="مثال: إجابة نموذجية، حفظ السورة، مساعدة زميل..."
-                  className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 bg-white"
+                  className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D9CEB0] focus:outline-hidden focus:border-[#1A4E47] focus:ring-1 focus:ring-[#1A4E47] bg-white"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-stone-700 mb-1">
+                <label className="block text-xs font-bold text-[#2A2118] mb-1">
                   النقاط التشجيعية:
                 </label>
                 <div className="flex items-center gap-1.5">
@@ -351,15 +351,15 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                     max="10"
                     value={points}
                     onChange={(e) => setPoints(Math.max(1, Number(e.target.value)))}
-                    className="w-full px-3 py-2 text-center text-sm font-bold rounded-xl border border-stone-300 focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 bg-white"
+                    className="w-full px-3 py-2 text-center text-sm font-bold rounded-xl border border-[#D9CEB0] focus:outline-hidden focus:border-[#1A4E47] focus:ring-1 focus:ring-[#1A4E47] bg-white font-mono"
                   />
-                  <span className="text-xs text-stone-500 font-bold">⭐</span>
+                  <span className="text-xs text-[#7A6B58] font-bold">⭐</span>
                 </div>
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-stone-700 mb-1">
+              <label className="block text-xs font-bold text-[#2A2118] mb-1">
                 ملاحظة إضافية أو تفصيل الإنجاز (اختياري):
               </label>
               <input
@@ -367,7 +367,7 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                 value={customNote}
                 onChange={(e) => setCustomNote(e.target.value)}
                 placeholder="مثال: تميز في تمرين المعادلات، تفاعل ممتاز أثناء الشرح..."
-                className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-stone-300 focus:outline-hidden focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 bg-white"
+                className="w-full px-3 py-2 text-xs sm:text-sm rounded-xl border border-[#D9CEB0] focus:outline-hidden focus:border-[#1A4E47] focus:ring-1 focus:ring-[#1A4E47] bg-white"
               />
             </div>
 
@@ -375,7 +375,7 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs hover:shadow-md transition-all cursor-pointer disabled:opacity-50"
+                className="px-5 py-2.5 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] active:bg-[#0D2824] text-white font-bold text-xs sm:text-sm flex items-center gap-2 shadow-xs hover:shadow-md transition-all cursor-pointer disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <>
@@ -395,22 +395,22 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
           {/* History of Positive Participations */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-sm font-bold text-stone-800 flex items-center gap-2">
-                <Award className="w-4 h-4 text-emerald-600" />
+              <h4 className="text-sm font-bold text-[#1F2926] flex items-center gap-2">
+                <Award className="w-4 h-4 text-[#1A4E47]" />
                 <span>سجل تعزيزات ومشاركات التلميذ ({participations.length}):</span>
               </h4>
               {participations.length > 0 && (
-                <span className="text-xs text-emerald-800 bg-emerald-100 font-bold px-2.5 py-0.5 rounded-full">
+                <span className="text-xs text-[#1A4E47] bg-[#E8F2F0] font-bold px-2.5 py-0.5 rounded-full border border-[#B9D8D2]">
                   المجموع: {totalPoints} نقاط
                 </span>
               )}
             </div>
 
             {participations.length === 0 ? (
-              <div className="text-center py-8 bg-white rounded-2xl border border-dashed border-stone-300 p-6">
-                <Sparkles className="w-10 h-10 text-emerald-300 mx-auto mb-2" />
-                <p className="text-stone-600 text-sm font-bold">لا توجد مشاركات إيجابية مسجلة بعد لهذا التلميذ</p>
-                <p className="text-stone-400 text-xs mt-1">
+              <div className="text-center py-8 bg-[#FBF8EF] rounded-2xl border border-dashed border-[#D9CEB0] p-6">
+                <Sparkles className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
+                <p className="text-[#2A2118] text-sm font-bold">لا توجد مشاركات إيجابية مسجلة بعد لهذا التلميذ</p>
+                <p className="text-[#7A6B58] text-xs mt-1">
                   استخدم النموذج أعلاه لتحفيز التلميذ وتسجيل أول نقطة تميز له اليوم!
                 </p>
               </div>
@@ -419,14 +419,14 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                 {participations.map((item) => (
                   <div
                     key={item.id}
-                    className="p-3.5 rounded-2xl bg-white border border-stone-200 shadow-2xs hover:border-emerald-300 transition-colors flex items-center justify-between gap-3"
+                    className="p-3.5 rounded-2xl bg-white border border-[#E4DBC0] shadow-2xs hover:border-[#1A4E47] transition-colors flex items-center justify-between gap-3"
                   >
                     <div className="flex items-start gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center font-bold shrink-0 mt-0.5">
+                      <div className="w-9 h-9 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 flex items-center justify-center font-bold shrink-0 mt-0.5">
                         <span className="text-xs font-black">+{item.points || 1}</span>
                       </div>
                       <div>
-                        <div className="text-xs sm:text-sm font-bold text-stone-800 flex items-center gap-1.5 flex-wrap">
+                        <div className="text-xs sm:text-sm font-bold text-[#1F2926] flex items-center gap-1.5 flex-wrap">
                           <span>{item.participationType}</span>
                           <span className="text-[10px] bg-amber-100 text-amber-800 font-black px-1.5 py-0.2 rounded-md">
                             ⭐ {item.points || 1} {item.points === 1 ? 'نقطة' : 'نقاط'}
