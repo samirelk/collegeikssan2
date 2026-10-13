@@ -18,7 +18,10 @@ import {
   Sparkles,
   TrendingUp,
   MapPin,
-  BookOpen
+  BookOpen,
+  RefreshCw,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { printReportHtml } from '../utils/printNotes';
 
@@ -85,11 +88,20 @@ export interface StudentData {
   }>;
   timetable: Array<{
     id: string;
-    day_of_week: number;
-    slot_id: string;
-    period_type: string;
-    start_time: string;
-    end_time: string;
+    day_of_week?: number | string;
+    dayOfWeek?: number | string;
+    day_key?: string;
+    dayKey?: string;
+    day_name?: string;
+    dayName?: string;
+    slot_id?: string;
+    slotId?: string;
+    period_type?: string;
+    periodType?: string;
+    start_time?: string;
+    startTime?: string;
+    end_time?: string;
+    endTime?: string;
     room?: string;
     subject?: string;
     notes?: string;
@@ -102,25 +114,44 @@ interface StudentPortalDashboardProps {
   institutionName: string;
   academicYear: string;
   onLogout: () => void;
+  onUpdateData?: (newData: StudentData) => void;
 }
 
 const WEEKDAYS = [
-  { index: 1, name: 'الإثنين' },
-  { index: 2, name: 'الثلاثاء' },
-  { index: 3, name: 'الأربعاء' },
-  { index: 4, name: 'الخميس' },
-  { index: 5, name: 'الجمعة' },
-  { index: 6, name: 'السبت' }
+  { index: 1, key: 'monday', name: 'الإثنين' },
+  { index: 2, key: 'tuesday', name: 'الثلاثاء' },
+  { index: 3, key: 'wednesday', name: 'الأربعاء' },
+  { index: 4, key: 'thursday', name: 'الخميس' },
+  { index: 5, key: 'friday', name: 'الجمعة' },
+  { index: 6, key: 'saturday', name: 'السبت' }
+];
+
+export const TIMETABLE_PERIODS = [
+  { id: 'm1', label: '08:00 - 09:00', short: 'ح1', period: 'morning', periodName: 'صباحاً' },
+  { id: 'm2', label: '09:00 - 10:00', short: 'ح2', period: 'morning', periodName: 'صباحاً' },
+  { id: 'm3', label: '10:00 - 11:00', short: 'ح3', period: 'morning', periodName: 'صباحاً' },
+  { id: 'm4', label: '11:00 - 12:00', short: 'ح4', period: 'morning', periodName: 'صباحاً' },
+  { id: 'e1', label: '14:00 - 15:00', short: 'ح5', period: 'evening', periodName: 'مساءً' },
+  { id: 'e2', label: '15:00 - 16:00', short: 'ح6', period: 'evening', periodName: 'مساءً' },
+  { id: 'e3', label: '16:00 - 17:00', short: 'ح7', period: 'evening', periodName: 'مساءً' },
+  { id: 'e4', label: '17:00 - 18:00', short: 'ح8', period: 'evening', periodName: 'مساءً' }
 ];
 
 export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
   data,
   institutionName,
   academicYear,
-  onLogout
+  onLogout,
+  onUpdateData
 }) => {
   const [activeTab, setActiveTab] = useState<'attendance' | 'timetable' | 'conduct' | 'summons' | 'badge'>('attendance');
-  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(new Date().getDay() || 1);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(() => {
+    const today = new Date().getDay();
+    return today >= 1 && today <= 6 ? today : 1;
+  });
+  const [timetableMode, setTimetableMode] = useState<'grid' | 'day'>('grid');
+  const [isRefreshingTimetable, setIsRefreshingTimetable] = useState(false);
+  const [refreshSuccess, setRefreshSuccess] = useState(false);
 
   const { student, metrics, attendance, violations, positiveParticipations, summons, timetable } = data;
 
@@ -223,6 +254,198 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             <span>الموسم الدراسي: ${academicYear}</span>
             <span>بطاقة رسمية للتلميذ</span>
           </div>
+        </div>
+      </body>
+      </html>
+    `;
+    printReportHtml(html);
+  };
+
+  // Helper to match a timetable slot with a day of week (1..6)
+  const matchDaySlot = (t: any, dayIdx: number) => {
+    const dVal = t.day_of_week ?? t.dayOfWeek;
+    if (Number(dVal) === dayIdx) return true;
+    const str = String(t.day_key || t.dayKey || dVal || '').toLowerCase().trim();
+    const map: Record<string, number> = {
+      monday: 1,
+      tuesday: 2,
+      wednesday: 3,
+      thursday: 4,
+      friday: 5,
+      saturday: 6,
+      'الإثنين': 1,
+      'الثلاثاء': 2,
+      'الأربعاء': 3,
+      'الخميس': 4,
+      'الجمعة': 5,
+      'السبت': 6
+    };
+    return map[str] === dayIdx;
+  };
+
+  // Helper to find slot in full grid
+  const findGridSlot = (dayIdx: number, slotId: string) => {
+    return timetable.find(t => {
+      if (!matchDaySlot(t, dayIdx)) return false;
+      const sId = (t.slot_id || t.slotId || '').toLowerCase();
+      if (sId === slotId.toLowerCase()) return true;
+      const startTime = t.start_time || t.startTime || '';
+      if (slotId === 'm1' && startTime.startsWith('08')) return true;
+      if (slotId === 'm2' && startTime.startsWith('09')) return true;
+      if (slotId === 'm3' && startTime.startsWith('10')) return true;
+      if (slotId === 'm4' && startTime.startsWith('11')) return true;
+      if (slotId === 'e1' && startTime.startsWith('14')) return true;
+      if (slotId === 'e2' && startTime.startsWith('15')) return true;
+      if (slotId === 'e3' && startTime.startsWith('16')) return true;
+      if (slotId === 'e4' && startTime.startsWith('17')) return true;
+      return false;
+    });
+  };
+
+  // Refresh student data in real-time
+  const handleRefreshTimetable = async () => {
+    setIsRefreshingTimetable(true);
+    setRefreshSuccess(false);
+    try {
+      const res = await fetch(`/api/student/refresh/${encodeURIComponent(student.massarNumber)}`);
+      const json = await res.json();
+      if (json.success && onUpdateData) {
+        onUpdateData(json);
+        setRefreshSuccess(true);
+        setTimeout(() => setRefreshSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error('Failed to refresh student timetable:', err);
+    } finally {
+      setIsRefreshingTimetable(false);
+    }
+  };
+
+  // Print weekly timetable cleanly
+  const handlePrintTimetable = () => {
+    const html = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+      <head>
+        <meta charset="utf-8" />
+        <title>جدول الحصص واستعمال الزمان - ${student.name}</title>
+        <style>
+          @page { size: A4 landscape; margin: 10mm; }
+          body {
+            font-family: 'Amiri', serif, system-ui;
+            direction: rtl;
+            background: #fff;
+            color: #1F2926;
+            margin: 0;
+            padding: 8px;
+          }
+          .title-header {
+            text-align: center;
+            border-bottom: 2px solid #1A4E47;
+            padding-bottom: 6px;
+            margin-bottom: 10px;
+          }
+          .title-header h2 { margin: 0; font-size: 13pt; color: #1A4E47; }
+          .title-header h3 { margin: 2px 0 0 0; font-size: 11pt; color: #555; }
+          .student-meta {
+            display: flex;
+            justify-content: space-between;
+            background: #FAF8F5;
+            border: 1px solid #E5DFD4;
+            border-radius: 6px;
+            padding: 8px 14px;
+            margin-bottom: 12px;
+            font-size: 10pt;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9pt;
+            text-align: center;
+          }
+          th, td {
+            border: 1px solid #1A4E47;
+            padding: 6px 4px;
+          }
+          th {
+            background: #1A4E47;
+            color: #fff;
+            font-weight: bold;
+          }
+          .period-head {
+            background: #EFE9D5;
+            color: #1A4E47;
+            font-weight: bold;
+            width: 95px;
+          }
+          .slot-card {
+            background: #F4F8F7;
+            border: 1px solid #C98A3C;
+            border-radius: 4px;
+            padding: 4px;
+            min-height: 42px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+          }
+          .subj { font-weight: bold; color: #1A4E47; font-size: 10pt; }
+          .teacher { font-size: 8pt; color: #444; margin-top: 1px; }
+          .room { font-size: 7.5pt; color: #777; }
+          .empty { color: #ccc; }
+          .footer {
+            margin-top: 12px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 8pt;
+            color: #666;
+            border-top: 1px dotted #ccc;
+            padding-top: 4px;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="title-header">
+          <h2>المملكة المغربية • وزارة التربية الوطنية والتعليم الأولي والرياضة</h2>
+          <h3>استعمال الزمان الأسبوعي للتلميذ • ${institutionName} (${academicYear})</h3>
+        </div>
+        <div class="student-meta">
+          <div><strong>الاسم الكامل:</strong> ${student.name}</div>
+          <div><strong>القسم:</strong> ${student.sectionLevel} - ق ${student.sectionClass}</div>
+          <div><strong>رقم مسار:</strong> <code>${student.massarNumber}</code></div>
+          ${student.seatNumber ? `<div><strong>المقعد:</strong> ${student.seatNumber}</div>` : ''}
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th class="period-head">التوقيت / الحصة</th>
+              ${WEEKDAYS.map(d => `<th>${d.name}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${TIMETABLE_PERIODS.map(p => `
+              <tr>
+                <td class="period-head"><strong>${p.short}</strong><br><span style="font-size: 7.5pt; color: #666;">${p.label}</span></td>
+                ${WEEKDAYS.map(d => {
+                  const sl = findGridSlot(d.index, p.id);
+                  if (!sl) return `<td class="empty">—</td>`;
+                  return `
+                    <td>
+                      <div class="slot-card">
+                        <div class="subj">${sl.subject || 'مادة دراسية'}</div>
+                        <div class="teacher">${sl.teacherName || ''}</div>
+                        ${sl.room ? `<div class="room">القاعة: ${sl.room}</div>` : ''}
+                      </div>
+                    </td>
+                  `;
+                }).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div class="footer">
+          <span>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-MA')}</span>
+          <span>منظومة خرائط الأقسام وتدبير الفصول • فضاء التلميذ</span>
         </div>
       </body>
       </html>
@@ -518,84 +741,352 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
           </div>
         )}
 
-        {/* TAB 2: WEEKLY TIMETABLE */}
+        {/* TAB 2: WEEKLY TIMETABLE (استعمال الزمان التلقائي) */}
         {activeTab === 'timetable' && (
-          <div className="bg-white rounded-2xl border border-[#E5DFD4] p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
+          <div className="bg-white rounded-2xl border border-[#E5DFD4] p-4 sm:p-6 shadow-xs space-y-5">
+            {/* Header with Title and Quick Actions */}
+            <div className="flex items-center justify-between gap-3 pb-4 border-b border-[#E5DFD4] flex-wrap">
               <div>
-                <h3 className="font-bold text-base text-[#1F2926]">جدول الحصص واستعمال الزمان الأسبوعي</h3>
-                <p className="text-xs text-[#6C6356]">
-                  الحصص والمواد والقاعات المخصصة لقسمك ({student.sectionLevel} - ق {student.sectionClass})
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-base sm:text-lg text-[#1F2926]">
+                    جدول الحصص واستعمال الزمان الأسبوعي
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#1A4E47]/10 text-[#1A4E47] font-bold text-xs">
+                    {timetable.length} حصة مبرمجة
+                  </span>
+                </div>
+                <p className="text-xs text-[#6C6356] mt-0.5">
+                  تحديث أوتوماتيكي مباشر بمجرد إدراج الأساتذة لحصص قسمك ({student.sectionLevel} - ق {student.sectionClass})
                 </p>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* View Switcher: Grid vs Day */}
+                <div className="bg-[#FAF8F5] border border-[#E5DFD4] rounded-xl p-1 flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setTimetableMode('grid')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      timetableMode === 'grid'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'text-[#6C6356] hover:text-[#1F2926]'
+                    }`}
+                    title="الجدول الأسبوعي الكامل"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">الجدول الكامل</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTimetableMode('day')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      timetableMode === 'day'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'text-[#6C6356] hover:text-[#1F2926]'
+                    }`}
+                    title="عرض حسب اليوم"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">عرض اليوم</span>
+                  </button>
+                </div>
+
+                {/* Live Refresh Button */}
+                <button
+                  type="button"
+                  onClick={handleRefreshTimetable}
+                  disabled={isRefreshingTimetable}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-[#FAF8F5] hover:bg-[#F2EFE9] text-[#1A4E47] border border-[#D5CDC0] transition-all cursor-pointer shadow-2xs disabled:opacity-50"
+                  title="تحديث جدول الحصص الآن لجلب أي حصص جديدة أضافها الأساتذة"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingTimetable ? 'animate-spin' : ''}`} />
+                  <span>{isRefreshingTimetable ? 'جاري التحديث...' : refreshSuccess ? 'تم التحديث ✓' : 'تحديث الحصص'}</span>
+                </button>
+
+                {/* Print Timetable Button */}
+                <button
+                  type="button"
+                  onClick={handlePrintTimetable}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-[#1A4E47] hover:bg-[#133D37] text-white transition-all cursor-pointer shadow-xs"
+                  title="طباعة جدول الحصص الأسبوعي الرسمي للتلميذ"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>طباعة الجدول</span>
+                </button>
               </div>
             </div>
 
-            {/* Days Filter Pills */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-2">
-              {WEEKDAYS.map((day) => (
-                <button
-                  key={day.index}
-                  type="button"
-                  onClick={() => setSelectedDayIndex(day.index)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    selectedDayIndex === day.index
-                      ? 'bg-[#1A4E47] text-white shadow-xs'
-                      : 'bg-[#FAF8F5] text-[#6C6356] border border-[#E5DFD4] hover:bg-[#F2EFE9]'
-                  }`}
-                >
-                  {day.name}
-                </button>
-              ))}
-            </div>
-
-            {/* Timetable slots for the selected day */}
+            {/* Today's Classes Alert Banner */}
             {(() => {
-              const daySlots = timetable.filter(t => t.day_of_week === selectedDayIndex);
-              if (daySlots.length === 0) {
-                return (
-                  <div className="py-12 text-center text-xs text-[#6C6356] bg-[#FAF8F5] rounded-xl border border-[#E5DFD4]">
-                    لا توجد حصص دراسية مبرمجة ليوم {WEEKDAYS.find(d => d.index === selectedDayIndex)?.name || ''}
-                  </div>
-                );
-              }
+              const currentJsDay = new Date().getDay();
+              const todayIndex = currentJsDay >= 1 && currentJsDay <= 6 ? currentJsDay : 1;
+              const todayName = WEEKDAYS.find(d => d.index === todayIndex)?.name || '';
+              const todaySlots = timetable.filter(t => matchDaySlot(t, todayIndex));
 
               return (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {daySlots.map((slot, idx) => (
-                    <div
-                      key={idx}
-                      className="p-4 rounded-xl bg-[#FAF8F5] border border-[#E5DFD4] flex items-start justify-between gap-3 hover:border-[#C98A3C] transition-all"
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <span className="px-2 py-0.5 rounded-md bg-[#1A4E47] text-white font-bold text-[10px]">
-                            {slot.period_type === 'morning' ? 'صباحاً' : 'مساءً'}
+                <div className="p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-[#FAF8F5] via-[#FFFDF8] to-[#FAF8F5] border border-[#C98A3C]/40 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-[#1A4E47] text-[#C98A3C] flex items-center justify-center font-bold shrink-0 shadow-xs">
+                      <Calendar className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-[#1F2926] flex items-center gap-2">
+                        <span>حصص اليوم ({todayName}):</span>
+                        {todaySlots.length > 0 ? (
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px]">
+                            {todaySlots.length} حصة مقررة اليوم
                           </span>
-                          <span className="font-bold text-sm text-[#1F2926]">
-                            {slot.subject || 'مادة دراسية'}
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[11px]">
+                            لا توجد حصص دراسية مبرمجة لقسمك اليوم
                           </span>
-                        </div>
-                        <div className="text-xs text-[#6C6356] flex items-center gap-2">
-                          <span>الأستاذ: <strong>{slot.teacherName || '—'}</strong></span>
-                          {slot.room && (
-                            <>
-                              <span>•</span>
-                              <span className="flex items-center gap-1">
-                                <MapPin className="w-3 h-3 text-[#C98A3C]" />
-                                <span>القاعة: {slot.room}</span>
-                              </span>
-                            </>
-                          )}
-                        </div>
+                        )}
                       </div>
-                      <div className="font-mono text-xs font-bold text-[#1A4E47] bg-white px-3 py-1.5 rounded-lg border border-[#E5DFD4] shrink-0">
-                        {slot.start_time} - {slot.end_time}
+                      <div className="text-[11px] text-[#6C6356] mt-0.5">
+                        {todaySlots.length > 0
+                          ? todaySlots.map((s, i) => `${s.subject || 'مادة'} (${s.start_time || s.startTime} - ${s.end_time || s.endTime}) مع الأستاذ ${s.teacherName || ''}`).join(' • ')
+                          : 'يمكنك مراجعة دروسك أو تصفح الحصص المبرمجة لباقي أيام الأسبوع أدناه.'}
                       </div>
                     </div>
-                  ))}
+                  </div>
+
+                  {todaySlots.length > 0 && timetableMode === 'day' && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDayIndex(todayIndex)}
+                      className="px-3 py-1.5 rounded-xl bg-[#1A4E47] text-white text-xs font-bold hover:bg-[#133D37] cursor-pointer shrink-0 transition-all shadow-2xs"
+                    >
+                      عرض حصص اليوم
+                    </button>
+                  )}
                 </div>
               );
             })()}
+
+            {/* VIEW MODE 1: FULL WEEKLY GRID TABLE (الجدول الأسبوعي الكامل) */}
+            {timetableMode === 'grid' && (
+              <div className="space-y-3">
+                <div className="overflow-x-auto rounded-2xl border border-[#E5DFD4] bg-[#FAF8F5]/50 shadow-2xs">
+                  <table className="w-full text-center border-collapse min-w-[700px]">
+                    <thead>
+                      <tr className="bg-[#1A4E47] text-white text-xs">
+                        <th className="py-3 px-3 w-32 border-b border-[#C98A3C]/40 font-bold">
+                          الحصة / التوقيت
+                        </th>
+                        {WEEKDAYS.map((day) => {
+                          const isToday = new Date().getDay() === day.index;
+                          const dayCount = timetable.filter(t => matchDaySlot(t, day.index)).length;
+                          return (
+                            <th
+                              key={day.index}
+                              className={`py-3 px-2 border-b border-[#C98A3C]/40 font-bold transition-colors ${
+                                isToday ? 'bg-[#133D37] text-[#C98A3C]' : ''
+                              }`}
+                            >
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span>{day.name}</span>
+                                {isToday && (
+                                  <span className="text-[9px] px-1.5 py-0.2 bg-[#C98A3C] text-[#133D37] font-bold rounded-sm">
+                                    اليوم
+                                  </span>
+                                )}
+                                <span className="text-[10px] font-normal text-white/70">
+                                  ({dayCount} حصة)
+                                </span>
+                              </div>
+                            </th>
+                          );
+                        })}
+                      </tr>
+                    </thead>
+                    <tbody className="text-xs divide-y divide-[#E5DFD4]">
+                      {TIMETABLE_PERIODS.map((period, pIdx) => {
+                        const isFirstEvening = period.id === 'e1';
+
+                        return (
+                          <React.Fragment key={period.id}>
+                            {/* Lunch Break Separator */}
+                            {isFirstEvening && (
+                              <tr className="bg-[#FAF0DC] text-[#8A5A18] font-bold text-[11px]">
+                                <td colSpan={7} className="py-2 px-3 border-y border-[#E5DFD4] text-center">
+                                  ☕ فترة الظهيرة والاستراحة (12:00 - 14:00)
+                                </td>
+                              </tr>
+                            )}
+
+                            <tr className={pIdx % 2 === 0 ? 'bg-white' : 'bg-[#FAF8F5]'}>
+                              {/* Period Header */}
+                              <td className="py-2.5 px-3 font-mono font-bold text-[#1A4E47] bg-[#F4EFE6]/60 border-l border-[#E5DFD4] text-right whitespace-nowrap">
+                                <div className="font-bold text-[11px] text-[#1F2926]">{period.short} ({period.periodName})</div>
+                                <div className="text-[10px] text-[#6C6356] font-mono">{period.label}</div>
+                              </td>
+
+                              {/* Days Columns */}
+                              {WEEKDAYS.map((day) => {
+                                const slot = findGridSlot(day.index, period.id);
+
+                                if (!slot) {
+                                  return (
+                                    <td key={day.index} className="py-2 px-2 text-[#C5BCAD] text-xs">
+                                      —
+                                    </td>
+                                  );
+                                }
+
+                                return (
+                                  <td key={day.index} className="p-1.5">
+                                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-white to-[#F9F7F2] border-2 border-[#1A4E47]/30 hover:border-[#1A4E47] transition-all text-right shadow-2xs group">
+                                      <div className="flex items-center justify-between gap-1 mb-1">
+                                        <span className="font-bold text-xs text-[#1A4E47] truncate">
+                                          {slot.subject || 'مادة دراسية'}
+                                        </span>
+                                        {slot.room && (
+                                          <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-[#C98A3C]/20 text-[#8A5A18] font-bold font-mono">
+                                            ق {slot.room}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      <div className="text-[10px] text-[#4A4235] font-semibold flex items-center gap-1 truncate">
+                                        <User className="w-2.5 h-2.5 text-[#C98A3C] shrink-0" />
+                                        <span className="truncate">{slot.teacherName || '—'}</span>
+                                      </div>
+
+                                      {slot.notes && (
+                                        <div className="text-[9px] text-[#6C6356] mt-1 italic truncate">
+                                          {slot.notes}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-[#6C6356] pt-1 px-1">
+                  <span>
+                    💡 الحصص تظهر آلياً وتحدث فور قيام أي أستاذ بإسناد قسمك لحصته في استعمال زمانه.
+                  </span>
+                  <span>الموسم الدراسي: {academicYear}</span>
+                </div>
+              </div>
+            )}
+
+            {/* VIEW MODE 2: DAY-BY-DAY VIEW (عرض اليوم المحدد) */}
+            {timetableMode === 'day' && (
+              <div className="space-y-4">
+                {/* Days Filter Pills */}
+                <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {WEEKDAYS.map((day) => {
+                    const count = timetable.filter(t => matchDaySlot(t, day.index)).length;
+                    const isToday = new Date().getDay() === day.index;
+
+                    return (
+                      <button
+                        key={day.index}
+                        type="button"
+                        onClick={() => setSelectedDayIndex(day.index)}
+                        className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                          selectedDayIndex === day.index
+                            ? 'bg-[#1A4E47] text-white shadow-xs'
+                            : 'bg-[#FAF8F5] text-[#6C6356] border border-[#E5DFD4] hover:bg-[#F2EFE9]'
+                        }`}
+                      >
+                        <span>{day.name}</span>
+                        {isToday && (
+                          <span className={`text-[9px] px-1 rounded-sm font-bold ${
+                            selectedDayIndex === day.index ? 'bg-[#C98A3C] text-[#133D37]' : 'bg-[#1A4E47] text-white'
+                          }`}>
+                            اليوم
+                          </span>
+                        )}
+                        <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                          selectedDayIndex === day.index ? 'bg-white/20 text-white' : 'bg-[#E5DFD4] text-[#1F2926]'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Day Slots List */}
+                {(() => {
+                  const daySlots = timetable
+                    .filter(t => matchDaySlot(t, selectedDayIndex))
+                    .sort((a, b) => (a.start_time || a.startTime || '').localeCompare(b.start_time || b.startTime || ''));
+
+                  if (daySlots.length === 0) {
+                    return (
+                      <div className="py-14 text-center text-xs text-[#6C6356] bg-[#FAF8F5] rounded-2xl border border-[#E5DFD4] space-y-2">
+                        <Calendar className="w-8 h-8 text-[#D5CDC0] mx-auto" />
+                        <div className="font-bold text-[#1F2926]">
+                          لا توجد حصص دراسية مبرمجة ليوم {WEEKDAYS.find(d => d.index === selectedDayIndex)?.name || ''}
+                        </div>
+                        <p className="text-[11px] text-[#6C6356] max-w-sm mx-auto">
+                          عندما يقوم أساتذة قسمك بإضافة حصص لهذا اليوم في استعمال زمانهم، ستظهر هنا فوراً.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                      {daySlots.map((slot, idx) => (
+                        <div
+                          key={slot.id || idx}
+                          className="p-4 rounded-2xl bg-[#FAF8F5] border-2 border-[#E5DFD4] hover:border-[#C98A3C] flex items-start justify-between gap-3 transition-all shadow-2xs"
+                        >
+                          <div className="space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="px-2.5 py-0.5 rounded-lg bg-[#1A4E47] text-white font-bold text-[10px]">
+                                {(slot.period_type || slot.periodType) === 'morning' ? 'فترة صباحية' : 'فترة مسائية'}
+                              </span>
+                              <span className="font-bold text-sm text-[#1F2926]">
+                                {slot.subject || 'مادة دراسية'}
+                              </span>
+                            </div>
+
+                            <div className="text-xs text-[#4A4235] flex items-center gap-2 flex-wrap">
+                              <span className="flex items-center gap-1 font-semibold">
+                                <User className="w-3.5 h-3.5 text-[#C98A3C]" />
+                                <span>الأستاذ: {slot.teacherName || '—'}</span>
+                              </span>
+                              {slot.room && (
+                                <>
+                                  <span className="text-[#D5CDC0]">•</span>
+                                  <span className="flex items-center gap-1">
+                                    <MapPin className="w-3.5 h-3.5 text-[#C98A3C]" />
+                                    <span>القاعة: {slot.room}</span>
+                                  </span>
+                                </>
+                              )}
+                            </div>
+
+                            {slot.notes && (
+                              <div className="text-[11px] text-[#6C6356] pt-1">
+                                ملاحظة: {slot.notes}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="font-mono text-xs font-bold text-[#1A4E47] bg-white px-3 py-1.5 rounded-xl border border-[#D5CDC0] shrink-0 text-center shadow-2xs">
+                            {slot.start_time || slot.startTime} - {slot.end_time || slot.endTime}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
           </div>
         )}
 

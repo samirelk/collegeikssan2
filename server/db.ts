@@ -594,6 +594,41 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_sa_massar ON student_accounts(massar_number);
     CREATE INDEX IF NOT EXISTS idx_sa_section ON student_accounts(section_id);
+
+    CREATE TABLE IF NOT EXISTS class_homeworks (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL,
+      teacher_name TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      post_type TEXT NOT NULL DEFAULT 'homework',
+      title TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      url_link TEXT DEFAULT '',
+      due_date TEXT DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ch_section ON class_homeworks(section_id);
+    CREATE INDEX IF NOT EXISTS idx_ch_teacher ON class_homeworks(teacher_id);
+
+    CREATE TABLE IF NOT EXISTS teacher_leave_notices (
+      id TEXT PRIMARY KEY,
+      teacher_id TEXT NOT NULL,
+      teacher_name TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      section_id TEXT NOT NULL DEFAULT 'all',
+      leave_type TEXT NOT NULL DEFAULT 'sick',
+      start_date TEXT NOT NULL,
+      end_date TEXT DEFAULT '',
+      slot_ids TEXT DEFAULT 'all',
+      instructions TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tln_teacher ON teacher_leave_notices(teacher_id);
+    CREATE INDEX IF NOT EXISTS idx_tln_dates ON teacher_leave_notices(start_date, end_date);
   `);
 
   // Seed default predefined violation types if table is empty
@@ -9774,45 +9809,18 @@ export function regenerateSectionStudentAccessCodes(sectionId: string) {
   return { success: true, count: accounts.length };
 }
 
-export function studentLogin(massarNumber: string, accessCode: string) {
+export function getStudentFullData(massarNumber: string) {
   const cleanMassar = massarNumber.trim();
-  const cleanCode = accessCode.trim();
-
-  if (!cleanMassar || !cleanCode) {
-    throw new Error('يرجى إدخال رقم مسار والكود السري');
-  }
-
-  let account = db.prepare(`
+  const account = db.prepare(`
     SELECT sa.*, s.level as section_level, s.class_number as section_class
     FROM student_accounts sa
     LEFT JOIN sections s ON sa.section_id = s.id
     WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
   `).get(cleanMassar) as any;
 
-  // If not found yet, ensure sync from sections/seats and retry
-  if (!account) {
-    try {
-      ensureStudentAccountsExist();
-      account = db.prepare(`
-        SELECT sa.*, s.level as section_level, s.class_number as section_class
-        FROM student_accounts sa
-        LEFT JOIN sections s ON sa.section_id = s.id
-        WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
-      `).get(cleanMassar) as any;
-    } catch {}
-  }
-
   if (!account) {
     throw new Error('رقم مسار المدخل غير مسجل في النظام. تأكد من صحة الرمز.');
   }
-
-  if (account.access_code !== cleanCode) {
-    throw new Error('الكود السري غير صحيح. المرجو التأكد من الكود المسلم لك من طرف الإدارة.');
-  }
-
-  // Record login time
-  const now = new Date().toISOString();
-  db.prepare('UPDATE student_accounts SET last_login = ? WHERE id = ?').run(now, account.id);
 
   // 1. Fetch Student Attendance History
   const attendanceRows = db.prepare(`
@@ -9864,22 +9872,135 @@ export function studentLogin(massarNumber: string, accessCode: string) {
     ORDER BY summons_date DESC
   `).all(account.section_id, account.student_name, cleanMassar) as any[];
 
-  // 5. Fetch Section Weekly Timetable
+  // 5. Fetch Section Weekly Timetable (استعمال زمان القسم)
+  // Check direct section_id and any sibling sections matching level & class_number
+  const sectionInfo = db.prepare('SELECT id, level, class_number FROM sections WHERE id = ?').get(account.section_id) as any;
+  let matchingSectionIds: string[] = [account.section_id];
+  if (sectionInfo && sectionInfo.level && sectionInfo.class_number) {
+    const siblingSections = db.prepare('SELECT id FROM sections WHERE level = ? AND class_number = ?').all(sectionInfo.level, sectionInfo.class_number) as any[];
+    matchingSectionIds = Array.from(new Set([account.section_id, ...siblingSections.map(s => s.id)]));
+  }
+
+  const placeholders = matchingSectionIds.map(() => '?').join(',');
   const timetableRows = db.prepare(`
     SELECT 
-      id, day_of_week, slot_id, period_type, start_time, end_time, room, subject, notes, teacher_id
+      id, day_of_week, slot_id, period_type, start_time, end_time, room, subject, notes, teacher_id, section_id
     FROM teacher_timetable
-    WHERE section_id = ?
+    WHERE section_id IN (${placeholders})
     ORDER BY day_of_week ASC, start_time ASC
-  `).all(account.section_id) as any[];
+  `).all(...matchingSectionIds) as any[];
 
-  // Map teacher names to timetable
+  // Map teacher names and subjects
   const teachers = db.prepare("SELECT id, full_name, subject FROM users WHERE role = 'teacher'").all() as any[];
   const teacherMap = new Map(teachers.map(t => [t.id, t.full_name]));
-  const timetable = timetableRows.map(slot => ({
-    ...slot,
-    teacherName: teacherMap.get(slot.teacher_id) || slot.subject || ''
-  }));
+  const teacherSubjectMap = new Map(teachers.map(t => [t.id, t.subject]));
+
+  const DAY_KEY_TO_NUM: Record<string, number> = {
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+    sunday: 7,
+    '1': 1,
+    '2': 2,
+    '3': 3,
+    '4': 4,
+    '5': 5,
+    '6': 6,
+    '7': 7,
+    'الإثنين': 1,
+    'الثلاثاء': 2,
+    'الأربعاء': 3,
+    'الخميس': 4,
+    'الجمعة': 5,
+    'السبت': 6
+  };
+
+  const NUM_TO_DAY_KEY: Record<number, string> = {
+    1: 'monday',
+    2: 'tuesday',
+    3: 'wednesday',
+    4: 'thursday',
+    5: 'friday',
+    6: 'saturday'
+  };
+
+  const NUM_TO_DAY_NAME: Record<number, string> = {
+    1: 'الإثنين',
+    2: 'الثلاثاء',
+    3: 'الأربعاء',
+    4: 'الخميس',
+    5: 'الجمعة',
+    6: 'السبت'
+  };
+
+  // 6. Fetch Homeworks & Digital Lessons for Section
+  const homeworkRows = db.prepare(`
+    SELECT id, teacher_id, teacher_name, subject, section_id, post_type, title, description, url_link, due_date, created_at
+    FROM class_homeworks
+    WHERE section_id IN (${placeholders})
+    ORDER BY created_at DESC
+  `).all(...matchingSectionIds) as any[];
+
+  // 7. Fetch Active Teacher Leave Notices for Section / All
+  const leaveRows = db.prepare(`
+    SELECT id, teacher_id, teacher_name, subject, section_id, leave_type, start_date, end_date, slot_ids, instructions, status, created_at
+    FROM teacher_leave_notices
+    WHERE status = 'active' AND (section_id = 'all' OR section_id IN (${placeholders}))
+    ORDER BY start_date DESC
+  `).all(...matchingSectionIds) as any[];
+
+  const timetable = timetableRows.map(slot => {
+    const rawDay = String(slot.day_of_week || '').toLowerCase().trim();
+    const dayNum = DAY_KEY_TO_NUM[rawDay] || Number(rawDay) || 1;
+    const dayKey = NUM_TO_DAY_KEY[dayNum] || rawDay;
+    const dayName = NUM_TO_DAY_NAME[dayNum] || '';
+    const teacherName = teacherMap.get(slot.teacher_id) || slot.teacher_name || 'الأستاذ';
+    const subject = slot.subject || teacherSubjectMap.get(slot.teacher_id) || 'مادة دراسية';
+
+    // Check if teacher has an active leave notice covering this slot
+    const activeLeave = leaveRows.find(l => {
+      if (l.teacher_id !== slot.teacher_id) return false;
+      if (l.slot_ids && l.slot_ids !== 'all') {
+        const slotsList = l.slot_ids.split(',').map((s: string) => s.trim().toLowerCase());
+        if (!slotsList.includes(slot.slot_id.toLowerCase())) return false;
+      }
+      return true;
+    });
+
+    return {
+      id: slot.id,
+      day_of_week: dayNum, // Number 1..6 matching selectedDayIndex
+      dayOfWeek: dayNum,
+      day_key: dayKey,
+      dayKey,
+      day_name: dayName,
+      dayName,
+      slot_id: slot.slot_id,
+      slotId: slot.slot_id,
+      period_type: slot.period_type,
+      periodType: slot.period_type,
+      start_time: slot.start_time,
+      startTime: slot.start_time,
+      end_time: slot.end_time,
+      endTime: slot.end_time,
+      room: slot.room || '',
+      subject,
+      notes: slot.notes || '',
+      teacher_id: slot.teacher_id,
+      teacherId: slot.teacher_id,
+      teacherName,
+      isTeacherOnLeave: Boolean(activeLeave),
+      leaveNotice: activeLeave ? {
+        leaveType: activeLeave.leave_type,
+        instructions: activeLeave.instructions || '',
+        startDate: activeLeave.start_date,
+        endDate: activeLeave.end_date || activeLeave.start_date
+      } : null
+    };
+  });
 
   // Find Student Seat number
   const seatRow = db.prepare(`
@@ -9912,7 +10033,9 @@ export function studentLogin(massarNumber: string, accessCode: string) {
       totalViolations: violationsRows.length,
       positiveCount: positiveRows.length,
       positivePoints: totalPositivePoints,
-      activeSummonsCount: summonsRows.filter(s => s.status === 'pending').length
+      activeSummonsCount: summonsRows.filter(s => s.status === 'pending').length,
+      homeworkCount: homeworkRows.length,
+      activeLeavesCount: leaveRows.length
     },
     attendance: attendanceRows.map(r => ({
       id: r.id,
@@ -9954,6 +10077,230 @@ export function studentLogin(massarNumber: string, accessCode: string) {
       guardianName: r.guardian_name || '',
       notes: r.notes || ''
     })),
+    homeworks: homeworkRows.map(h => ({
+      id: h.id,
+      teacherId: h.teacher_id,
+      teacherName: h.teacher_name,
+      subject: h.subject,
+      sectionId: h.section_id,
+      postType: h.post_type,
+      title: h.title,
+      description: h.description || '',
+      urlLink: h.url_link || '',
+      dueDate: h.due_date || '',
+      createdAt: h.created_at
+    })),
+    teacherLeaves: leaveRows.map(l => ({
+      id: l.id,
+      teacherId: l.teacher_id,
+      teacherName: l.teacher_name,
+      subject: l.subject,
+      sectionId: l.section_id,
+      leaveType: l.leave_type,
+      startDate: l.start_date,
+      endDate: l.end_date || l.start_date,
+      slotIds: l.slot_ids || 'all',
+      instructions: l.instructions || '',
+      createdAt: l.created_at
+    })),
     timetable
   };
+}
+
+// ==========================================
+// Class Homeworks & Digital Lessons Functions
+// ==========================================
+
+export function getClassHomeworks(teacherId?: string, sectionId?: string) {
+  let query = 'SELECT ch.*, s.level as section_level, s.class_number as section_class FROM class_homeworks ch LEFT JOIN sections s ON ch.section_id = s.id WHERE 1=1';
+  const params: any[] = [];
+  if (teacherId) {
+    query += ' AND ch.teacher_id = ?';
+    params.push(teacherId);
+  }
+  if (sectionId && sectionId !== 'all') {
+    query += ' AND ch.section_id = ?';
+    params.push(sectionId);
+  }
+  query += ' ORDER BY ch.created_at DESC';
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    teacherId: r.teacher_id,
+    teacherName: r.teacher_name,
+    subject: r.subject,
+    sectionId: r.section_id,
+    sectionName: r.section_level && r.section_class ? `${r.section_level} - ق ${r.section_class}` : '',
+    postType: r.post_type,
+    title: r.title,
+    description: r.description || '',
+    urlLink: r.url_link || '',
+    dueDate: r.due_date || '',
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
+}
+
+export function createClassHomework(data: {
+  teacherId: string;
+  teacherName: string;
+  subject: string;
+  sectionId: string;
+  postType: string;
+  title: string;
+  description?: string;
+  urlLink?: string;
+  dueDate?: string;
+}) {
+  const id = `hw_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO class_homeworks (
+      id, teacher_id, teacher_name, subject, section_id, post_type, title, description, url_link, due_date, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    data.teacherId,
+    data.teacherName,
+    data.subject,
+    data.sectionId,
+    data.postType || 'homework',
+    data.title.trim(),
+    data.description ? data.description.trim() : '',
+    data.urlLink ? data.urlLink.trim() : '',
+    data.dueDate ? data.dueDate.trim() : '',
+    now,
+    now
+  );
+  return { success: true, id };
+}
+
+export function deleteClassHomework(id: string, teacherId?: string) {
+  if (teacherId) {
+    db.prepare('DELETE FROM class_homeworks WHERE id = ? AND teacher_id = ?').run(id, teacherId);
+  } else {
+    db.prepare('DELETE FROM class_homeworks WHERE id = ?').run(id);
+  }
+  return { success: true };
+}
+
+// ==========================================
+// Teacher Leave & Absence Declaration Functions
+// ==========================================
+
+export function getTeacherLeaveNotices(teacherId?: string, sectionId?: string) {
+  let query = 'SELECT tln.*, s.level as section_level, s.class_number as section_class FROM teacher_leave_notices tln LEFT JOIN sections s ON tln.section_id = s.id WHERE 1=1';
+  const params: any[] = [];
+  if (teacherId) {
+    query += ' AND tln.teacher_id = ?';
+    params.push(teacherId);
+  }
+  if (sectionId && sectionId !== 'all') {
+    query += ' AND (tln.section_id = "all" OR tln.section_id = ?)';
+    params.push(sectionId);
+  }
+  query += ' ORDER BY tln.start_date DESC, tln.created_at DESC';
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    teacherId: r.teacher_id,
+    teacherName: r.teacher_name,
+    subject: r.subject,
+    sectionId: r.section_id,
+    sectionName: r.section_id === 'all' ? 'جميع الأقسام' : (r.section_level && r.section_class ? `${r.section_level} - ق ${r.section_class}` : ''),
+    leaveType: r.leave_type,
+    startDate: r.start_date,
+    endDate: r.end_date || r.start_date,
+    slotIds: r.slot_ids || 'all',
+    instructions: r.instructions || '',
+    status: r.status,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
+}
+
+export function createTeacherLeaveNotice(data: {
+  teacherId: string;
+  teacherName: string;
+  subject: string;
+  sectionId?: string;
+  leaveType: string;
+  startDate: string;
+  endDate?: string;
+  slotIds?: string;
+  instructions?: string;
+}) {
+  const id = `tln_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO teacher_leave_notices (
+      id, teacher_id, teacher_name, subject, section_id, leave_type, start_date, end_date, slot_ids, instructions, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+  `).run(
+    id,
+    data.teacherId,
+    data.teacherName,
+    data.subject,
+    data.sectionId || 'all',
+    data.leaveType || 'sick',
+    data.startDate,
+    data.endDate || data.startDate,
+    data.slotIds || 'all',
+    data.instructions ? data.instructions.trim() : '',
+    now,
+    now
+  );
+  return { success: true, id };
+}
+
+export function deleteTeacherLeaveNotice(id: string, teacherId?: string) {
+  if (teacherId) {
+    db.prepare('DELETE FROM teacher_leave_notices WHERE id = ? AND teacher_id = ?').run(id, teacherId);
+  } else {
+    db.prepare('DELETE FROM teacher_leave_notices WHERE id = ?').run(id);
+  }
+  return { success: true };
+}
+
+export function studentLogin(massarNumber: string, accessCode: string) {
+  const cleanMassar = massarNumber.trim();
+  const cleanCode = accessCode.trim();
+
+  if (!cleanMassar || !cleanCode) {
+    throw new Error('يرجى إدخال رقم مسار والكود السري');
+  }
+
+  let account = db.prepare(`
+    SELECT sa.*, s.level as section_level, s.class_number as section_class
+    FROM student_accounts sa
+    LEFT JOIN sections s ON sa.section_id = s.id
+    WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
+  `).get(cleanMassar) as any;
+
+  // If not found yet, ensure sync from sections/seats and retry
+  if (!account) {
+    try {
+      ensureStudentAccountsExist();
+      account = db.prepare(`
+        SELECT sa.*, s.level as section_level, s.class_number as section_class
+        FROM student_accounts sa
+        LEFT JOIN sections s ON sa.section_id = s.id
+        WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
+      `).get(cleanMassar) as any;
+    } catch {}
+  }
+
+  if (!account) {
+    throw new Error('رقم مسار المدخل غير مسجل في النظام. تأكد من صحة الرمز.');
+  }
+
+  if (account.access_code !== cleanCode) {
+    throw new Error('الكود السري غير صحيح. المرجو التأكد من الكود المسلم لك من طرف الإدارة.');
+  }
+
+  // Record login time
+  const now = new Date().toISOString();
+  db.prepare('UPDATE student_accounts SET last_login = ? WHERE id = ?').run(now, account.id);
+
+  return getStudentFullData(cleanMassar);
 }

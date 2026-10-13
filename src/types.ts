@@ -553,3 +553,42 @@ export interface TeacherTimetableResponse {
   entries: TeacherTimetableEntry[];
   message?: string;
 }
+
+// ==========================================
+// Class Homeworks & Teacher Leaves Types
+// ==========================================
+
+export type HomeworkPostType = 'homework' | 'video' | 'lesson';
+
+export interface ClassHomeworkItem {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  subject: string;
+  sectionId: string;
+  sectionName?: string;
+  postType: HomeworkPostType;
+  title: string;
+  description: string;
+  urlLink: string;
+  dueDate: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface TeacherLeaveNoticeItem {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  subject: string;
+  sectionId: string;
+  sectionName?: string;
+  leaveType: string;
+  startDate: string;
+  endDate: string;
+  slotIds: string;
+  instructions: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string;
+}

@@ -110,9 +110,16 @@ import {
   deleteParentSummons,
   getAdvancedInstitutionalAnalytics,
   studentLogin,
+  getStudentFullData,
   getStudentAccounts,
   regenerateStudentAccessCode,
   regenerateSectionStudentAccessCodes,
+  getClassHomeworks,
+  createClassHomework,
+  deleteClassHomework,
+  getTeacherLeaveNotices,
+  createTeacherLeaveNotice,
+  deleteTeacherLeaveNotice,
   db
 } from './server/db.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
@@ -1702,6 +1709,106 @@ async function startServer() {
     }
   });
 
+  // ==========================================
+  // Class Homeworks & Digital Lessons API
+  // ==========================================
+  app.get('/api/teacher/homeworks', (req, res) => {
+    try {
+      const teacherId = (req.query.teacherId as string) || (req.headers['x-user-id'] as string) || undefined;
+      const sectionId = (req.query.sectionId as string) || undefined;
+      const homeworks = getClassHomeworks(teacherId, sectionId);
+      res.json({ success: true, homeworks });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/teacher/homeworks', (req, res) => {
+    try {
+      const teacherId = req.body.teacherId || (req.headers['x-user-id'] as string);
+      const { teacherName, subject, sectionId, postType, title, description, urlLink, dueDate } = req.body;
+      if (!teacherId || !sectionId || !title) {
+        return res.status(400).json({ success: false, error: 'القسم والعنوان مطلوبان' });
+      }
+      const result = createClassHomework({
+        teacherId,
+        teacherName: teacherName || 'الأستاذ',
+        subject: subject || 'مادة دراسية',
+        sectionId,
+        postType: postType || 'homework',
+        title,
+        description,
+        urlLink,
+        dueDate
+      });
+      markDirty();
+      res.json({ success: true, ...result, message: 'تم نشر الواجب / الدرس بنجاح' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/teacher/homeworks/:id', (req, res) => {
+    try {
+      const teacherId = (req.headers['x-user-id'] as string) || undefined;
+      deleteClassHomework(req.params.id, teacherId);
+      markDirty();
+      res.json({ success: true, message: 'تم حذف الواجب بنجاح' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Teacher Leave & Absence Declaration API
+  // ==========================================
+  app.get('/api/teacher/leaves', (req, res) => {
+    try {
+      const teacherId = (req.query.teacherId as string) || (req.headers['x-user-id'] as string) || undefined;
+      const sectionId = (req.query.sectionId as string) || undefined;
+      const leaves = getTeacherLeaveNotices(teacherId, sectionId);
+      res.json({ success: true, leaves });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/teacher/leaves', (req, res) => {
+    try {
+      const teacherId = req.body.teacherId || (req.headers['x-user-id'] as string);
+      const { teacherName, subject, sectionId, leaveType, startDate, endDate, slotIds, instructions } = req.body;
+      if (!teacherId || !startDate) {
+        return res.status(400).json({ success: false, error: 'تاريخ بداية الرخصة مطلوب' });
+      }
+      const result = createTeacherLeaveNotice({
+        teacherId,
+        teacherName: teacherName || 'الأستاذ',
+        subject: subject || 'مادة دراسية',
+        sectionId: sectionId || 'all',
+        leaveType: leaveType || 'sick',
+        startDate,
+        endDate: endDate || startDate,
+        slotIds: slotIds || 'all',
+        instructions
+      });
+      markDirty();
+      res.json({ success: true, ...result, message: 'تم تسجيل إشعار الرخصة وسيظهر للتلاميذ في مساحاتهم' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/teacher/leaves/:id', (req, res) => {
+    try {
+      const teacherId = (req.headers['x-user-id'] as string) || undefined;
+      deleteTeacherLeaveNotice(req.params.id, teacherId);
+      markDirty();
+      res.json({ success: true, message: 'تم حذف إشعار الرخصة' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // Add a new daily absence record
   app.post('/api/daily-archive/absences', (req, res) => {
     try {
@@ -1906,6 +2013,15 @@ async function startServer() {
       res.json({ success: true, ...data });
     } catch (err: any) {
       res.status(401).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/student/refresh/:massarNumber', (req, res) => {
+    try {
+      const data = getStudentFullData(req.params.massarNumber);
+      res.json({ success: true, ...data });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
     }
   });
 

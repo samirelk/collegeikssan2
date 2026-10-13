@@ -1791,6 +1791,12 @@ export default function App() {
         data={studentPortalData}
         institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
         academicYear={settings.year || '2025/2026'}
+        onUpdateData={(newData) => {
+          setStudentPortalData(newData);
+          try {
+            sessionStorage.setItem('echsa_student_session', JSON.stringify(newData));
+          } catch {}
+        }}
         onLogout={() => {
           setStudentPortalData(null);
           try {
