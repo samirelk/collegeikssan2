@@ -34,6 +34,7 @@ interface LandingViewProps {
   onLoginSuccess: (user: UserType) => void;
   onOpenForgotPassword: () => void;
   onNavigateAdmin?: () => void;
+  onOpenStudentLogin?: () => void;
 }
 
 export const LandingView: React.FC<LandingViewProps> = ({
@@ -41,7 +42,8 @@ export const LandingView: React.FC<LandingViewProps> = ({
   academicYear,
   onLoginSuccess,
   onOpenForgotPassword,
-  onNavigateAdmin
+  onNavigateAdmin,
+  onOpenStudentLogin
 }) => {
   const [activeMode, setActiveMode] = useState<'login' | 'register'>('login');
   
@@ -191,6 +193,19 @@ export const LandingView: React.FC<LandingViewProps> = ({
           {/* PWA Mobile & Desktop Install Button */}
           <PWAInstallButton variant="header" />
 
+          {/* Student Portal Button */}
+          {onOpenStudentLogin && (
+            <button
+              type="button"
+              onClick={onOpenStudentLogin}
+              className="px-3.5 sm:px-4 py-2 rounded-full text-xs font-bold text-white bg-gradient-to-r from-[#1A4E47] to-[#133D37] hover:brightness-110 border border-[#C98A3C]/40 transition-all cursor-pointer flex items-center gap-1.5 shadow-sm"
+              title="دخول فضاء التلميذ برقم مسار"
+            >
+              <GraduationCap className="w-3.5 h-3.5 text-[#C98A3C]" />
+              <span>فضاء التلميذ (مسار)</span>
+            </button>
+          )}
+
           {/* Dedicated Admin Portal Link */}
           <button
             type="button"
@@ -268,6 +283,28 @@ export const LandingView: React.FC<LandingViewProps> = ({
                 : 'أنشئ حسابك لإسناد أقسامك وتوزيع المقاعد وتسجيل الحضور'}
             </p>
           </div>
+
+          {/* Student Space Quick Access Card */}
+          {onOpenStudentLogin && (
+            <div className="p-3.5 mb-5 rounded-2xl bg-[#FBF8EF] border border-[#C98A3C]/40 flex items-center justify-between gap-3 shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#1A4E47] text-[#C98A3C] flex items-center justify-center font-bold shrink-0">
+                  <GraduationCap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-[#1A4E47]">فضاء التلميذ (Code Massar)</div>
+                  <div className="text-[10px] text-[#6C6356]">ادخل برقم مسار والكود السري للاطلاع على غياباتك وحصصك</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onOpenStudentLogin}
+                className="px-3.5 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white text-xs font-bold transition-all shadow-xs cursor-pointer shrink-0"
+              >
+                دخول التلميذ
+              </button>
+            </div>
+          )}
 
           {/* Error Banner */}
           {errorMessage && (

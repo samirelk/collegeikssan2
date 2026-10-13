@@ -580,6 +580,20 @@ export function initDatabase() {
     );
     CREATE INDEX IF NOT EXISTS idx_ps_section ON parent_summons(section_id);
     CREATE INDEX IF NOT EXISTS idx_ps_date ON parent_summons(summons_date);
+
+    CREATE TABLE IF NOT EXISTS student_accounts (
+      id TEXT PRIMARY KEY,
+      massar_number TEXT UNIQUE NOT NULL,
+      student_name TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      student_number TEXT DEFAULT '',
+      access_code TEXT NOT NULL,
+      last_login TEXT DEFAULT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sa_massar ON student_accounts(massar_number);
+    CREATE INDEX IF NOT EXISTS idx_sa_section ON student_accounts(section_id);
   `);
 
   // Seed default predefined violation types if table is empty
@@ -848,6 +862,12 @@ export function initDatabase() {
     syncAssignedSectionsWithTimetableAndBackfill();
   } catch (syncErr) {
     console.error('Failed to syncAssignedSectionsWithTimetableAndBackfill:', syncErr);
+  }
+
+  try {
+    ensureStudentAccountsExist();
+  } catch (accErr) {
+    console.error('Failed to ensureStudentAccountsExist:', accErr);
   }
 }
 
@@ -9591,6 +9611,349 @@ export function getAdvancedInstitutionalAnalytics(academicYear?: string) {
   };
 }
 
+// ==========================================
+// Student Space & Portal System (فضاء التلميذ)
+// ==========================================
 
+export interface StudentAccountItem {
+  id: string;
+  massarNumber: string;
+  studentName: string;
+  sectionId: string;
+  sectionLevel?: string;
+  sectionClass?: string;
+  studentNumber: string;
+  accessCode: string;
+  lastLogin: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
+export function generateStudentAccessCode(): string {
+  // Generate a friendly 6-digit numeric PIN
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
 
+export function ensureStudentAccountsExist() {
+  const now = new Date().toISOString();
+  const sections = db.prepare('SELECT id, level, class_number, roster_json FROM sections').all() as any[];
+
+  for (const sec of sections) {
+    let roster: any[] = [];
+    try {
+      roster = JSON.parse(sec.roster_json || '[]');
+    } catch {
+      roster = [];
+    }
+
+    // Also get seats with occupied students
+    const seats = db.prepare(`
+      SELECT seat_num, student_name, student_number, massar_number 
+      FROM seats 
+      WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
+    `).all(sec.id) as any[];
+
+    // Merge students
+    const studentMap = new Map<string, { name: string; number: string; massar: string }>();
+
+    seats.forEach(s => {
+      const name = (s.student_name || '').trim();
+      if (!name) return;
+      const massar = (s.massar_number || '').trim();
+      const num = String(s.student_number || s.seat_num || '');
+      studentMap.set(name.toLowerCase(), { name, number: num, massar });
+    });
+
+    roster.forEach((r, idx) => {
+      const name = (r.name || '').trim();
+      if (!name) return;
+      const massar = (r.massarNumber || '').trim();
+      const num = String(r.number || idx + 1);
+      const existing = studentMap.get(name.toLowerCase());
+      if (existing) {
+        if (!existing.massar && massar) existing.massar = massar;
+      } else {
+        studentMap.set(name.toLowerCase(), { name, number: num, massar });
+      }
+    });
+
+    // For each student, check/insert into student_accounts
+    for (const [_, st] of studentMap) {
+      let finalMassar = st.massar;
+      if (!finalMassar) {
+        // Deterministic pseudo Massar code for students without official Massar code
+        const safeClass = (sec.class_number || '1').replace(/\D/g, '') || '1';
+        const safeNum = st.number.replace(/\D/g, '') || '1';
+        finalMassar = `M26${sec.id.slice(0, 3).toUpperCase()}${safeClass.padStart(2, '0')}${safeNum.padStart(2, '0')}`;
+      }
+
+      const existingAccount = db.prepare(`
+        SELECT id, access_code FROM student_accounts WHERE LOWER(massar_number) = LOWER(?)
+      `).get(finalMassar) as any;
+
+      if (!existingAccount) {
+        const id = `sa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+        const code = generateStudentAccessCode();
+        db.prepare(`
+          INSERT INTO student_accounts (
+            id, massar_number, student_name, section_id, student_number, access_code, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, finalMassar, st.name, sec.id, st.number, code, now, now);
+
+        // Also update seats / roster with this Massar number if empty
+        if (!st.massar) {
+          try {
+            db.prepare(`
+              UPDATE seats SET massar_number = ? WHERE section_id = ? AND TRIM(student_name) = TRIM(?)
+            `).run(finalMassar, sec.id, st.name);
+          } catch {}
+        }
+      } else {
+        // Keep updated
+        db.prepare(`
+          UPDATE student_accounts SET student_name = ?, section_id = ?, student_number = ?, updated_at = ?
+          WHERE id = ?
+        `).run(st.name, sec.id, st.number, now, existingAccount.id);
+      }
+    }
+  }
+}
+
+export function getStudentAccounts(sectionId?: string): StudentAccountItem[] {
+  try {
+    ensureStudentAccountsExist();
+  } catch (err) {
+    console.error('Failed to ensureStudentAccountsExist:', err);
+  }
+
+  let query = `
+    SELECT 
+      sa.*,
+      s.level as section_level,
+      s.class_number as section_class
+    FROM student_accounts sa
+    LEFT JOIN sections s ON sa.section_id = s.id
+  `;
+  const params: any[] = [];
+  if (sectionId && sectionId !== 'all') {
+    query += ` WHERE sa.section_id = ? `;
+    params.push(sectionId);
+  }
+  query += ` ORDER BY s.level ASC, s.class_number ASC, CAST(sa.student_number AS INTEGER) ASC, sa.student_name ASC `;
+
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    massarNumber: r.massar_number,
+    studentName: r.student_name,
+    sectionId: r.section_id,
+    sectionLevel: r.section_level || '',
+    sectionClass: r.section_class || '',
+    studentNumber: r.student_number || '',
+    accessCode: r.access_code,
+    lastLogin: r.last_login,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
+}
+
+export function regenerateStudentAccessCode(accountId: string, customCode?: string) {
+  const code = customCode && customCode.trim() ? customCode.trim() : generateStudentAccessCode();
+  const now = new Date().toISOString();
+  db.prepare('UPDATE student_accounts SET access_code = ?, updated_at = ? WHERE id = ?').run(code, now, accountId);
+  return { success: true, newCode: code };
+}
+
+export function regenerateSectionStudentAccessCodes(sectionId: string) {
+  const now = new Date().toISOString();
+  const accounts = db.prepare('SELECT id FROM student_accounts WHERE section_id = ?').all(sectionId) as any[];
+  const stmt = db.prepare('UPDATE student_accounts SET access_code = ?, updated_at = ? WHERE id = ?');
+  accounts.forEach(acc => {
+    stmt.run(generateStudentAccessCode(), now, acc.id);
+  });
+  return { success: true, count: accounts.length };
+}
+
+export function studentLogin(massarNumber: string, accessCode: string) {
+  const cleanMassar = massarNumber.trim();
+  const cleanCode = accessCode.trim();
+
+  if (!cleanMassar || !cleanCode) {
+    throw new Error('يرجى إدخال رقم مسار والكود السري');
+  }
+
+  let account = db.prepare(`
+    SELECT sa.*, s.level as section_level, s.class_number as section_class
+    FROM student_accounts sa
+    LEFT JOIN sections s ON sa.section_id = s.id
+    WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
+  `).get(cleanMassar) as any;
+
+  // If not found yet, ensure sync from sections/seats and retry
+  if (!account) {
+    try {
+      ensureStudentAccountsExist();
+      account = db.prepare(`
+        SELECT sa.*, s.level as section_level, s.class_number as section_class
+        FROM student_accounts sa
+        LEFT JOIN sections s ON sa.section_id = s.id
+        WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
+      `).get(cleanMassar) as any;
+    } catch {}
+  }
+
+  if (!account) {
+    throw new Error('رقم مسار المدخل غير مسجل في النظام. تأكد من صحة الرمز.');
+  }
+
+  if (account.access_code !== cleanCode) {
+    throw new Error('الكود السري غير صحيح. المرجو التأكد من الكود المسلم لك من طرف الإدارة.');
+  }
+
+  // Record login time
+  const now = new Date().toISOString();
+  db.prepare('UPDATE student_accounts SET last_login = ? WHERE id = ?').run(now, account.id);
+
+  // 1. Fetch Student Attendance History
+  const attendanceRows = db.prepare(`
+    SELECT 
+      id, section_id, status, recorded_date, session_period,
+      duration_hours, duration_days, duration_label,
+      justified, justification_reason, notes, teacher_name, teacher_subject, created_at
+    FROM attendance_history
+    WHERE section_id = ? AND (
+      LOWER(TRIM(student_name)) = LOWER(TRIM(?)) OR
+      LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
+    )
+    ORDER BY recorded_date DESC, created_at DESC
+  `).all(account.section_id, account.student_name, cleanMassar) as any[];
+
+  // 2. Fetch Student Violations
+  const violationsRows = db.prepare(`
+    SELECT 
+      id, violation_type, description, action_taken, recorded_date, recorded_time, teacher_name
+    FROM daily_violations
+    WHERE section_id = ? AND (
+      LOWER(TRIM(student_name)) = LOWER(TRIM(?)) OR
+      LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
+    )
+    ORDER BY recorded_date DESC, recorded_time DESC
+  `).all(account.section_id, account.student_name, cleanMassar) as any[];
+
+  // 3. Fetch Student Positive Participations
+  const positiveRows = db.prepare(`
+    SELECT 
+      id, participation_type, note as notes, points, recorded_date, recorded_time, teacher_name, teacher_subject
+    FROM positive_participations
+    WHERE section_id = ? AND (
+      LOWER(TRIM(student_name)) = LOWER(TRIM(?)) OR
+      LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
+    )
+    ORDER BY recorded_date DESC, recorded_time DESC
+  `).all(account.section_id, account.student_name, cleanMassar) as any[];
+
+  // 4. Fetch Student Parent Summons
+  const summonsRows = db.prepare(`
+    SELECT 
+      id, reason, summons_date, appointment_time, status, guardian_name, notes, created_at
+    FROM parent_summons
+    WHERE section_id = ? AND (
+      LOWER(TRIM(student_name)) = LOWER(TRIM(?)) OR
+      LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
+    )
+    ORDER BY summons_date DESC
+  `).all(account.section_id, account.student_name, cleanMassar) as any[];
+
+  // 5. Fetch Section Weekly Timetable
+  const timetableRows = db.prepare(`
+    SELECT 
+      id, day_of_week, slot_id, period_type, start_time, end_time, room, subject, notes, teacher_id
+    FROM teacher_timetable
+    WHERE section_id = ?
+    ORDER BY day_of_week ASC, start_time ASC
+  `).all(account.section_id) as any[];
+
+  // Map teacher names to timetable
+  const teachers = db.prepare("SELECT id, full_name, subject FROM users WHERE role = 'teacher'").all() as any[];
+  const teacherMap = new Map(teachers.map(t => [t.id, t.full_name]));
+  const timetable = timetableRows.map(slot => ({
+    ...slot,
+    teacherName: teacherMap.get(slot.teacher_id) || slot.subject || ''
+  }));
+
+  // Find Student Seat number
+  const seatRow = db.prepare(`
+    SELECT seat_num FROM seats WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+  `).get(account.section_id, account.student_name) as any;
+
+  // Calculate summary metrics
+  const totalAbsences = attendanceRows.filter(a => a.status === 'absent').length;
+  const justifiedAbsences = attendanceRows.filter(a => a.status === 'absent' && a.justified === 'justified').length;
+  const unjustifiedAbsences = totalAbsences - justifiedAbsences;
+  const totalTardies = attendanceRows.filter(a => a.status === 'late').length;
+  const totalPositivePoints = positiveRows.reduce((sum, p) => sum + Number(p.points || 0), 0);
+
+  return {
+    student: {
+      id: account.id,
+      name: account.student_name,
+      massarNumber: account.massar_number,
+      studentNumber: account.student_number,
+      seatNumber: seatRow ? seatRow.seat_num : null,
+      sectionId: account.section_id,
+      sectionLevel: account.section_level || '',
+      sectionClass: account.section_class || ''
+    },
+    metrics: {
+      totalAbsences,
+      justifiedAbsences,
+      unjustifiedAbsences,
+      totalTardies,
+      totalViolations: violationsRows.length,
+      positiveCount: positiveRows.length,
+      positivePoints: totalPositivePoints,
+      activeSummonsCount: summonsRows.filter(s => s.status === 'pending').length
+    },
+    attendance: attendanceRows.map(r => ({
+      id: r.id,
+      status: r.status,
+      recordedDate: r.recorded_date,
+      sessionPeriod: r.session_period,
+      durationLabel: r.duration_label || 'ساعة واحدة',
+      isJustified: r.justified === 'justified',
+      justificationReason: r.justification_reason || '',
+      notes: r.notes || '',
+      teacherName: r.teacher_name || '',
+      teacherSubject: r.teacher_subject || ''
+    })),
+    violations: violationsRows.map(r => ({
+      id: r.id,
+      violationType: r.violation_type,
+      description: r.description,
+      actionTaken: r.action_taken,
+      recordedDate: r.recorded_date,
+      recordedTime: r.recorded_time,
+      teacherName: r.teacher_name || ''
+    })),
+    positiveParticipations: positiveRows.map(r => ({
+      id: r.id,
+      type: r.participation_type,
+      points: Number(r.points || 0),
+      notes: r.notes || '',
+      badgeIcon: 'award',
+      recordedDate: r.recorded_date,
+      teacherName: r.teacher_name || '',
+      teacherSubject: r.teacher_subject || ''
+    })),
+    summons: summonsRows.map(r => ({
+      id: r.id,
+      reason: r.reason,
+      summonsDate: r.summons_date,
+      appointmentTime: r.appointment_time,
+      status: r.status,
+      guardianName: r.guardian_name || '',
+      notes: r.notes || ''
+    })),
+    timetable
+  };
+}

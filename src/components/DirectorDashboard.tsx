@@ -59,6 +59,7 @@ import { TeacherExcelImportModal } from './TeacherExcelImportModal';
 import { DirectorPrintModal } from './DirectorPrintModal';
 import { TeacherCredentialsPrintModal } from './TeacherCredentialsPrintModal';
 import { DirectorAnalyticsDashboard } from './DirectorAnalyticsDashboard';
+import { StudentAccountsManagementModal } from './StudentAccountsManagementModal';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -96,6 +97,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [isAddTeacherOpen, setIsAddTeacherOpen] = useState(false);
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isPrintCredentialsOpen, setIsPrintCredentialsOpen] = useState(false);
+  const [showStudentAccountsModal, setShowStudentAccountsModal] = useState(false);
   const [selectedTeacherIdForPrint, setSelectedTeacherIdForPrint] = useState<string | undefined>(undefined);
   const [newFullName, setNewFullName] = useState('');
   const [newUsername, setNewUsername] = useState('');
@@ -1359,6 +1361,17 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#C98A3C]/20 text-[#C98A3C] font-bold">
             جديد
           </span>
+        </button>
+
+        {/* Student Accounts & Massar Access Codes Modal Button */}
+        <button
+          type="button"
+          onClick={() => setShowStudentAccountsModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] bg-[#FAF8F5] hover:bg-[#F2EFE9] text-[#1A4E47] border border-[#D5CDC0] transition-all cursor-pointer shadow-2xs mr-auto"
+          title="عرض وتوليد الأكواد السرية لولوج فضاء التلميذ وطباعة بطاقات الولوج"
+        >
+          <GraduationCap className="w-3.5 h-3.5 text-[#C98A3C]" />
+          <span>أكواد فضاء التلميذ (مسار)</span>
         </button>
       </div>
 
@@ -3939,6 +3952,14 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           }}
         />
       )}
+
+      {/* Student Accounts & Massar PIN Management Modal */}
+      <StudentAccountsManagementModal
+        isOpen={showStudentAccountsModal}
+        onClose={() => setShowStudentAccountsModal(false)}
+        sections={sections}
+        settings={settings}
+      />
 
     </div>
   );

@@ -35,6 +35,8 @@ import { DailyArchiveModal } from './components/DailyArchiveModal';
 import { DbInfoModal } from './components/DbInfoModal';
 import { TeacherTimetable } from './components/TeacherTimetable';
 import { RosterReorderModal } from './components/RosterReorderModal';
+import { StudentPortalDashboard, StudentData } from './components/StudentPortalDashboard';
+import { StudentLoginModal } from './components/StudentLoginModal';
 
 function normalizeArabicText(str?: string): string {
   if (!str) return '';
@@ -145,6 +147,17 @@ export default function App() {
   const [showDeleteAllSectionsModal, setShowDeleteAllSectionsModal] = useState(false);
   const [isDeletingAllSections, setIsDeletingAllSections] = useState(false);
   const [showRosterReorderModal, setShowRosterReorderModal] = useState(false);
+
+  // Student Portal State (فضاء التلميذ)
+  const [studentPortalData, setStudentPortalData] = useState<StudentData | null>(() => {
+    try {
+      const saved = sessionStorage.getItem('echsa_student_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [isStudentLoginOpen, setIsStudentLoginOpen] = useState(false);
 
   // Violations & Notes Modal state
   const [activeSeatModal, setActiveSeatModal] = useState<{
@@ -1771,6 +1784,23 @@ export default function App() {
     );
   }
 
+  // If student is logged in, show dedicated Student Portal Dashboard
+  if (studentPortalData) {
+    return (
+      <StudentPortalDashboard
+        data={studentPortalData}
+        institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
+        academicYear={settings.year || '2025/2026'}
+        onLogout={() => {
+          setStudentPortalData(null);
+          try {
+            sessionStorage.removeItem('echsa_student_session');
+          } catch {}
+        }}
+      />
+    );
+  }
+
   // If user is not logged in, show the clean Landing & Login screen requested by user
   if (!currentUser) {
     return (
@@ -1786,6 +1816,20 @@ export default function App() {
             setShowAuthModal(true);
           }}
           onNavigateAdmin={navigateToAdmin}
+          onOpenStudentLogin={() => setIsStudentLoginOpen(true)}
+        />
+
+        {/* Student Login Modal */}
+        <StudentLoginModal
+          isOpen={isStudentLoginOpen}
+          onClose={() => setIsStudentLoginOpen(false)}
+          onLoginSuccess={(data) => {
+            setStudentPortalData(data);
+            try {
+              sessionStorage.setItem('echsa_student_session', JSON.stringify(data));
+            } catch {}
+          }}
+          institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
         />
 
         {/* Forgot password modal if requested */}

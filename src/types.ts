@@ -278,6 +278,8 @@ export interface SectionItem {
   assignedTeachers?: AssignedTeacherSummary[];
 }
 
+export type Section = SectionItem;
+
 export interface AvailableSectionItem {
   id: string;
   level: string;

@@ -109,6 +109,10 @@ import {
   updateParentSummons,
   deleteParentSummons,
   getAdvancedInstitutionalAnalytics,
+  studentLogin,
+  getStudentAccounts,
+  regenerateStudentAccessCode,
+  regenerateSectionStudentAccessCodes,
   db
 } from './server/db.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
@@ -1887,6 +1891,50 @@ async function startServer() {
       deleteParentSummons(req.params.id);
       markDirty();
       res.json({ success: true, message: 'تم حذف الاستدعاء بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Student Portal API (فضاء التلميذ)
+  // ==========================================
+  app.post('/api/student/login', (req, res) => {
+    try {
+      const { massarNumber, accessCode } = req.body;
+      const data = studentLogin(massarNumber, accessCode);
+      res.json({ success: true, ...data });
+    } catch (err: any) {
+      res.status(401).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/student/accounts', (req, res) => {
+    try {
+      const sectionId = req.query.sectionId as string | undefined;
+      const accounts = getStudentAccounts(sectionId);
+      res.json({ success: true, accounts });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/student/accounts/:id/regenerate', (req, res) => {
+    try {
+      const { customCode } = req.body;
+      const result = regenerateStudentAccessCode(req.params.id, customCode);
+      markDirty();
+      res.json({ ...result, message: 'تم توليد كود دخول جديد بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/student/accounts/section/:sectionId/regenerate', (req, res) => {
+    try {
+      const result = regenerateSectionStudentAccessCodes(req.params.sectionId);
+      markDirty();
+      res.json({ ...result, message: `تم توليد أكواد جديدة لـ ${result.count} تلميذاً في القسم بنجاح` });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }
