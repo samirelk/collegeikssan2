@@ -26,6 +26,7 @@ interface TopbarProps {
   onOpenDbModal: () => void;
   onOpenHistoryModal: () => void;
   onOpenDailyArchiveModal?: () => void;
+  onOpenViolationsRegisterModal?: () => void;
   onOpenPositiveReportModal?: () => void;
   dbStats: DbStats | null;
   saveStatusText: string | null;
@@ -47,6 +48,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   onOpenDbModal,
   onOpenHistoryModal,
   onOpenDailyArchiveModal,
+  onOpenViolationsRegisterModal,
   onOpenPositiveReportModal,
   dbStats,
   saveStatusText,
@@ -86,8 +88,11 @@ export const Topbar: React.FC<TopbarProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-bold text-[#1F2926] group-hover:text-[#1A4E47] m-0 tracking-wide font-['Amiri',serif] transition-colors">
-              نظام تدبير الغيابات والمخالفات
+              المدرسة الرقمية
             </h1>
+            <span className="px-2 py-0.5 rounded-full bg-[#1A4E47]/10 text-[#1A4E47] font-bold text-[11px] hidden md:inline">
+              منظومة تدبير الفصول والغيابات والمخالفات
+            </span>
           </div>
           <div className="flex items-center gap-2 mt-0.5 text-xs text-[#6C6356] flex-wrap">
             <span>{settings.institution || 'الثانوية الإعدادية ايكسان'}</span>
@@ -146,17 +151,31 @@ export const Topbar: React.FC<TopbarProps> = ({
           </button>
         )}
 
-        {/* For teachers: Daily archive and active absences monitor. Director/Admin have full archive in dashboard */}
-        {currentUser?.role !== 'admin' && currentUser?.role !== 'director' && (
+        {/* 1. Independent Absences Register (سجل الغيابات) */}
+        {onOpenDailyArchiveModal && (
           <button
             type="button"
             id="btn-nav-daily-archive"
             onClick={onOpenDailyArchiveModal}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-xs active:scale-[0.98] bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-200"
-            title="أرشيف الغيابات ومراقبة التلاميذ الغائبين حالياً في الفصول والأقسام"
+            title="سجل الغيابات ومراقبة حالات الغياب والتأخر اليومية"
           >
             <UserX className="w-4 h-4 text-rose-600" />
-            <span>أرشيف الغيابات</span>
+            <span>سجل الغيابات</span>
+          </button>
+        )}
+
+        {/* 2. Independent Violations Register (سجل المخالفات) */}
+        {onOpenViolationsRegisterModal && (
+          <button
+            type="button"
+            id="btn-nav-violations-register"
+            onClick={onOpenViolationsRegisterModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-xs active:scale-[0.98] bg-amber-50 hover:bg-amber-100 text-amber-900 border-amber-300"
+            title="سجل المخالفات والانضباط المدرسي - طباعة المخالفات وإشعار أولياء الأمور"
+          >
+            <AlertTriangle className="w-4 h-4 text-amber-700" />
+            <span>سجل المخالفات</span>
           </button>
         )}
 
@@ -170,7 +189,8 @@ export const Topbar: React.FC<TopbarProps> = ({
             title="سجل ولوحة شرف المشاركات الإيجابية والتعزيز (طباعة للقسم أو التلميذ)"
           >
             <Sparkles className="w-4 h-4 text-[#D97706]" />
-            <span>المشاركات الإيجابية ⭐</span>
+            <span className="hidden sm:inline">المشاركات الإيجابية ⭐</span>
+            <span className="sm:hidden">إيجابية ⭐</span>
           </button>
         )}
         

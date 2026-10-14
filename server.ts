@@ -76,6 +76,7 @@ import {
   addDailyViolation,
   updateDailyViolation,
   deleteDailyViolation,
+  getAllViolations,
   getAllAcademicYears,
   createAcademicYear,
   setCurrentAcademicYear,
@@ -1742,7 +1743,7 @@ async function startServer() {
         dueDate
       });
       markDirty();
-      res.json({ success: true, ...result, message: 'تم نشر الواجب / الدرس بنجاح' });
+      res.json({ ...result, message: 'تم نشر الواجب / الدرس بنجاح' });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -1792,7 +1793,7 @@ async function startServer() {
         instructions
       });
       markDirty();
-      res.json({ success: true, ...result, message: 'تم تسجيل إشعار الرخصة وسيظهر للتلاميذ في مساحاتهم' });
+      res.json({ ...result, message: 'تم تسجيل إشعار الرخصة وسيظهر للتلاميذ في مساحاتهم' });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -2133,6 +2134,184 @@ async function startServer() {
       const id = req.params.id;
       deleteDailyViolation(id);
       res.json({ success: true, message: 'تم حذف سجل المخالفة بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Independent Violations Record API (سجل المخالفات المستقل)
+  // ==========================================
+
+  app.get('/api/violations', (req, res) => {
+    try {
+      const sectionId = (req.query.sectionId as string) || undefined;
+      const teacherId = (req.query.teacherId as string) || (req.headers['x-user-id'] as string) || undefined;
+      const teacherName = (req.query.teacherName as string) || undefined;
+      const studentName = (req.query.studentName as string) || undefined;
+      const violationType = (req.query.violationType as string) || undefined;
+      const dateFrom = (req.query.dateFrom as string) || undefined;
+      const dateTo = (req.query.dateTo as string) || undefined;
+
+      const violations = getAllViolations({
+        sectionId,
+        teacherId,
+        teacherName,
+        studentName,
+        violationType,
+        dateFrom,
+        dateTo
+      });
+
+      res.json({ success: true, violations });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/violations', (req, res) => {
+    try {
+      const {
+        sectionId,
+        seatNum,
+        studentName,
+        studentNumber,
+        violationType,
+        description,
+        actionTaken,
+        teacherName,
+        teacherSubject,
+        recordedDate,
+        recordedTime,
+        issueParentSummons,
+        summonsDate,
+        appointmentTime
+      } = req.body;
+
+      if (!sectionId || !studentName || !description) {
+        return res.status(400).json({ success: false, error: 'القسم واسم التلميذ وتفاصيل المخالفة مطلوبة' });
+      }
+
+      const teacherId = (req.headers['x-user-id'] as string) || req.body.teacherId || '';
+      const result = addDailyViolation({
+        sectionId,
+        seatNum: seatNum ? Number(seatNum) : undefined,
+        studentName,
+        studentNumber,
+        violationType: violationType || 'مخالفة تربوية أخرى',
+        description,
+        actionTaken: actionTaken || 'تنبيه شفهي',
+        teacherName,
+        teacherSubject,
+        recordedDate,
+        recordedTime,
+        teacherId
+      });
+
+      // Optionally issue parent summons simultaneously
+      let summonsResult = null;
+      if (issueParentSummons) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        summonsResult = createParentSummons({
+          sectionId,
+          studentName,
+          studentNumber,
+          reason: `مخالفة تربوية: ${violationType || 'سلوك غير منضبط'} (${description.slice(0, 50)})`,
+          summonsDate: summonsDate || todayStr,
+          appointmentTime: appointmentTime || '10:00',
+          createdBy: teacherName || 'الأستاذ',
+          notes: `مسجلة بناءً على مخالفة تربوية: ${description}`
+        });
+      }
+
+      markDirty();
+      res.json({
+        success: true,
+        id: result.id,
+        summonsId: summonsResult ? summonsResult.id : undefined,
+        message: issueParentSummons
+          ? 'تم تسجيل المخالفة وإصدار استدعاء رسمي لولي الأمر بنجاح'
+          : 'تم تسجيل المخالفة بنجاح'
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.put('/api/violations/:id', (req, res) => {
+    try {
+      const id = req.params.id;
+      const { violationType, description, actionTaken, recordedDate, recordedTime } = req.body;
+      updateDailyViolation(id, {
+        violationType,
+        description,
+        actionTaken,
+        recordedDate,
+        recordedTime
+      });
+      markDirty();
+      res.json({ success: true, message: 'تم تحديث سجل المخالفة بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.delete('/api/violations/:id', (req, res) => {
+    try {
+      const id = req.params.id;
+      deleteDailyViolation(id);
+      markDirty();
+      res.json({ success: true, message: 'تم حذف سجل المخالفة بنجاح' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Convert violation directly to parent summons
+  app.post('/api/violations/:id/summons', (req, res) => {
+    try {
+      const {
+        sectionId,
+        studentName,
+        studentNumber,
+        massarNumber,
+        reason,
+        summonsDate,
+        appointmentTime,
+        notes,
+        createdBy
+      } = req.body;
+
+      if (!sectionId || !studentName) {
+        return res.status(400).json({ success: false, error: 'القسم واسم التلميذ مطلوبان' });
+      }
+
+      const todayStr = new Date().toISOString().split('T')[0];
+      const summons = createParentSummons({
+        sectionId,
+        studentName,
+        studentNumber,
+        massarNumber,
+        reason: reason || 'مخالفة تربوية وسلوكية متكررة',
+        summonsDate: summonsDate || todayStr,
+        appointmentTime: appointmentTime || '10:00',
+        createdBy: createdBy || 'الأستاذ(ة)',
+        notes: notes || ''
+      });
+
+      // Update violation action taken to indicate summons was issued
+      try {
+        updateDailyViolation(req.params.id, {
+          actionTaken: 'تم استدعاء ولي الأمر رسميًا'
+        });
+      } catch {}
+
+      markDirty();
+      res.json({
+        success: true,
+        summons,
+        message: 'تم إصدار استدعاء رسمي لولي الأمر وسيظهر فوراً في الإدارة وفضاء التلميذ'
+      });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }

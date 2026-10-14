@@ -18,7 +18,8 @@ import {
   Sun,
   Moon,
   Coffee,
-  Info
+  Info,
+  FileText
 } from 'lucide-react';
 import { SectionItem, User as UserType, AppSettings, TimetableDay, TeacherTimetableEntry } from '../types';
 import { buildOfficialMoroccanHeaderHtml, printReportHtml, escapeHtml } from '../utils/printNotes';
@@ -65,6 +66,8 @@ interface TeacherTimetableProps {
   sections: SectionItem[];
   settings: AppSettings;
   onSelectSection: (sectionId: string) => void;
+  onOpenHomeworkModal?: () => void;
+  onOpenLeaveModal?: () => void;
   onClose?: () => void;
 }
 
@@ -73,6 +76,8 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   sections,
   settings,
   onSelectSection,
+  onOpenHomeworkModal,
+  onOpenLeaveModal,
   onClose
 }) => {
   const [entries, setEntries] = useState<TeacherTimetableEntry[]>([]);
@@ -472,6 +477,30 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
               الجدول الكامل (أسبوعي)
             </button>
           </div>
+
+          {onOpenHomeworkModal && (
+            <button
+              type="button"
+              onClick={onOpenHomeworkModal}
+              className="px-3 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#1A4E47] font-bold text-xs border border-[#B9D8D2] flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="نشر واجبات منزلية وروابط فيديوهات وملخصات للتلاميذ"
+            >
+              <BookOpen className="w-4 h-4 text-[#1A4E47]" />
+              <span className="hidden sm:inline">الواجبات والدروس</span>
+            </button>
+          )}
+
+          {onOpenLeaveModal && (
+            <button
+              type="button"
+              onClick={onOpenLeaveModal}
+              className="px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 font-bold text-xs border border-amber-300 flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="التصريح برخصة أو غياب في حصة مع إشعار التلاميذ بالتوجيهات"
+            >
+              <FileText className="w-4 h-4 text-amber-700" />
+              <span className="hidden sm:inline">إشعار برخصة غياب</span>
+            </button>
+          )}
 
           <button
             type="button"

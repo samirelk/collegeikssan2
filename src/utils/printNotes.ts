@@ -3069,3 +3069,203 @@ export function printTeacherCredentialsReport(options: PrintTeacherCredentialsOp
 
   return printReportHtml(html);
 }
+
+// ==========================================
+// Parent Violation Summons & Notification Slip
+// ==========================================
+export interface PrintParentViolationNoticeOptions {
+  institution?: string;
+  academicYear?: string;
+  studentName: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  sectionName?: string;
+  level?: string;
+  classNumber?: string;
+  violationType: string;
+  description?: string;
+  actionTaken?: string;
+  recordedDate?: string;
+  recordedTime?: string;
+  teacherName?: string;
+  teacherSubject?: string;
+  appointmentDate?: string;
+  appointmentTime?: string;
+}
+
+export function printParentViolationNotice(options: PrintParentViolationNoticeOptions): boolean {
+  const {
+    institution = 'المدرسة الرقمية',
+    academicYear = '2025/2026',
+    studentName,
+    studentNumber,
+    massarNumber,
+    sectionName,
+    level,
+    classNumber,
+    violationType,
+    description,
+    actionTaken = 'إشعار واستدعاء ولي الأمر',
+    recordedDate,
+    recordedTime,
+    teacherName,
+    teacherSubject,
+    appointmentDate,
+    appointmentTime = '10:00'
+  } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const printDate = recordedDate || `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
+  const printTime = recordedTime || `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
+  const targetSec = sectionName || (level && classNumber ? `${level} (${classNumber})` : 'الفصل الدراسي');
+
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution,
+    academicYear,
+    date: printDate,
+    time: printTime,
+    dateLabel: 'تاريخ التحرير',
+    middleIcon: '⚖️'
+  });
+
+  const html = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <title>استدعاء رسمي وإشعار لولي الأمر — ${escapeHtml(studentName)}</title>
+  <style>
+    @page { size: A4 portrait; margin: 12mm 15mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { font-family: 'Tajawal', 'Traditional Arabic', Arial, sans-serif; color: #1e293b; background: #fff; margin: 0; padding: 0; direction: rtl; font-size: 13px; line-height: 1.6; }
+    .print-box { border: 2.5px solid #991b1b; border-radius: 12px; padding: 18px 24px; position: relative; }
+    .doc-title-container { text-align: center; margin: 12px 0 18px 0; }
+    .doc-main-title { display: inline-block; font-size: 19px; font-weight: 800; color: #991b1b; background: #fef2f2; border: 2px solid #dc2626; border-radius: 30px; padding: 5px 32px; }
+    .sub-head { font-size: 11.5px; color: #64748b; margin-top: 4px; }
+    .info-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    .info-table td { padding: 7px 10px; border: 1px solid #cbd5e1; font-size: 12.5px; }
+    .info-table td.lbl { background: #f8fafc; font-weight: bold; width: 22%; color: #475569; }
+    .info-table td.val { font-weight: bold; color: #0f172a; }
+    .info-table td.highlight { color: #b91c1c; font-size: 14px; }
+    .violation-details { background: #fff1f2; border: 1.5px solid #fecdd3; border-radius: 8px; padding: 12px 16px; margin: 16px 0; }
+    .appointment-box { background: #fefce8; border: 2px dashed #ca8a04; border-radius: 8px; padding: 12px 18px; margin: 16px 0; text-align: center; }
+    .appointment-title { font-size: 15px; font-weight: 800; color: #854d0e; margin-bottom: 4px; }
+    .appointment-date { font-size: 16px; font-weight: bold; color: #991b1b; font-family: monospace; }
+    .signatures { width: 100%; margin-top: 24px; border-collapse: collapse; }
+    .signatures td { width: 33.3%; text-align: center; vertical-align: top; padding: 6px; }
+    .sig-h { font-weight: bold; font-size: 12px; margin-bottom: 45px; color: #334155; }
+    .tear-slip { margin-top: 28px; border-top: 2px dashed #94a3b8; padding-top: 14px; }
+    .tear-slip-title { font-size: 13px; font-weight: bold; text-align: center; color: #0f172a; margin-bottom: 8px; }
+    .tear-table { width: 100%; border-collapse: collapse; }
+    .tear-table td { padding: 6px 8px; border: 1px solid #cbd5e1; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <div class="print-box">
+    ${headerHtml}
+
+    <div class="doc-title-container">
+      <div class="doc-main-title">استدعاء رسمي وإشعار بمخالفة انضباطية</div>
+      <div class="sub-head">المدرسة الرقمية • تدبير الانضباط المدرسي والتواصل مع الأسر</div>
+    </div>
+
+    <div style="margin-bottom: 12px; font-size: 13.5px;">
+      إلى السيد(ة) المحترم(ة): <strong>ولي أمر التلميذ(ة): ${escapeHtml(studentName)}</strong>
+    </div>
+
+    <table class="info-table">
+      <tr>
+        <td class="lbl">اسم التلميذ(ة):</td>
+        <td class="val highlight">${escapeHtml(studentName)}</td>
+        <td class="lbl">رقم مسار (Massar):</td>
+        <td class="val" style="font-family: monospace; color: #1e3a8a;">${escapeHtml(massarNumber || '—')}</td>
+      </tr>
+      <tr>
+        <td class="lbl">القسم الدراسي:</td>
+        <td class="val">${escapeHtml(targetSec)}</td>
+        <td class="lbl">رقم المقعد/الترتيب:</td>
+        <td class="val">${escapeHtml(studentNumber || '—')}</td>
+      </tr>
+      <tr>
+        <td class="lbl">الأستاذ(ة) المسجل(ة):</td>
+        <td class="val">${escapeHtml(teacherName || 'أستاذ المادة')} ${teacherSubject ? `(${escapeHtml(teacherSubject)})` : ''}</td>
+        <td class="lbl">تاريخ وتوقيت المخالفة:</td>
+        <td class="val" style="font-family: monospace;">${printDate} ${printTime !== '—' ? `(${printTime})` : ''}</td>
+      </tr>
+    </table>
+
+    <div class="violation-details">
+      <div style="font-weight: 800; color: #991b1b; font-size: 13.5px; margin-bottom: 4px;">
+        ⚠️ طبيعة المخالفة المسجلة: ${escapeHtml(violationType)}
+      </div>
+      <div style="color: #334155; font-size: 12.5px;">
+        <strong>التفاصيل:</strong> ${escapeHtml(description || 'تسجيل سلوك غير منضبط يخالف مقتضيات النظام الداخلي للمؤسسة التعليمية.')}
+      </div>
+      <div style="margin-top: 6px; font-size: 12px; color: #475569;">
+        <strong>الإجراء التربوي المتخذ:</strong> <span style="font-weight: bold; color: #b91c1c;">${escapeHtml(actionTaken)}</span>
+      </div>
+    </div>
+
+    <div class="appointment-box">
+      <div class="appointment-title">📅 موعد الحضور الإجباري لإدارة المؤسسة (الحراسة العامة / الإدارة):</div>
+      <div class="appointment-date">
+        يوم: ${appointmentDate ? appointmentDate : printDate} ${appointmentTime ? `• على الساعة: ${appointmentTime}` : ''}
+      </div>
+      <div style="font-size: 11.5px; color: #713f12; margin-top: 4px;">
+        نرجو منكم الحضور شخصياً لمكتب الإدارة التربوية قصد الاطلاع على حيثيات المخالفة وتدارس سبل تقويم سلوك ابنكم(تكم).
+      </div>
+    </div>
+
+    <div style="font-size: 11.5px; color: #475569; line-height: 1.5; margin-top: 8px;">
+      💡 يعتبر هذا الاستدعاء وثيقة إدارية رسمية؛ ويترتب عن عدم حضور ولي الأمر اتخاذ الإجراءات المنصوص عليها في النظام الداخلي للمؤسسة.
+    </div>
+
+    <table class="signatures">
+      <tr>
+        <td>
+          <div class="sig-h">توقيع الأستاذ(ة) المسجل(ة)</div>
+        </td>
+        <td>
+          <div class="sig-h">تأشيرة الحراسة العامة للخارجية</div>
+        </td>
+        <td>
+          <div class="sig-h">خاتم وتوقيع رئيس المؤسسة</div>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Tear-off Receipt for Parents -->
+    <div class="tear-slip">
+      <div class="tear-slip-title">✂️ وصل إشعار بالتوصل (يوقع من طرف ولي الأمر ويعاد فوراً لإدارة المؤسسة)</div>
+      <table class="tear-table">
+        <tr>
+          <td style="width: 20%; font-weight: bold; background: #f8fafc;">أنا الموقع أسفله:</td>
+          <td>السيد(ة): .................................................................... بصفتي ولي أمر التلميذ(ة): <strong>${escapeHtml(studentName)}</strong></td>
+        </tr>
+        <tr>
+          <td style="font-weight: bold; background: #f8fafc;">القسم ورقم مسار:</td>
+          <td>القسم: <strong>${escapeHtml(targetSec)}</strong> • رقم مسار: <strong>${escapeHtml(massarNumber || '—')}</strong></td>
+        </tr>
+        <tr>
+          <td style="font-weight: bold; background: #f8fafc;">إقرار وتوقيع:</td>
+          <td>
+            أقر بأنني توصلت بالاستدعاء بخصوص مخالفة (${escapeHtml(violationType)}) وألتزم بالحضور في الموعد المحدد.
+            <div style="margin-top: 15px; display: flex; justify-content: space-between;">
+              <span>بتاريخ: ...... / ...... / 202...</span>
+              <span style="font-weight: bold;">توقيع ولي الأمر: ..............................</span>
+            </div>
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <div style="margin-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; border-top: 1px dotted #cbd5e1; padding-top: 4px;">
+      <span>المدرسة الرقمية • ${escapeHtml(institution)}</span>
+      <span>رمز الوثيقة: VIOL-SUMMONS-${now.getTime().toString().slice(-6)}</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
+}

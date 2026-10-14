@@ -8193,6 +8193,93 @@ export function deleteDailyViolation(id: string) {
   return { success: true };
 }
 
+export function getAllViolations(filters?: {
+  sectionId?: string;
+  teacherId?: string;
+  teacherName?: string;
+  studentName?: string;
+  violationType?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  let query = `
+    SELECT 
+      dv.*,
+      sec.level as section_level,
+      sec.class_number as section_class,
+      COALESCE(st.massar_number, sa.massar_number, dv.massar_number, '') as massar_number,
+      COALESCE(st.student_number, dv.student_number, '') as clean_student_number
+    FROM daily_violations dv
+    LEFT JOIN sections sec ON dv.section_id = sec.id
+    LEFT JOIN seats st ON dv.section_id = st.section_id AND dv.seat_num = st.seat_num
+    LEFT JOIN student_accounts sa ON dv.section_id = sa.section_id AND LOWER(TRIM(dv.student_name)) = LOWER(TRIM(sa.student_name))
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+
+  if (filters?.sectionId && filters.sectionId !== 'all') {
+    query += ` AND dv.section_id = ? `;
+    params.push(filters.sectionId);
+  }
+
+  if (filters?.teacherId) {
+    query += ` AND (dv.teacher_id = ? OR dv.teacher_name = ?) `;
+    params.push(filters.teacherId, filters.teacherName || filters.teacherId);
+  } else if (filters?.teacherName) {
+    query += ` AND dv.teacher_name LIKE ? `;
+    params.push(`%${filters.teacherName}%`);
+  }
+
+  if (filters?.studentName) {
+    query += ` AND (
+      LOWER(TRIM(dv.student_name)) LIKE ? OR 
+      LOWER(TRIM(COALESCE(st.massar_number, ''))) LIKE ? OR
+      LOWER(TRIM(COALESCE(sa.massar_number, ''))) LIKE ?
+    ) `;
+    const term = `%${filters.studentName.toLowerCase().trim()}%`;
+    params.push(term, term, term);
+  }
+
+  if (filters?.violationType && filters.violationType !== 'all') {
+    query += ` AND dv.violation_type = ? `;
+    params.push(filters.violationType);
+  }
+
+  if (filters?.dateFrom) {
+    query += ` AND dv.recorded_date >= ? `;
+    params.push(filters.dateFrom);
+  }
+
+  if (filters?.dateTo) {
+    query += ` AND dv.recorded_date <= ? `;
+    params.push(filters.dateTo);
+  }
+
+  query += ` ORDER BY dv.recorded_date DESC, dv.recorded_time DESC, dv.created_at DESC `;
+
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    sectionId: r.section_id,
+    sectionName: r.section_level && r.section_class ? `${r.section_level} - ق ${r.section_class}` : '',
+    sectionLevel: r.section_level || '',
+    sectionClass: r.section_class || '',
+    seatNum: r.seat_num,
+    studentName: r.student_name,
+    studentNumber: r.clean_student_number || r.student_number || '',
+    massarNumber: r.massar_number || '',
+    violationType: r.violation_type,
+    description: r.description || '',
+    actionTaken: r.action_taken || 'تنبيه شفهي',
+    teacherName: r.teacher_name || '',
+    teacherSubject: r.teacher_subject || '',
+    teacherId: r.teacher_id || '',
+    recordedDate: r.recorded_date,
+    recordedTime: r.recorded_time,
+    createdAt: r.created_at
+  }));
+}
+
 // ==========================================
 // 13. ACADEMIC YEARS MANAGEMENT (تدبير المواسم الدراسية)
 // ==========================================

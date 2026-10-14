@@ -266,7 +266,7 @@ export const TeacherLeaveModal: React.FC<TeacherLeaveModalProps> = ({
                     <option value="all">جميع الأقسام المسندة لي (تعميم الإشعار)</option>
                     {sectionsToChoose.map((sec) => (
                       <option key={sec.id} value={sec.id}>
-                        {sec.level} - ق {sec.classNumber} ({sec.studentCount} تلميذ)
+                        {sec.level} - ق {sec.classNumber} ({sec.roster?.length || sec.seats?.filter(s => s.studentName)?.length || 0} تلميذ)
                       </option>
                     ))}
                   </select>

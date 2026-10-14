@@ -21,7 +21,15 @@ import {
   BookOpen,
   RefreshCw,
   LayoutGrid,
-  List
+  List,
+  Video,
+  Link as LinkIcon,
+  ExternalLink,
+  Copy,
+  Check,
+  Megaphone,
+  ShieldAlert,
+  BookMarked
 } from 'lucide-react';
 import { printReportHtml } from '../utils/printNotes';
 
@@ -45,6 +53,8 @@ export interface StudentData {
     positiveCount: number;
     positivePoints: number;
     activeSummonsCount: number;
+    homeworkCount?: number;
+    activeLeavesCount?: number;
   };
   attendance: Array<{
     id: number;
@@ -86,6 +96,32 @@ export interface StudentData {
     guardianName: string;
     notes: string;
   }>;
+  homeworks?: Array<{
+    id: string;
+    teacherId: string;
+    teacherName: string;
+    subject: string;
+    sectionId: string;
+    postType: 'homework' | 'video' | 'lesson';
+    title: string;
+    description: string;
+    urlLink: string;
+    dueDate: string;
+    createdAt: string;
+  }>;
+  teacherLeaves?: Array<{
+    id: string;
+    teacherId: string;
+    teacherName: string;
+    subject: string;
+    sectionId: string;
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    slotIds: string;
+    instructions: string;
+    createdAt: string;
+  }>;
   timetable: Array<{
     id: string;
     day_of_week?: number | string;
@@ -106,6 +142,13 @@ export interface StudentData {
     subject?: string;
     notes?: string;
     teacherName?: string;
+    isTeacherOnLeave?: boolean;
+    leaveNotice?: {
+      leaveType: string;
+      instructions: string;
+      startDate: string;
+      endDate: string;
+    } | null;
   }>;
 }
 
@@ -144,7 +187,7 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
   onLogout,
   onUpdateData
 }) => {
-  const [activeTab, setActiveTab] = useState<'attendance' | 'timetable' | 'conduct' | 'summons' | 'badge'>('attendance');
+  const [activeTab, setActiveTab] = useState<'timetable' | 'homeworks' | 'leaves' | 'attendance' | 'conduct' | 'summons' | 'badge'>('timetable');
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(() => {
     const today = new Date().getDay();
     return today >= 1 && today <= 6 ? today : 1;
@@ -152,8 +195,20 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
   const [timetableMode, setTimetableMode] = useState<'grid' | 'day'>('grid');
   const [isRefreshingTimetable, setIsRefreshingTimetable] = useState(false);
   const [refreshSuccess, setRefreshSuccess] = useState(false);
+  const [homeworkFilter, setHomeworkFilter] = useState<'all' | 'homework' | 'video' | 'lesson'>('all');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const { student, metrics, attendance, violations, positiveParticipations, summons, timetable } = data;
+  const homeworks = data.homeworks || [];
+  const teacherLeaves = data.teacherLeaves || [];
+
+  const handleCopyLink = (url: string, id: string) => {
+    try {
+      navigator.clipboard.writeText(url);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2500);
+    } catch {}
+  };
 
   // Print Student Badge
   const handlePrintBadge = () => {
@@ -507,6 +562,28 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
 
       {/* Main Student Space Content */}
       <main className="max-w-6xl mx-auto w-full p-4 sm:p-6 space-y-6 flex-1">
+        {/* Active Teacher Leaves Alert Banner */}
+        {teacherLeaves.length > 0 && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 text-amber-950 text-xs flex items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <Megaphone className="w-5 h-5 text-amber-700 shrink-0 animate-bounce" />
+              <div>
+                <strong className="text-sm block text-amber-950">إشعار للقسم: تصريح برخصة غياب أستاذ(ة)</strong>
+                <span className="text-amber-900">
+                  {teacherLeaves.map(l => `${l.teacherName} (${l.subject})`).join(' • ')} — يرجى مراجعة التوجيهات والواجبات الموكولة إليكم أثناء فترة الرخصة.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('leaves')}
+              className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs transition-colors shrink-0 cursor-pointer shadow-xs"
+            >
+              عرض التوجيهات والرخصة
+            </button>
+          </div>
+        )}
+
         {/* Active Summons Warning Banner (If any) */}
         {metrics.activeSummonsCount > 0 && (
           <div className="p-4 rounded-2xl bg-amber-500/15 border-2 border-amber-600/40 text-amber-950 text-xs flex items-center justify-between gap-3 animate-pulse">
@@ -528,7 +605,7 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
         )}
 
         {/* Metric Cards Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {/* Attendance Metric */}
           <div className="p-4 rounded-2xl bg-white border border-[#E5DFD4] shadow-xs">
             <div className="flex items-center justify-between text-xs text-[#6C6356]">
@@ -543,6 +620,42 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             </div>
           </div>
 
+          {/* Homeworks Metric */}
+          <div
+            onClick={() => setActiveTab('homeworks')}
+            className="p-4 rounded-2xl bg-white border border-[#E5DFD4] hover:border-[#1A4E47] shadow-xs cursor-pointer transition-colors"
+          >
+            <div className="flex items-center justify-between text-xs text-[#6C6356]">
+              <span>الواجبات والدروس</span>
+              <BookOpen className="w-3.5 h-3.5 text-[#1A4E47]" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[#1A4E47] mt-1">
+              {homeworks.length}
+            </div>
+            <div className="text-[10px] text-[#1A4E47] font-semibold mt-1">
+              {homeworks.length === 0 ? 'لا توجد واجبات معلقة' : `${homeworks.length} منشورات من أساتذتك`}
+            </div>
+          </div>
+
+          {/* Teacher Leaves Metric */}
+          <div
+            onClick={() => setActiveTab('leaves')}
+            className={`p-4 rounded-2xl border shadow-xs cursor-pointer transition-colors ${
+              teacherLeaves.length > 0 ? 'bg-amber-50/60 border-amber-300' : 'bg-white border-[#E5DFD4]'
+            }`}
+          >
+            <div className="flex items-center justify-between text-xs text-[#6C6356]">
+              <span>رخص وغياب الأساتذة</span>
+              <Megaphone className="w-3.5 h-3.5 text-amber-600" />
+            </div>
+            <div className="text-2xl font-bold font-mono text-[#8A5A18] mt-1">
+              {teacherLeaves.length}
+            </div>
+            <div className="text-[10px] text-[#8A5A18] font-semibold mt-1">
+              {teacherLeaves.length === 0 ? 'الأساتذة حاضرون بانتظام' : `${teacherLeaves.length} إشعار رخصة نشط`}
+            </div>
+          </div>
+
           {/* Absences */}
           <div className="p-4 rounded-2xl bg-white border border-[#E5DFD4] shadow-xs">
             <div className="flex items-center justify-between text-xs text-[#6C6356]">
@@ -554,20 +667,6 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             </div>
             <div className="text-[10px] text-rose-700 font-semibold mt-1">
               {metrics.unjustifiedAbsences} غير مبرر
-            </div>
-          </div>
-
-          {/* Tardies */}
-          <div className="p-4 rounded-2xl bg-white border border-[#E5DFD4] shadow-xs">
-            <div className="flex items-center justify-between text-xs text-[#6C6356]">
-              <span>حالات التأخر</span>
-              <Calendar className="w-3.5 h-3.5 text-blue-600" />
-            </div>
-            <div className="text-2xl font-bold font-mono text-[#1F2926] mt-1">
-              {metrics.totalTardies}
-            </div>
-            <div className="text-[10px] text-[#6C6356] mt-1">
-              سجل الحصص الصباحية والمسائية
             </div>
           </div>
 
@@ -604,19 +703,6 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
         <div className="bg-white p-1.5 rounded-2xl border border-[#E5DFD4] shadow-xs flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setActiveTab('attendance')}
-            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
-              activeTab === 'attendance'
-                ? 'bg-[#1A4E47] text-white shadow-sm'
-                : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
-            }`}
-          >
-            <Clock className="w-4 h-4" />
-            <span>سجل الغيابات والمواظبة ({attendance.length})</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setActiveTab('timetable')}
             className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
               activeTab === 'timetable'
@@ -625,7 +711,46 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             }`}
           >
             <Calendar className="w-4 h-4 text-[#C98A3C]" />
-            <span>جدول الحصص واستعمال الزمان</span>
+            <span>جدول الحصص واستعمال الزمان ({timetable.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('homeworks')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'homeworks'
+                ? 'bg-[#1A4E47] text-white shadow-sm'
+                : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <BookOpen className="w-4 h-4" />
+            <span>الواجبات والدروس الرقمية ({homeworks.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('leaves')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'leaves'
+                ? 'bg-[#8A5A18] text-white shadow-sm'
+                : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <Megaphone className="w-4 h-4 text-amber-500" />
+            <span>رخص وغياب الأساتذة ({teacherLeaves.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('attendance')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'attendance'
+                ? 'bg-[#1A4E47] text-white shadow-sm'
+                : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <Clock className="w-4 h-4" />
+            <span>سجل المواظبة والغياب ({attendance.length})</span>
           </button>
 
           <button
@@ -667,6 +792,319 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             <span>بطاقتي المدرسية الرقمية</span>
           </button>
         </div>
+
+        {/* TAB: HOMEWORKS & DIGITAL LESSONS */}
+        {activeTab === 'homeworks' && (
+          <div className="bg-white rounded-2xl border border-[#E5DFD4] p-5 sm:p-6 shadow-xs space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#E5DFD4]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-base sm:text-lg text-[#1F2926]">
+                    الواجبات المدرسية والدروس الرقمية
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#1A4E47]/10 text-[#1A4E47] font-bold text-xs">
+                    {homeworks.length} منشور
+                  </span>
+                </div>
+                <p className="text-xs text-[#6C6356] mt-0.5">
+                  الواجبات، مقاطع الفيديو التعليمية، وروابط الدروس المنشورة خصيصاً لقسمك ({student.sectionLevel} - ق {student.sectionClass})
+                </p>
+              </div>
+
+              {/* Filter Buttons */}
+              <div className="flex items-center gap-1.5 bg-[#FAF8F5] p-1 rounded-xl border border-[#E5DFD4] overflow-x-auto">
+                <button
+                  type="button"
+                  onClick={() => setHomeworkFilter('all')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    homeworkFilter === 'all'
+                      ? 'bg-[#1A4E47] text-white shadow-xs'
+                      : 'text-[#6C6356] hover:text-[#1F2926]'
+                  }`}
+                >
+                  الكل ({homeworks.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHomeworkFilter('homework')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    homeworkFilter === 'homework'
+                      ? 'bg-[#1A4E47] text-white shadow-xs'
+                      : 'text-[#6C6356] hover:text-[#1F2926]'
+                  }`}
+                >
+                  واجبات منزلية ({homeworks.filter((h) => h.postType === 'homework').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHomeworkFilter('video')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    homeworkFilter === 'video'
+                      ? 'bg-[#8A5A18] text-white shadow-xs'
+                      : 'text-[#6C6356] hover:text-[#1F2926]'
+                  }`}
+                >
+                  فيديوهات وروابط ({homeworks.filter((h) => h.postType === 'video').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setHomeworkFilter('lesson')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    homeworkFilter === 'lesson'
+                      ? 'bg-[#1F2926] text-white shadow-xs'
+                      : 'text-[#6C6356] hover:text-[#1F2926]'
+                  }`}
+                >
+                  دروس وملخصات ({homeworks.filter((h) => h.postType === 'lesson').length})
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            {(() => {
+              const filteredHomeworks =
+                homeworkFilter === 'all'
+                  ? homeworks
+                  : homeworks.filter((h) => h.postType === homeworkFilter);
+
+              if (filteredHomeworks.length === 0) {
+                return (
+                  <div className="py-14 text-center text-xs text-[#6C6356] bg-[#FAF8F5] rounded-2xl border border-dashed border-[#D5CDC0] space-y-2">
+                    <BookOpen className="w-10 h-10 text-[#C5BCAD] mx-auto" />
+                    <div className="font-bold text-sm text-[#1F2926]">
+                      {homeworkFilter === 'all'
+                        ? 'لا توجد واجبات أو دروس منشورة حالياً لقسمك'
+                        : 'لا توجد منشورات من هذا النوع حالياً'}
+                    </div>
+                    <p className="text-[11px] text-[#8C8275] max-w-sm mx-auto">
+                      عندما يقوم أساتذة قسمك بنشر واجبات منزلية أو روابط فيديوهات توضيحية، ستظهر لك هنا مباشرة.
+                    </p>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {filteredHomeworks.map((item) => (
+                    <div
+                      key={item.id}
+                      className="p-5 rounded-2xl bg-[#FAF8F5] border-2 border-[#E5DFD4] hover:border-[#C98A3C] transition-all flex flex-col justify-between shadow-2xs space-y-3"
+                    >
+                      <div className="space-y-2.5">
+                        {/* Header: Type & Teacher */}
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span
+                            className={`px-2.5 py-0.5 rounded-lg text-[10px] font-bold flex items-center gap-1 ${
+                              item.postType === 'video'
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                                : item.postType === 'lesson'
+                                ? 'bg-blue-100 text-blue-900 border border-blue-300'
+                                : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                            }`}
+                          >
+                            {item.postType === 'video' ? (
+                              <>
+                                <Video className="w-3 h-3" />
+                                <span>فيديو تعليمي / رابط مختصر</span>
+                              </>
+                            ) : item.postType === 'lesson' ? (
+                              <>
+                                <FileText className="w-3 h-3" />
+                                <span>درس / ملخص مكتوب</span>
+                              </>
+                            ) : (
+                              <>
+                                <BookOpen className="w-3 h-3" />
+                                <span>واجب منزلي</span>
+                              </>
+                            )}
+                          </span>
+
+                          <div className="text-xs text-[#554C3F] font-semibold flex items-center gap-1">
+                            <User className="w-3.5 h-3.5 text-[#C98A3C]" />
+                            <span>الأستاذ: {item.teacherName}</span>
+                            <span className="text-[#C5BCAD]">({item.subject})</span>
+                          </div>
+                        </div>
+
+                        {/* Title */}
+                        <h4 className="font-bold text-sm sm:text-base text-[#1F2926] leading-snug">
+                          {item.title}
+                        </h4>
+
+                        {/* Description */}
+                        {item.description && (
+                          <div className="text-xs text-[#4A4235] whitespace-pre-wrap leading-relaxed bg-white p-3 rounded-xl border border-[#E5DFD4]">
+                            {item.description}
+                          </div>
+                        )}
+
+                        {/* URL Link Box */}
+                        {item.urlLink && (
+                          <div className="p-3 rounded-xl bg-white border border-[#D5CDC0] flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-[200px]">
+                              {item.postType === 'video' ? (
+                                <Video className="w-4 h-4 text-rose-600 shrink-0" />
+                              ) : (
+                                <LinkIcon className="w-4 h-4 text-[#C98A3C] shrink-0" />
+                              )}
+                              <span className="text-xs font-mono text-[#1A4E47] truncate dir-ltr">
+                                {item.urlLink}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyLink(item.urlLink, item.id)}
+                                className="px-2.5 py-1.5 rounded-lg border border-[#D5CDC0] hover:bg-[#FAF8F5] text-xs font-bold text-[#6C6356] flex items-center gap-1 transition-all cursor-pointer"
+                                title="نسخ الرابط"
+                              >
+                                {copiedId === item.id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span className="text-emerald-700">تم النسخ</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy className="w-3.5 h-3.5" />
+                                    <span>نسخ</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <a
+                                href={item.urlLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1.5 rounded-lg bg-[#1A4E47] hover:bg-[#133D37] text-white text-xs font-bold flex items-center gap-1 transition-all shadow-2xs"
+                              >
+                                <span>فتح الرابط</span>
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Footer Dates */}
+                      <div className="flex items-center justify-between text-[11px] text-[#6C6356] pt-3 border-t border-[#E5DFD4] mt-2">
+                        {item.dueDate ? (
+                          <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                            آخر أجل للتسليم: {item.dueDate}
+                          </span>
+                        ) : (
+                          <span className="text-[#8C8275]">واجب مفتوح للمراجعة</span>
+                        )}
+                        <span>تاريخ النشر: {new Date(item.createdAt).toLocaleDateString('ar-MA')}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* TAB: TEACHER LEAVES & ABSENCE NOTICES */}
+        {activeTab === 'leaves' && (
+          <div className="bg-white rounded-2xl border border-[#E5DFD4] p-5 sm:p-6 shadow-xs space-y-5">
+            <div className="flex items-center justify-between gap-3 pb-4 border-b border-[#E5DFD4] flex-wrap">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-base sm:text-lg text-[#1F2926]">
+                    إشعارات رخص وغياب الأساتذة
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold text-xs">
+                    {teacherLeaves.length} إشعار
+                  </span>
+                </div>
+                <p className="text-xs text-[#6C6356] mt-0.5">
+                  بيان رسمي بالرخص القانونية لأساتذة قسمك وتوجيهاتهم للعمل الذاتي أثناء فترة الغياب
+                </p>
+              </div>
+            </div>
+
+            {teacherLeaves.length === 0 ? (
+              <div className="py-14 text-center text-xs text-emerald-800 font-bold bg-emerald-50 rounded-2xl border border-emerald-200 space-y-2">
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                <div className="text-sm">✓ جميع أساتذة قسمك حاضرون بانتظام</div>
+                <p className="text-[11px] font-normal text-emerald-700 max-w-sm mx-auto">
+                  لا توجد أي رخصة غياب مصرح بها حالياً. الحصص الدراسية تسير وفق جدول الحصص العادي.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {teacherLeaves.map((leave) => {
+                  const typeLabel =
+                    leave.leaveType === 'sick'
+                      ? 'رخصة مرضية قصيرة'
+                      : leave.leaveType === 'admin'
+                      ? 'رخصة إدارية استثنائية'
+                      : leave.leaveType === 'training'
+                      ? 'تكوين مستمر / تأطير تربوي'
+                      : leave.leaveType === 'mission'
+                      ? 'مهمة رسمية'
+                      : 'رخصة قانونية';
+
+                  return (
+                    <div
+                      key={leave.id}
+                      className="p-5 rounded-2xl bg-gradient-to-r from-[#FFFDF8] to-[#FFF9EE] border-2 border-amber-300 shadow-xs space-y-3"
+                    >
+                      <div className="flex items-center justify-between gap-3 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <span className="px-3 py-1 rounded-lg bg-amber-200/90 text-amber-950 font-bold text-xs border border-amber-400">
+                            {typeLabel}
+                          </span>
+                          <span className="font-bold text-sm sm:text-base text-[#1F2926]">
+                            الأستاذ(ة): {leave.teacherName}
+                          </span>
+                          <span className="text-xs text-[#6C6356]">
+                            ({leave.subject})
+                          </span>
+                        </div>
+
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                          إشعار رسمي معتمد ✓
+                        </span>
+                      </div>
+
+                      {/* Period & Slots */}
+                      <div className="flex items-center gap-4 text-xs text-[#554C3F] flex-wrap bg-white p-3 rounded-xl border border-amber-200">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="w-4 h-4 text-[#8A5A18]" />
+                          <span>
+                            <strong>فترة الرخصة:</strong> من <strong className="font-mono">{leave.startDate}</strong> إلى <strong className="font-mono">{leave.endDate}</strong>
+                          </span>
+                        </div>
+                        <span className="text-[#D5CDC0]">•</span>
+                        <div className="flex items-center gap-1.5">
+                          <Clock className="w-4 h-4 text-[#8A5A18]" />
+                          <span>
+                            <strong>الحصص المعنية:</strong> {leave.slotIds === 'all' ? 'كامل اليوم (جميع الحصص)' : leave.slotIds}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Instructions */}
+                      {leave.instructions && (
+                        <div className="p-3.5 rounded-xl bg-white border border-amber-300/80 text-xs text-[#4A4235] space-y-1">
+                          <strong className="text-amber-900 block font-bold">
+                            توجيهات ومهام الأستاذ للتلاميذ أثناء فترة الرخصة:
+                          </strong>
+                          <p className="whitespace-pre-wrap leading-relaxed text-[#1F2926]">
+                            {leave.instructions}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* TAB 1: ATTENDANCE RECORDS */}
         {activeTab === 'attendance' && (
@@ -936,7 +1374,11 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
 
                                 return (
                                   <td key={day.index} className="p-1.5">
-                                    <div className="p-2.5 rounded-xl bg-gradient-to-br from-white to-[#F9F7F2] border-2 border-[#1A4E47]/30 hover:border-[#1A4E47] transition-all text-right shadow-2xs group">
+                                    <div className={`p-2.5 rounded-xl border-2 transition-all text-right shadow-2xs group ${
+                                      slot.isTeacherOnLeave
+                                        ? 'bg-amber-50/90 border-amber-400'
+                                        : 'bg-gradient-to-br from-white to-[#F9F7F2] border-[#1A4E47]/30 hover:border-[#1A4E47]'
+                                    }`}>
                                       <div className="flex items-center justify-between gap-1 mb-1">
                                         <span className="font-bold text-xs text-[#1A4E47] truncate">
                                           {slot.subject || 'مادة دراسية'}
@@ -952,6 +1394,16 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
                                         <User className="w-2.5 h-2.5 text-[#C98A3C] shrink-0" />
                                         <span className="truncate">{slot.teacherName || '—'}</span>
                                       </div>
+
+                                      {slot.isTeacherOnLeave && (
+                                        <div
+                                          className="mt-1 px-1.5 py-0.5 rounded-md bg-amber-200/90 text-amber-950 font-bold text-[9px] flex items-center gap-1 border border-amber-300"
+                                          title={slot.leaveNotice?.instructions || 'الأستاذ في رخصة غياب مبررة'}
+                                        >
+                                          <AlertTriangle className="w-2.5 h-2.5 text-amber-800 shrink-0" />
+                                          <span className="truncate">رخصة غياب للأستاذ</span>
+                                        </div>
+                                      )}
 
                                       {slot.notes && (
                                         <div className="text-[9px] text-[#6C6356] mt-1 italic truncate">
@@ -1042,16 +1494,26 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
                       {daySlots.map((slot, idx) => (
                         <div
                           key={slot.id || idx}
-                          className="p-4 rounded-2xl bg-[#FAF8F5] border-2 border-[#E5DFD4] hover:border-[#C98A3C] flex items-start justify-between gap-3 transition-all shadow-2xs"
+                          className={`p-4 rounded-2xl border-2 flex items-start justify-between gap-3 transition-all shadow-2xs ${
+                            slot.isTeacherOnLeave
+                              ? 'bg-[#FFFDF8] border-amber-400'
+                              : 'bg-[#FAF8F5] border-[#E5DFD4] hover:border-[#C98A3C]'
+                          }`}
                         >
-                          <div className="space-y-1.5">
-                            <div className="flex items-center gap-2">
+                          <div className="space-y-1.5 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
                               <span className="px-2.5 py-0.5 rounded-lg bg-[#1A4E47] text-white font-bold text-[10px]">
                                 {(slot.period_type || slot.periodType) === 'morning' ? 'فترة صباحية' : 'فترة مسائية'}
                               </span>
                               <span className="font-bold text-sm text-[#1F2926]">
                                 {slot.subject || 'مادة دراسية'}
                               </span>
+                              {slot.isTeacherOnLeave && (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-amber-700" />
+                                  <span>رخصة غياب للأستاذ</span>
+                                </span>
+                              )}
                             </div>
 
                             <div className="text-xs text-[#4A4235] flex items-center gap-2 flex-wrap">
@@ -1069,6 +1531,24 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
                                 </>
                               )}
                             </div>
+
+                            {slot.isTeacherOnLeave && (
+                              <div className="mt-1 p-2 rounded-xl bg-amber-100/70 border border-amber-300 text-amber-950 text-xs space-y-1">
+                                <div className="font-bold text-[11px] text-amber-900 flex items-center gap-1">
+                                  <span>⚠️ رخصة غياب قانونية</span>
+                                  {slot.leaveNotice?.startDate && (
+                                    <span className="font-normal font-mono">
+                                      ({slot.leaveNotice.startDate} إلى {slot.leaveNotice.endDate})
+                                    </span>
+                                  )}
+                                </div>
+                                {slot.leaveNotice?.instructions && (
+                                  <div className="text-[11px] text-amber-950 font-medium">
+                                    <strong>توجيهات الأستاذ للقسم:</strong> {slot.leaveNotice.instructions}
+                                  </div>
+                                )}
+                              </div>
+                            )}
 
                             {slot.notes && (
                               <div className="text-[11px] text-[#6C6356] pt-1">

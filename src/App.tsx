@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import * as XLSX from 'xlsx';
-import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award, ArrowUpDown } from 'lucide-react';
+import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, ShieldAlert, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award, ArrowUpDown, BookOpen, FileCheck2, Megaphone } from 'lucide-react';
 import { printNotesReport, printViolationsReport, printClassroomSeatingPlan } from './utils/printNotes';
 import {
   AppSettings,
@@ -22,9 +22,12 @@ import { Topbar } from './components/Topbar';
 import { AuthModal } from './components/AuthModal';
 import { TeacherProfileModal } from './components/TeacherProfileModal';
 import { TeacherAssignmentModal } from './components/TeacherAssignmentModal';
+import { TeacherHomeworkModal } from './components/TeacherHomeworkModal';
+import { TeacherLeaveModal } from './components/TeacherLeaveModal';
 import { AdminApprovalsModal } from './components/AdminApprovalsModal';
 import { DirectorDashboard } from './components/DirectorDashboard';
 import { ViolationsModal } from './components/ViolationsModal';
+import { ViolationsRegisterModal } from './components/ViolationsRegisterModal';
 import { PositiveParticipationModal } from './components/PositiveParticipationModal';
 import { PositiveParticipationsReportModal } from './components/PositiveParticipationsReportModal';
 import { LandingView } from './components/LandingView';
@@ -103,6 +106,9 @@ export default function App() {
   const [authModalTab, setAuthModalTab] = useState<'login' | 'register' | 'forgot'>('login');
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showTeacherAssignmentModal, setShowTeacherAssignmentModal] = useState(false);
+  const [showTeacherHomeworkModal, setShowTeacherHomeworkModal] = useState(false);
+  const [showTeacherLeaveModal, setShowTeacherLeaveModal] = useState(false);
+  const [showViolationsRegisterModal, setShowViolationsRegisterModal] = useState(false);
   const [showAdminApprovalsModal, setShowAdminApprovalsModal] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
@@ -239,8 +245,12 @@ export default function App() {
       (total, section) => total + section.seats.reduce((count, seat) => count + (seat.notes?.length || 0), 0),
       0
     );
+    const violations = assignedSections.reduce(
+      (total, section) => total + section.seats.reduce((count, seat) => count + (seat.violations?.length || 0), 0),
+      0
+    );
 
-    return { sections: assignedSections.length, students, absences, notes };
+    return { sections: assignedSections.length, students, absences, notes, violations };
   }, [currentUser, sections]);
 
   // Toast
@@ -423,6 +433,8 @@ export default function App() {
     setShowAuthModal(false);
     setShowProfileModal(false);
     setShowTeacherAssignmentModal(false);
+    setShowTeacherHomeworkModal(false);
+    setShowTeacherLeaveModal(false);
     setShowAdminApprovalsModal(false);
     setShowBatchImportModal(false);
     setShowAddSectionModal(false);
@@ -1868,6 +1880,7 @@ export default function App() {
         onOpenDbModal={handleOpenDbInfo}
         onOpenHistoryModal={handleOpenDbInfo}
         onOpenDailyArchiveModal={() => setShowDailyArchiveModal(true)}
+        onOpenViolationsRegisterModal={() => setShowViolationsRegisterModal(true)}
         onOpenPositiveReportModal={() => {
           setPositiveReportInitialStudent(undefined);
           setShowPositiveReportModal(true);
@@ -2659,7 +2672,7 @@ export default function App() {
           )}
 
           {currentUser?.role === 'teacher' && teacherOverview && (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-5" dir="rtl">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 mb-5" dir="rtl">
               <button
                 type="button"
                 onClick={() => setTeacherFilterTab('timetable')}
@@ -2703,11 +2716,41 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => setTeacherFilterTab('my')}
-                className="text-right bg-white border border-[#E5DFD4] rounded-xl p-3 hover:border-[#1A4E47] transition-colors cursor-pointer"
+                onClick={() => setShowTeacherHomeworkModal(true)}
+                className="text-right bg-gradient-to-br from-[#FAF8F5] to-white border border-[#B9D8D2] hover:border-[#1A4E47] rounded-xl p-3 transition-colors cursor-pointer shadow-2xs group"
+                title="نشر واجبات منزلية وروابط فيديوهات وملخصات للتلاميذ"
               >
-                <div className="text-[11px] font-bold text-[#6C6356]">ملاحظاتي</div>
-                <div className="text-2xl font-bold text-[#1F2926] mt-1">{teacherOverview.notes}</div>
+                <div className="text-[11px] font-bold text-[#1A4E47] flex items-center gap-1">
+                  <BookOpen className="w-3.5 h-3.5 text-[#1A4E47]" />
+                  <span>الواجبات والدروس</span>
+                </div>
+                <div className="text-sm font-bold text-[#1F2926] mt-1">نشر للتلاميذ 📚</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowTeacherLeaveModal(true)}
+                className="text-right bg-gradient-to-br from-[#FFFDF8] to-[#FFF9EE] border border-amber-300 hover:border-amber-500 rounded-xl p-3 transition-colors cursor-pointer shadow-2xs group"
+                title="التصريح برخصة أو غياب في حصة مع إشعار التلاميذ بالتوجيهات"
+              >
+                <div className="text-[11px] font-bold text-[#8A5A18] flex items-center gap-1">
+                  <FileCheck2 className="w-3.5 h-3.5 text-[#8A5A18]" />
+                  <span>رخص وغياب</span>
+                </div>
+                <div className="text-sm font-bold text-amber-950 mt-1">إشعار التلاميذ 📝</div>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowViolationsRegisterModal(true)}
+                className="text-right bg-gradient-to-br from-rose-50/80 to-white border border-rose-300 hover:border-rose-500 rounded-xl p-3 transition-colors cursor-pointer shadow-2xs group"
+                title="سجل المخالفات والانضباط المدرسي - طباعة المخالفات وإشعار أولياء الأمور"
+              >
+                <div className="text-[11px] font-bold text-rose-800 flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5 text-rose-600" />
+                  <span>المخالفات</span>
+                </div>
+                <div className="text-2xl font-bold text-rose-700 mt-1">
+                  {teacherOverview.violations ?? 0}
+                </div>
               </button>
             </div>
           )}
@@ -2720,6 +2763,8 @@ export default function App() {
               onSelectSection={(secId) => {
                 setActiveSectionId(secId);
               }}
+              onOpenHomeworkModal={() => setShowTeacherHomeworkModal(true)}
+              onOpenLeaveModal={() => setShowTeacherLeaveModal(true)}
             />
           ) : (
             (() => {
@@ -3244,6 +3289,26 @@ export default function App() {
         />
       )}
 
+      {/* Teacher Homework & Digital Lessons Modal */}
+      {currentUser && (
+        <TeacherHomeworkModal
+          isOpen={showTeacherHomeworkModal}
+          onClose={() => setShowTeacherHomeworkModal(false)}
+          currentUser={currentUser}
+          sections={sections}
+        />
+      )}
+
+      {/* Teacher Leave & Absence Declaration Modal */}
+      {currentUser && (
+        <TeacherLeaveModal
+          isOpen={showTeacherLeaveModal}
+          onClose={() => setShowTeacherLeaveModal(false)}
+          currentUser={currentUser}
+          sections={sections}
+        />
+      )}
+
       {/* Director / Admin Approvals & Section Assignment Dashboard Modal */}
       <AdminApprovalsModal
         isOpen={showAdminApprovalsModal}
@@ -3253,12 +3318,22 @@ export default function App() {
         currentUser={currentUser}
       />
 
-      {/* Daily Archive Modal (أرشيف الغيابات والمخالفات اليومي) */}
+      {/* Daily Archive Modal (سجل الغيابات اليومي المستقل) */}
       <DailyArchiveModal
         isOpen={showDailyArchiveModal}
         onClose={() => setShowDailyArchiveModal(false)}
         currentUser={currentUser}
         sections={sections}
+      />
+
+      {/* Independent Violations Register Modal (سجل المخالفات والانضباط المدرسي المستقل) */}
+      <ViolationsRegisterModal
+        isOpen={showViolationsRegisterModal}
+        onClose={() => setShowViolationsRegisterModal(false)}
+        currentUser={currentUser}
+        sections={sections}
+        settings={settings}
+        onRefreshData={() => fetchInitialData(currentUser)}
       />
 
       {/* Roster Reorder & Renumber Modal (سحب وترتيب التلاميذ وتحيين الأرقام) */}
