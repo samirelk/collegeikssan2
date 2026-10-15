@@ -17,7 +17,8 @@ import {
   Sparkles,
   Award,
   Trophy,
-  ArrowUpDown
+  ArrowUpDown,
+  Phone
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SectionItem, SeatItem } from '../types';
@@ -308,19 +309,48 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
 
         </div>
 
-        {/* Student Name Field */}
+        {/* Student Name & Contact Field */}
         <div className="mb-2">
-          <label className="block text-[10.5px] font-bold text-[#5B5040] mb-0.5">
-            الاسم الكامل
-          </label>
+          <div className="flex items-center justify-between mb-1 gap-1">
+            <label className="block text-[10.5px] font-bold text-[#5B5040]">
+              الاسم الكامل
+            </label>
+            {seat.guardianPhone && (
+              <a
+                href={`https://wa.me/${seat.guardianPhone.replace(/\D/g, '').startsWith('0') ? '212' + seat.guardianPhone.replace(/\D/g, '').slice(1) : seat.guardianPhone.replace(/\D/g, '')}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-100 hover:bg-emerald-200 text-emerald-900 text-[10px] font-bold border border-emerald-300 transition-colors cursor-pointer"
+                title={`رقم ولي الأمر: ${seat.guardianPhone} ${seat.guardianPhoneVerified ? '(مؤكد ✓)' : ''} - انقر للمراسلة عبر واتساب`}
+              >
+                <Phone className="w-2.5 h-2.5 text-emerald-700" />
+                <span className="font-mono">{seat.guardianPhone}</span>
+                {seat.guardianPhoneVerified && <span className="text-emerald-700">✓</span>}
+              </a>
+            )}
+          </div>
 
-          <input
-            type="text"
-            value={seat.name}
-            placeholder="اكتب اسم التلميذ"
-            onChange={(e) => onUpdateSeat(seat.seat, { name: e.target.value })}
-            className="w-full bg-transparent border-b border-[#E4DBC0] focus:border-[#A96E28] text-xs sm:text-sm text-[#2A2118] py-0.5 outline-hidden placeholder:text-[rgba(42,33,24,0.35)]"
-          />
+          <div className="flex items-center gap-2">
+            {seat.photoUrl ? (
+              <img
+                src={seat.photoUrl}
+                alt={seat.name}
+                className="w-7 h-7 rounded-full object-cover border border-[#C98A3C] shadow-2xs shrink-0"
+              />
+            ) : hasStudent ? (
+              <div className="w-7 h-7 rounded-full bg-amber-200/70 border border-amber-300 text-amber-900 flex items-center justify-center text-[10px] font-bold shrink-0">
+                {seat.name.trim()[0] || 'ت'}
+              </div>
+            ) : null}
+            <input
+              type="text"
+              value={seat.name}
+              placeholder="اكتب اسم التلميذ"
+              onChange={(e) => onUpdateSeat(seat.seat, { name: e.target.value })}
+              className="flex-1 min-w-0 bg-transparent border-b border-[#E4DBC0] focus:border-[#A96E28] text-xs sm:text-sm text-[#2A2118] py-0.5 outline-hidden placeholder:text-[rgba(42,33,24,0.35)]"
+            />
+          </div>
         </div>
 
         {/* Student Number field */}

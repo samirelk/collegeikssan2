@@ -224,7 +224,8 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
       time: v.time,
       teacherName: v.teacherName || currentUser?.fullName || section.teacher || 'أستاذ المادة',
       subject: v.teacherSubject || currentUser?.subject || '',
-      actionTaken: v.actionTaken || 'تنبيه شفهي'
+      actionTaken: v.actionTaken || 'تنبيه شفهي',
+      phoneNumber: (seat as any).guardianPhone || (seat as any).guardian_phone || undefined
     });
   };
 

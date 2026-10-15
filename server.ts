@@ -115,6 +115,9 @@ import {
   getStudentAccounts,
   regenerateStudentAccessCode,
   regenerateSectionStudentAccessCodes,
+  generateGuardianVerificationCode,
+  verifyGuardianPhoneCode,
+  completeStudentProfile,
   getClassHomeworks,
   createClassHomework,
   deleteClassHomework,
@@ -2026,6 +2029,51 @@ async function startServer() {
     }
   });
 
+  // Request Guardian Phone Verification Code (إرسال رسالة واتساب بكود التفعيل إلى ولي الأمر)
+  app.post('/api/student/profile/request-code', (req, res) => {
+    try {
+      const { massarNumber, guardianPhone, institutionName } = req.body;
+      const settings = getAppSettings();
+      const inst = institutionName || settings.institution || 'المدرسة الرقمية';
+      const result = generateGuardianVerificationCode(massarNumber, guardianPhone, inst);
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Verify Guardian Phone Code (التحقق من رمز التأكيد)
+  app.post('/api/student/profile/verify-code', (req, res) => {
+    try {
+      const { massarNumber, code } = req.body;
+      const result = verifyGuardianPhoneCode(massarNumber, code);
+      markDirty();
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Complete Student Profile with Photo & Verified Guardian Phone
+  app.post('/api/student/profile/complete', (req, res) => {
+    try {
+      const { massarNumber, photoUrl, guardianPhone, guardianPhoneVerified } = req.body;
+      const data = completeStudentProfile(massarNumber, {
+        photoUrl,
+        guardianPhone,
+        guardianPhoneVerified
+      });
+      markDirty();
+      res.json({
+        success: true,
+        ...data,
+        message: 'تم حفظ الصورة وتأكيد رقم ولي الأمر وإكمال الملف بنجاح ✓'
+      });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
   app.get('/api/student/accounts', (req, res) => {
     try {
       const sectionId = req.query.sectionId as string | undefined;
@@ -2146,7 +2194,12 @@ async function startServer() {
   app.get('/api/violations', (req, res) => {
     try {
       const sectionId = (req.query.sectionId as string) || undefined;
-      const teacherId = (req.query.teacherId as string) || (req.headers['x-user-id'] as string) || undefined;
+      const userRole = (req.headers['x-user-role'] as string) || '';
+      let teacherId = (req.query.teacherId as string) || undefined;
+      // Only filter by teacherId if the requester is specifically a teacher
+      if (!teacherId && userRole === 'teacher') {
+        teacherId = (req.headers['x-user-id'] as string) || undefined;
+      }
       const teacherName = (req.query.teacherName as string) || undefined;
       const studentName = (req.query.studentName as string) || undefined;
       const violationType = (req.query.violationType as string) || undefined;

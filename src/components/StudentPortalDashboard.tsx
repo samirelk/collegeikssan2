@@ -5,6 +5,7 @@ import {
   Clock,
   Award,
   AlertTriangle,
+  AlertCircle,
   MailWarning,
   LogOut,
   QrCode,
@@ -29,9 +30,14 @@ import {
   Check,
   Megaphone,
   ShieldAlert,
-  BookMarked
+  BookMarked,
+  Smartphone,
+  MessageSquare,
+  Camera,
+  Share2
 } from 'lucide-react';
 import { printReportHtml } from '../utils/printNotes';
+import { StudentProfileCompletionModal } from './StudentProfileCompletionModal';
 
 export interface StudentData {
   student: {
@@ -43,6 +49,10 @@ export interface StudentData {
     sectionId: string;
     sectionLevel: string;
     sectionClass: string;
+    photoUrl?: string;
+    guardianPhone?: string;
+    guardianPhoneVerified?: boolean;
+    profileCompleted?: boolean;
   };
   metrics: {
     totalAbsences: number;
@@ -201,6 +211,25 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
   const { student, metrics, attendance, violations, positiveParticipations, summons, timetable } = data;
   const homeworks = data.homeworks || [];
   const teacherLeaves = data.teacherLeaves || [];
+
+  // Profile completion modal logic (first-time login or incomplete profile)
+  const [showProfileCompletionModal, setShowProfileCompletionModal] = useState<boolean>(() => {
+    try {
+      const storedCompleted = localStorage.getItem(`student_profile_completed_${student.massarNumber}`);
+      if (storedCompleted === 'true' && student.photoUrl && student.guardianPhone && student.guardianPhoneVerified) {
+        return false;
+      }
+    } catch {}
+    const isComplete = Boolean(
+      student.profileCompleted &&
+      student.photoUrl &&
+      student.guardianPhone &&
+      student.guardianPhoneVerified
+    );
+    return !isComplete;
+  });
+
+  const [whatsappToast, setWhatsappToast] = useState<string | null>(null);
 
   const handleCopyLink = (url: string, id: string) => {
     try {
@@ -514,29 +543,74 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
       <header className="bg-[#1A4E47] text-white py-3.5 px-4 sm:px-8 border-b border-[#C98A3C]/40 shadow-sm sticky top-0 z-40">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-[#133D37] border-2 border-[#C98A3C]/60 flex items-center justify-center text-[#C98A3C] shadow-md">
-              <GraduationCap className="w-6 h-6 text-[#C98A3C]" />
+            {/* Student Photo or Avatar */}
+            <div
+              onClick={() => setShowProfileCompletionModal(true)}
+              className="relative w-12 h-12 rounded-2xl bg-[#133D37] border-2 border-[#C98A3C] flex items-center justify-center text-[#C98A3C] shadow-md overflow-hidden cursor-pointer group hover:ring-2 hover:ring-[#C98A3C] transition-all shrink-0"
+              title="انقر لتعديل أو استعراض صورتك الشخصية"
+            >
+              {student.photoUrl ? (
+                <img
+                  src={student.photoUrl}
+                  alt={student.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <GraduationCap className="w-6 h-6 text-[#C98A3C]" />
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                <Camera className="w-4 h-4 text-white" />
+              </div>
             </div>
+
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-bold font-serif tracking-wide text-white">
                   فضاء التلميذ • {student.name}
                 </h1>
-                <span className="px-2.5 py-0.5 rounded-full bg-[#C98A3C]/20 border border-[#C98A3C]/40 text-[#C98A3C] font-bold text-[10px]">
-                  تلميذ متمدرس
-                </span>
+                {student.guardianPhone && student.guardianPhoneVerified ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-bold text-[10px] flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    <span>مفعل للواتساب ({student.guardianPhone})</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowProfileCompletionModal(true)}
+                    className="px-2.5 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer animate-pulse"
+                  >
+                    <AlertCircle className="w-3 h-3 text-amber-400" />
+                    <span>استكمال الملف ورقم ولي الأمر ⚠️</span>
+                  </button>
+                )}
               </div>
-              <div className="text-xs text-[#F2EFE3]/80 mt-0.5 flex items-center gap-2">
+              <div className="text-xs text-[#F2EFE3]/80 mt-0.5 flex items-center gap-2 flex-wrap">
                 <span>{student.sectionLevel} - القسم {student.sectionClass}</span>
                 <span>•</span>
                 <span className="font-mono text-[#C98A3C]">مسار: {student.massarNumber}</span>
+                {student.seatNumber && (
+                  <>
+                    <span>•</span>
+                    <span>المقعد رقم {student.seatNumber}</span>
+                  </>
+                )}
                 <span>•</span>
                 <span>{institutionName}</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setShowProfileCompletionModal(true)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer border border-white/20 shadow-xs"
+              title="تعديل صورتي الشخصية ورقم ولي أمري"
+            >
+              <Camera className="w-4 h-4 text-[#C98A3C]" />
+              <span className="hidden sm:inline">تعديل ملفي</span>
+            </button>
+
             <button
               type="button"
               onClick={handlePrintBadge}
@@ -603,6 +677,120 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             </button>
           </div>
         )}
+
+        {/* WhatsApp Notification Feedback Toast */}
+        {whatsappToast && (
+          <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-900 text-xs flex items-center gap-2 animate-in fade-in shadow-xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-bold">{whatsappToast}</span>
+          </div>
+        )}
+
+        {/* Uncompleted Profile Warning Banner */}
+        {(!student.guardianPhoneVerified || !student.photoUrl) && (
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-rose-50 to-amber-50 border-2 border-rose-300 text-rose-950 text-xs flex items-center justify-between gap-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+              <div>
+                <strong className="text-sm block text-rose-900">إشعار هام: صورتك الشخصية أو رقم ولي أمرك غير مكتملين</strong>
+                <span className="text-rose-800">
+                  يرجى استكمال صورتك الشخصية وتأكيد رقم هاتف ولي الأمر برمز التحقق لتصل إليه إشعارات الغيابات، المخالفات، وغياب الأساتذة عبر تطبيق واتساب.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowProfileCompletionModal(true)}
+              className="px-4 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white font-bold text-xs transition-colors shrink-0 cursor-pointer shadow-xs flex items-center gap-1.5"
+            >
+              <Camera className="w-4 h-4 text-[#C98A3C]" />
+              <span>إدخال الصورة ورقم الولي الآن 📱</span>
+            </button>
+          </div>
+        )}
+
+        {/* WhatsApp Guardian Communication & Live Test Card */}
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#E5DFD4] shadow-xs space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#E5DFD4] pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center text-emerald-700">
+                <Smartphone className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-sm text-[#1F2926]">
+                    منظومة إشعارات WhatsApp لولي الأمر • المدرسة الرقمية
+                  </h3>
+                  {student.guardianPhone && student.guardianPhoneVerified ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                      <span>مفعل ومؤكد</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                      <AlertCircle className="w-3 h-3 text-amber-600" />
+                      <span>غير مؤكد بعد</span>
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-[#6C6356] mt-0.5">
+                  رقم ولي الأمر المعتمد: <strong className="font-mono text-[#1A4E47] text-xs">{student.guardianPhone || 'لم يسجل بعد'}</strong> — تصل إليه كافة الإشعارات الفورية (غيابات، مخالفات، غياب أستاذ) عبر رسائل واتساب.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowProfileCompletionModal(true)}
+              className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl border border-[#D5E2DF] hover:bg-[#FAF8F5] text-[#1A4E47] text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <Camera className="w-3.5 h-3.5 text-[#C98A3C]" />
+              <span>تعديل الصورة أو الهاتف</span>
+            </button>
+          </div>
+
+          {/* Notification Channels Overview (Teacher & Admin are the senders) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+            <div className="p-3 rounded-xl bg-gradient-to-br from-rose-50/70 to-white border border-rose-200 text-right shadow-2xs">
+              <div className="flex items-center justify-between text-xs font-bold text-rose-800 mb-1">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-rose-600" />
+                  <span>إشعار الغياب والتأخر</span>
+                </span>
+                <span className="text-[10px] font-semibold text-rose-700 bg-rose-100/70 px-2 py-0.5 rounded-full">يرسله الأستاذ</span>
+              </div>
+              <p className="text-[10px] text-[#6C6356] leading-relaxed">
+                إشعار فوري لولي الأمر فور تسجيل الأستاذ للغياب في الحصة لضمان المواظبة والانضباط.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-gradient-to-br from-amber-50/70 to-white border border-amber-200 text-right shadow-2xs">
+              <div className="flex items-center justify-between text-xs font-bold text-amber-900 mb-1">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-700" />
+                  <span>إشعار المخالفة السلوكية</span>
+                </span>
+                <span className="text-[10px] font-semibold text-amber-800 bg-amber-100/70 px-2 py-0.5 rounded-full">يرسله الأستاذ</span>
+              </div>
+              <p className="text-[10px] text-[#6C6356] leading-relaxed">
+                إشعار الولي بالملاحظات الانضباطية أو استدعاء الحراسة العامة لمعالجة السلوك فور تسجيله.
+              </p>
+            </div>
+
+            <div className="p-3 rounded-xl bg-gradient-to-br from-emerald-50/70 to-white border border-emerald-200 text-right shadow-2xs">
+              <div className="flex items-center justify-between text-xs font-bold text-emerald-900 mb-1">
+                <span className="flex items-center gap-1.5">
+                  <Megaphone className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>إشعار غياب الأستاذ(ة)</span>
+                </span>
+                <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded-full">ترسله الإدارة</span>
+              </div>
+              <p className="text-[10px] text-[#6C6356] leading-relaxed">
+                إشعار مسبق للولي عند وجود رخصة أو تغيب للأستاذ مع توجيه التلميذ لإنجاز التمارين الرقمية.
+              </p>
+            </div>
+          </div>
+        </div>
 
         {/* Metric Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -1779,6 +1967,19 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
       <footer className="w-full bg-[#1A4E47] text-white/70 text-center py-3 border-t border-[#C98A3C]/30 text-xs">
         {institutionName} • فضاء التلميذ الرقمي للمتابعة والانضباط التربوي
       </footer>
+
+      {/* Student Profile Completion Modal (First-time mandatory / on-demand edit) */}
+      <StudentProfileCompletionModal
+        isOpen={showProfileCompletionModal}
+        onClose={() => setShowProfileCompletionModal(false)}
+        studentData={data}
+        institutionName={institutionName}
+        onProfileUpdated={(updatedData) => {
+          onUpdateData?.(updatedData);
+          setShowProfileCompletionModal(false);
+        }}
+        isMandatoryFirstTime={!student.profileCompleted}
+      />
     </div>
   );
 };

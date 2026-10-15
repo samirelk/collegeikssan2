@@ -1017,3 +1017,74 @@ input, textarea, select {
   color: #FFFFFF;
 }
 
+/* ========================================================
+   تحسينات التوافق مع متصفح Google Chrome على الهواتف الذكية
+   Mobile Chrome Viewport & Modal Optimization Fixes
+   ======================================================== */
+
+/* 1. منع متصفح Chrome على الهواتف من التكبير التلقائي عند لمس حقول الإدخال */
+@media screen and (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* 2. إصلاح مشكلة قص رأس النوافذ المنبثقة وأزرار الإغلاق في Chrome */
+div[class*="fixed inset-0"][class*="overflow-y-auto"],
+.modal-overlay {
+  align-items: flex-start !important;
+  justify-content: center !important;
+  height: 100% !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+  padding: 8px !important;
+  padding-top: max(8px, env(safe-area-inset-top)) !important;
+  padding-bottom: max(8px, env(safe-area-inset-bottom)) !important;
+}
+
+@media (min-width: 640px) {
+  div[class*="fixed inset-0"][class*="overflow-y-auto"],
+  .modal-overlay {
+    padding: 16px !important;
+    align-items: center !important;
+  }
+}
+
+/* 3. توسيط النوافذ تلقائياً بهامش ديناميكي يمنع خروجها عن الشاشة */
+div[class*="fixed inset-0"][class*="overflow-y-auto"] > div,
+.modal {
+  margin-top: auto !important;
+  margin-bottom: auto !important;
+  max-height: calc(100dvh - 16px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+@media (min-width: 640px) {
+  div[class*="fixed inset-0"][class*="overflow-y-auto"] > div,
+  .modal {
+    max-height: calc(100dvh - 32px) !important;
+  }
+}
+
+/* 4. سلاسة التمرير الداخلي في محتوى النوافذ المنبثقة على الهواتف */
+div[class*="fixed inset-0"] div[class*="overflow-y-auto"],
+.modal-body {
+  overscroll-behavior: contain !important;
+  -webkit-overflow-scrolling: touch !important;
+}
+
+/* 5. إزالة مؤثرات التغبيش الثقيلة في Chrome للموبايل لمنع وميض الشاشة أو بطء الاستجابة */
+@media (max-width: 768px) {
+  div[class*="fixed inset-0"][class*="backdrop-blur"] {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background-color: rgba(10, 18, 14, 0.88) !important;
+  }
+}
+
+

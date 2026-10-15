@@ -37,7 +37,8 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Settings2,
-  BarChart3
+  BarChart3,
+  Globe
 } from 'lucide-react';
 import {
   SectionItem,
@@ -61,6 +62,7 @@ import { TeacherCredentialsPrintModal } from './TeacherCredentialsPrintModal';
 import { DirectorAnalyticsDashboard } from './DirectorAnalyticsDashboard';
 import { StudentAccountsManagementModal } from './StudentAccountsManagementModal';
 import { ViolationsRegisterModal } from './ViolationsRegisterModal';
+import { CustomDomainModal } from './CustomDomainModal';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -86,6 +88,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [activeTab, setActiveTab] = useState<'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive' | 'analytics'>('academic-years');
   const [violationsSubTab, setViolationsSubTab] = useState<'top10' | 'manage-types'>('top10');
   const [isViolationsRegisterOpen, setIsViolationsRegisterOpen] = useState(false);
+  const [isCustomDomainOpen, setIsCustomDomainOpen] = useState(false);
   
   // Analytics & Teachers State
   const [analytics, setAnalytics] = useState<DirectorAnalytics | null>(null);

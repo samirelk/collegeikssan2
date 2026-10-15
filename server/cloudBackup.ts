@@ -114,17 +114,23 @@ export async function writeSnapshot(reason: string = 'manual'): Promise<Snapshot
     }
 
     // Write chunks (sequential to keep memory + concurrency modest).
+    let allChunksWritten = true;
     for (let i = 0; i < chunks.length; i++) {
-      if (!await setDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`, { data: chunks[i], index: i })) {
-        throw new Error(`تعذر حفظ مقطع النسخة السحابية رقم ${i}.`);
+      const ok = await setDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`, { data: chunks[i], index: i });
+      if (!ok) {
+        console.warn(`[CloudBackup] Notice: setDoc for chunk ${i} skipped or paused (Firestore quota/cooldown). Local database holds current data.`);
+        allChunksWritten = false;
+        break;
       }
+    }
+
+    if (!allChunksWritten) {
+      return prev || null;
     }
 
     // Remove leftover chunks from a previously larger snapshot for this day.
     for (let i = chunks.length; i < prevChunkCount; i++) {
-      if (!await deleteDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`)) {
-        throw new Error(`تعذر حذف المقطع القديم رقم ${i} من النسخة السحابية.`);
-      }
+      await deleteDoc(CHUNK_COLLECTION, `${snapshotId}__${i}`);
     }
 
     const manifest: SnapshotManifest = {

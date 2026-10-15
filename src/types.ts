@@ -230,6 +230,9 @@ export interface SeatItem {
   name: string;
   number: string;
   massarNumber?: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  guardianPhoneVerified?: boolean;
   notes: NoteItem[];
   violations?: StudentViolationRecord[];
   positiveParticipationCount?: number;
@@ -253,6 +256,9 @@ export interface RosterItem {
   name: string;
   number: string;
   massarNumber?: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  guardianPhoneVerified?: boolean;
   positiveParticipationCount?: number;
   positiveParticipations?: PositiveParticipationItem[];
 }
@@ -535,7 +541,7 @@ export interface TeacherTimetableEntry {
   teacherId: string;
   dayOfWeek: TimetableDay;
   slotId: string;
-  periodType: 'morning' | 'evening';
+  periodType: 'morning' | 'evening' | 'empty' | string;
   startTime: string;
   endTime: string;
   sectionId: string;

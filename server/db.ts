@@ -66,6 +66,9 @@ export interface SeatItem {
   name: string;
   number: string;
   massarNumber?: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  guardianPhoneVerified?: boolean;
   notes: NoteItem[];
   violations?: any[];
   positiveParticipations?: any[];
@@ -82,6 +85,9 @@ export interface RosterItem {
   name: string;
   number: string;
   massarNumber?: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  guardianPhoneVerified?: boolean;
   positiveParticipationCount?: number;
 }
 
@@ -630,6 +636,24 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tln_teacher ON teacher_leave_notices(teacher_id);
     CREATE INDEX IF NOT EXISTS idx_tln_dates ON teacher_leave_notices(start_date, end_date);
   `);
+
+  // Ensure photo, guardian phone, and verification columns in student_accounts & seats
+  const studentProfileMigrations = [
+    'ALTER TABLE student_accounts ADD COLUMN photo_url TEXT DEFAULT "";',
+    'ALTER TABLE student_accounts ADD COLUMN guardian_phone TEXT DEFAULT "";',
+    'ALTER TABLE student_accounts ADD COLUMN guardian_phone_verified INTEGER DEFAULT 0;',
+    'ALTER TABLE student_accounts ADD COLUMN verification_code TEXT DEFAULT "";',
+    'ALTER TABLE student_accounts ADD COLUMN profile_completed INTEGER DEFAULT 0;',
+    'ALTER TABLE seats ADD COLUMN photo_url TEXT DEFAULT "";',
+    'ALTER TABLE seats ADD COLUMN guardian_phone TEXT DEFAULT "";'
+  ];
+  for (const sql of studentProfileMigrations) {
+    try {
+      db.exec(sql);
+    } catch {
+      // Column already exists
+    }
+  }
 
   // Seed default predefined violation types if table is empty
   try {
@@ -1244,6 +1268,17 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
   const sectionRows = db.prepare(query).all(...params) as any[];
   const result: SectionItem[] = [];
 
+  const studentAccounts = db.prepare(`
+    SELECT massar_number, student_name, section_id, photo_url, guardian_phone, guardian_phone_verified, profile_completed
+    FROM student_accounts
+  `).all() as any[];
+  const studentAccountByMassar = new Map<string, any>();
+  const studentAccountByName = new Map<string, any>();
+  for (const acc of studentAccounts) {
+    if (acc.massar_number) studentAccountByMassar.set(acc.massar_number.trim().toLowerCase(), acc);
+    if (acc.student_name) studentAccountByName.set(acc.student_name.trim().toLowerCase(), acc);
+  }
+
   for (const sec of sectionRows) {
     // Get canonical seats
     const seatRows = db.prepare('SELECT * FROM seats WHERE section_id = ? ORDER BY seat_num ASC').all(sec.id) as any[];
@@ -1457,11 +1492,22 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       const cleanLowerStudentName = (studentName || '').trim().toLowerCase();
       const studentTotalAbsences = cleanLowerStudentName ? (absenceCountMap.get(cleanLowerStudentName) || 0) : 0;
 
+      const cleanSeatMassar = (massarNumber || '').trim().toLowerCase();
+      const seatAccount = (cleanSeatMassar && studentAccountByMassar.get(cleanSeatMassar)) ||
+                          (cleanLowerStudentName && studentAccountByName.get(cleanLowerStudentName));
+
+      const photoUrl = seatAccount?.photo_url || found?.photo_url || '';
+      const guardianPhone = seatAccount?.guardian_phone || found?.guardian_phone || '';
+      const guardianPhoneVerified = Boolean(seatAccount?.guardian_phone_verified || found?.guardian_phone_verified);
+
       seats.push({
         seat: i,
         name: studentName,
         number: studentNumber,
         massarNumber: massarNumber,
+        photoUrl: photoUrl || undefined,
+        guardianPhone: guardianPhone || undefined,
+        guardianPhoneVerified: guardianPhoneVerified,
         rosterId: rosterId,
         statusColor: statusColor,
         attendance: resolvedAttendance,
@@ -1475,6 +1521,15 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     }
 
     const roster = sectionRoster.map((r) => {
+      const cleanRName = (r.name || '').trim().toLowerCase();
+      const cleanRMassar = (r.massarNumber || '').trim().toLowerCase();
+      const rAccount = (cleanRMassar && studentAccountByMassar.get(cleanRMassar)) ||
+                       (cleanRName && studentAccountByName.get(cleanRName));
+
+      const rPhoto = rAccount?.photo_url || r.photoUrl || '';
+      const rPhone = rAccount?.guardian_phone || r.guardianPhone || '';
+      const rVerified = Boolean(rAccount?.guardian_phone_verified);
+
       const studentPos = posRows
         .filter((p: any) => matchStudent(r.name, r.number, r.massarNumber, p.student_name, p.student_number, p.massar_number))
         .map((p: any) => ({
@@ -1496,6 +1551,9 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       const posCount = studentPos.reduce((sum: number, p: any) => sum + (p.points || 1), 0);
       return {
         ...r,
+        photoUrl: rPhoto || undefined,
+        guardianPhone: rPhone || undefined,
+        guardianPhoneVerified: rVerified,
         positiveParticipationCount: posCount,
         positiveParticipations: studentPos
       };
@@ -2539,6 +2597,8 @@ export function addStudentViolation(
     now
   );
 
+  markDirty();
+
   return {
     id,
     sectionId,
@@ -2558,7 +2618,8 @@ export function addStudentViolation(
 }
 
 export function deleteStudentViolation(sectionId: string, seatNum: number, violationId: string) {
-  db.prepare('DELETE FROM daily_violations WHERE id = ? AND section_id = ? AND seat_num = ?').run(violationId, sectionId, seatNum);
+  // Delete by ID to ensure it is cleanly deleted regardless of seat movements
+  db.prepare('DELETE FROM daily_violations WHERE id = ?').run(violationId);
   try {
     db.prepare('DELETE FROM notes WHERE id = ?').run(violationId);
   } catch {}
@@ -2578,6 +2639,8 @@ export function deleteStudentViolation(sectionId: string, seatNum: number, viola
     JSON.stringify({ sectionId, seatNum, violationId }),
     new Date().toISOString()
   );
+
+  markDirty();
 
   return { success: true };
 }
@@ -3590,6 +3653,8 @@ export function exportFullBackup() {
   const teacherSeatOverrides = db.prepare('SELECT * FROM teacher_seat_overrides').all();
   const attendanceHistory = db.prepare('SELECT * FROM attendance_history').all();
   const dailyViolations = db.prepare('SELECT * FROM daily_violations').all();
+  const positiveParticipations = db.prepare('SELECT * FROM positive_participations').all();
+  const studentAccounts = db.prepare('SELECT * FROM student_accounts').all();
   const teacherTimetable = db.prepare('SELECT * FROM teacher_timetable').all();
 
   return {
@@ -3606,6 +3671,8 @@ export function exportFullBackup() {
     teacherSeatOverrides,
     attendanceHistory,
     dailyViolations,
+    positiveParticipations,
+    studentAccounts,
     teacherTimetable
   };
 }
@@ -3885,6 +3952,78 @@ export function importFullBackup(backupData: any) {
           tt.notes || '',
           tt.created_at || now,
           tt.updated_at || now
+        );
+      }
+    }
+
+    // 10. Positive Participations (المشاركات الإيجابية والنقاط التشجيعية)
+    if (Array.isArray(backupData.positiveParticipations)) {
+      const insertPos = db.prepare(`
+        INSERT OR REPLACE INTO positive_participations (
+          id, section_id, seat_num, student_name, student_number, massar_number,
+          participation_type, points, note, teacher_id, teacher_name, teacher_subject,
+          recorded_date, recorded_time, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const p of backupData.positiveParticipations) {
+        if (!p.id || !p.section_id) continue;
+        insertPos.run(
+          p.id,
+          p.section_id,
+          p.seat_num || null,
+          p.student_name || '',
+          p.student_number || '',
+          p.massar_number || '',
+          p.participation_type || 'مشاركة متميزة',
+          p.points || 1,
+          p.note || '',
+          p.teacher_id || '',
+          p.teacher_name || '',
+          p.teacher_subject || '',
+          p.recorded_date || now.slice(0, 10),
+          p.recorded_time || '08:30',
+          p.created_at || now
+        );
+      }
+    }
+
+    // 11. Student Accounts (حسابات التلاميذ والصور وأرقام أولياء الأمور)
+    if (Array.isArray(backupData.studentAccounts)) {
+      const insertAcc = db.prepare(`
+        INSERT INTO student_accounts (
+          id, massar_number, student_name, section_id, student_number,
+          access_code, photo_url, guardian_phone, guardian_phone_verified,
+          verification_code, profile_completed, last_login, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          massar_number = excluded.massar_number,
+          student_name = excluded.student_name,
+          section_id = excluded.section_id,
+          student_number = excluded.student_number,
+          access_code = excluded.access_code,
+          photo_url = COALESCE(NULLIF(excluded.photo_url, ''), student_accounts.photo_url),
+          guardian_phone = COALESCE(NULLIF(excluded.guardian_phone, ''), student_accounts.guardian_phone),
+          guardian_phone_verified = MAX(excluded.guardian_phone_verified, student_accounts.guardian_phone_verified),
+          profile_completed = MAX(excluded.profile_completed, student_accounts.profile_completed),
+          updated_at = excluded.updated_at
+      `);
+      for (const sa of backupData.studentAccounts) {
+        if (!sa.id || !sa.massar_number) continue;
+        insertAcc.run(
+          sa.id,
+          sa.massar_number,
+          sa.student_name || '',
+          sa.section_id,
+          sa.student_number || '',
+          sa.access_code || '123456',
+          sa.photo_url || '',
+          sa.guardian_phone || '',
+          sa.guardian_phone_verified ? 1 : 0,
+          sa.verification_code || '',
+          sa.profile_completed ? 1 : 0,
+          sa.last_login || null,
+          sa.created_at || now,
+          sa.updated_at || now
         );
       }
     }
@@ -8156,6 +8295,29 @@ export function addDailyViolation(data: {
     data.teacherId || ''
   );
 
+  try {
+    cloudSaveViolation({
+      id,
+      sectionId: data.sectionId,
+      seatNum: data.seatNum || null,
+      studentName: data.studentName.trim(),
+      studentNumber: (data.studentNumber || '').trim(),
+      violationType: data.violationType || 'مخالفة تربوية أخرى',
+      description: data.description.trim(),
+      actionTaken: data.actionTaken || 'تنبيه شفهي',
+      teacherName,
+      teacherSubject,
+      date,
+      time,
+      createdAt: now,
+      teacherId: data.teacherId || ''
+    });
+  } catch (err) {
+    console.warn('Firestore cloudSaveViolation in addDailyViolation warning:', err);
+  }
+
+  markDirty();
+
   return { success: true, id };
 }
 
@@ -8185,11 +8347,31 @@ export function updateDailyViolation(id: string, data: {
     WHERE id = ?
   `).run(violationType, description, actionTaken, recordedDate, recordedTime, id);
 
+  try {
+    const updated = db.prepare('SELECT * FROM daily_violations WHERE id = ?').get(id) as any;
+    if (updated) {
+      cloudSaveViolation(updated);
+    }
+  } catch (err) {
+    console.warn('Firestore cloudSaveViolation in updateDailyViolation warning:', err);
+  }
+
+  markDirty();
+
   return { success: true };
 }
 
 export function deleteDailyViolation(id: string) {
   db.prepare('DELETE FROM daily_violations WHERE id = ?').run(id);
+  try {
+    db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+  } catch {}
+  try {
+    cloudDeleteViolation(id);
+  } catch (err) {
+    console.warn('Firestore cloudDeleteViolation warning:', err);
+  }
+  markDirty();
   return { success: true };
 }
 
@@ -8734,7 +8916,7 @@ export function upsertTimetableSlot(teacherId: string, data: {
   }
 
   // Ensure the section assignment is also preserved and approved for this teacher and section
-  if (data.sectionId) {
+  if (data.sectionId && data.sectionId !== 'empty') {
     try {
       const teacher = findUserById(teacherId);
       const subject = (data.subject || teacher?.subject || 'عام').trim();
@@ -8780,6 +8962,7 @@ export function upsertTimetableSlot(teacherId: string, data: {
     }
   }
 
+  markDirty();
   return savedRecord;
 }
 
@@ -8798,6 +8981,7 @@ export function deleteTimetableSlot(teacherId: string, slotId: string, dayOfWeek
     }
   }
 
+  markDirty();
   return { success: true };
 }
 
@@ -8812,6 +8996,7 @@ export function deleteTimetableEntryById(id: string, teacherId?: string) {
   } catch (err) {
     console.warn('Firestore cloudDeleteTimetableEntry error:', err);
   }
+  markDirty();
   return { success: true };
 }
 
@@ -9067,6 +9252,8 @@ export function addPositiveParticipation(data: {
     createdAt
   });
 
+  markDirty();
+
   return {
     id,
     sectionId: data.sectionId,
@@ -9089,6 +9276,7 @@ export function addPositiveParticipation(data: {
 export function deletePositiveParticipation(id: string) {
   db.prepare('DELETE FROM positive_participations WHERE id = ?').run(id);
   cloudDeletePositiveParticipation(id);
+  markDirty();
   return { success: true };
 }
 
@@ -9873,6 +10061,10 @@ export function getStudentAccounts(sectionId?: string): StudentAccountItem[] {
     sectionClass: r.section_class || '',
     studentNumber: r.student_number || '',
     accessCode: r.access_code,
+    photoUrl: r.photo_url || '',
+    guardianPhone: r.guardian_phone || '',
+    guardianPhoneVerified: Boolean(r.guardian_phone_verified),
+    profileCompleted: Boolean(r.profile_completed),
     lastLogin: r.last_login,
     createdAt: r.created_at,
     updatedAt: r.updated_at
@@ -10110,7 +10302,11 @@ export function getStudentFullData(massarNumber: string) {
       seatNumber: seatRow ? seatRow.seat_num : null,
       sectionId: account.section_id,
       sectionLevel: account.section_level || '',
-      sectionClass: account.section_class || ''
+      sectionClass: account.section_class || '',
+      photoUrl: account.photo_url || '',
+      guardianPhone: account.guardian_phone || '',
+      guardianPhoneVerified: Boolean(account.guardian_phone_verified),
+      profileCompleted: Boolean(account.profile_completed)
     },
     metrics: {
       totalAbsences,
@@ -10391,3 +10587,183 @@ export function studentLogin(massarNumber: string, accessCode: string) {
 
   return getStudentFullData(cleanMassar);
 }
+
+// ==========================================
+// Student Profile & Guardian Verification
+// ==========================================
+
+export function generateGuardianVerificationCode(massarNumber: string, guardianPhone: string, institutionName?: string) {
+  const cleanMassar = massarNumber.trim();
+  const cleanPhone = guardianPhone.trim().replace(/\s+/g, '');
+
+  if (!cleanMassar || !cleanPhone) {
+    throw new Error('رقم مسار ورقم هاتف ولي الأمر مطلوبان');
+  }
+
+  // Generate 4-digit code (e.g. 5831)
+  const code = Math.floor(1000 + Math.random() * 9000).toString();
+  const now = new Date().toISOString();
+
+  const account = db.prepare(`
+    SELECT sa.id, sa.student_name, s.level as section_level, s.class_number as section_class 
+    FROM student_accounts sa
+    LEFT JOIN sections s ON sa.section_id = s.id
+    WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
+  `).get(cleanMassar) as any;
+
+  if (!account) {
+    throw new Error('حساب التلميذ غير مسجل في قاعدة البيانات');
+  }
+
+  db.prepare(`
+    UPDATE student_accounts 
+    SET guardian_phone = ?, verification_code = ?, updated_at = ?
+    WHERE id = ?
+  `).run(cleanPhone, code, now, account.id);
+
+  // International phone format for WhatsApp (e.g. 06xxxxxxxx -> 2126xxxxxxxx)
+  const intlPhone = cleanPhone.startsWith('0') ? '212' + cleanPhone.slice(1) : cleanPhone.replace('+', '');
+  const instName = institutionName || 'المدرسة الرقمية';
+  const studentName = account.student_name || '';
+  const sectionText = account.section_level ? `(${account.section_level} - ${account.section_class})` : '';
+
+  // Official institution WhatsApp message containing the activation code
+  const waMessage = `*المدرسة الرقمية* 🏫\n*${instName}*\n\nالسلام عليكم ورحمة الله،\nولي أمر التلميذ(ة): *${studentName}* ${sectionText}\n\nنحيطكم علماً بأن كود التحقق والتفعيل الخاص برقمكم لاستقبال الإشعارات المباشرة (الغيابات، المخالفات، وغياب الأساتذة) عبر WhatsApp هو:\n\n🔐 كود التفعيل: *${code}*\n\nيرجى تزويد التلميذ بهذا الكود لإدخاله في التطبيق واستكمال التسجيل بنجاح.\n\n_مع تحيات إدارة المؤسسة والطاقم التربوي_`;
+
+  const waUrl = `https://wa.me/${intlPhone}?text=${encodeURIComponent(waMessage)}`;
+
+  return {
+    success: true,
+    phone: cleanPhone,
+    intlPhone,
+    waUrl,
+    waMessage,
+    message: `تم تجهيز رسالة WhatsApp الرسمية باسم المؤسسة إلى هاتف ولي الأمر (${cleanPhone}).`
+  };
+}
+
+export function verifyGuardianPhoneCode(massarNumber: string, code: string) {
+  const cleanMassar = massarNumber.trim();
+  const cleanCode = code.trim();
+
+  if (!cleanMassar || !cleanCode) {
+    throw new Error('رقم مسار ورمز التحقق مطلوبان');
+  }
+
+  const account = db.prepare('SELECT id, verification_code, guardian_phone FROM student_accounts WHERE LOWER(TRIM(massar_number)) = LOWER(?)').get(cleanMassar) as any;
+  if (!account) {
+    throw new Error('حساب التلميذ غير مسجل');
+  }
+
+  const storedCode = String(account.verification_code || '').trim();
+  const isValid = storedCode && storedCode === cleanCode;
+
+  if (!isValid) {
+    throw new Error('كود التحقق غير صحيح. يرجى التأكد من كود التفعيل المكتوب في رسالة WhatsApp التي وصلت لولي أمرك.');
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE student_accounts 
+    SET guardian_phone_verified = 1, updated_at = ?
+    WHERE id = ?
+  `).run(now, account.id);
+
+  return {
+    success: true,
+    message: 'تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح ✓'
+  };
+}
+
+export function completeStudentProfile(massarNumber: string, data: {
+  photoUrl: string;
+  guardianPhone: string;
+  guardianPhoneVerified?: boolean;
+}) {
+  const cleanMassar = massarNumber.trim();
+  const photoUrl = (data.photoUrl || '').trim();
+  const cleanPhone = (data.guardianPhone || '').trim().replace(/\s+/g, '');
+
+  if (!cleanMassar) {
+    throw new Error('رقم مسار مطلوب');
+  }
+  if (!photoUrl) {
+    throw new Error('يرجى التقاط أو رفع الصورة الشخصية للتلميذ(ة)');
+  }
+  if (!cleanPhone) {
+    throw new Error('يرجى إدخال رقم هاتف ولي الأمر');
+  }
+
+  const account = db.prepare(`
+    SELECT sa.*, s.id as section_id
+    FROM student_accounts sa
+    LEFT JOIN sections s ON sa.section_id = s.id
+    WHERE LOWER(TRIM(sa.massar_number)) = LOWER(?)
+  `).get(cleanMassar) as any;
+
+  if (!account) {
+    throw new Error('حساب التلميذ غير مسجل');
+  }
+
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    UPDATE student_accounts
+    SET photo_url = ?, 
+        guardian_phone = ?, 
+        guardian_phone_verified = 1, 
+        profile_completed = 1, 
+        updated_at = ?
+    WHERE id = ?
+  `).run(photoUrl, cleanPhone, now, account.id);
+
+  // Sync with matching seat in seats table across sections
+  try {
+    db.prepare(`
+      UPDATE seats
+      SET photo_url = ?, guardian_phone = ?
+      WHERE LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
+         OR LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+    `).run(photoUrl, cleanPhone, cleanMassar, account.student_name);
+  } catch (err) {
+    console.error('Error syncing photo and phone to seats table:', err);
+  }
+
+  // Also sync into roster_json of all sections containing this student
+  try {
+    const allSecs = db.prepare('SELECT id, roster_json FROM sections').all() as any[];
+    for (const sec of allSecs) {
+      if (!sec.roster_json) continue;
+      try {
+        const roster = JSON.parse(sec.roster_json);
+        let changed = false;
+        for (const item of roster) {
+          const itemMassar = (item.massarNumber || '').trim().toLowerCase();
+          const itemName = (item.name || '').trim().toLowerCase();
+          if (
+            (cleanMassar && itemMassar === cleanMassar.toLowerCase()) ||
+            (account.student_name && itemName === account.student_name.trim().toLowerCase())
+          ) {
+            item.photoUrl = photoUrl;
+            item.guardianPhone = cleanPhone;
+            item.guardianPhoneVerified = true;
+            changed = true;
+          }
+        }
+        if (changed) {
+          db.prepare('UPDATE sections SET roster_json = ? WHERE id = ?').run(JSON.stringify(roster), sec.id);
+          try {
+            syncSectionToCloud(sec.id);
+          } catch {}
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.error('Error syncing photo and phone to sections roster:', err);
+  }
+
+  markDirty();
+
+  return getStudentFullData(cleanMassar);
+}
+

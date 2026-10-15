@@ -205,7 +205,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   // Save slot
   const handleSaveSlot = async () => {
     if (!editingSlot || !formSectionId) {
-      setErrorMsg('يرجى اختيار القسم المسند للحصة');
+      setErrorMsg('يرجى اختيار القسم المسند أو تحديد الحصة كحصة فارغة');
       return;
     }
 
@@ -213,16 +213,18 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
       setIsSaving(true);
       setErrorMsg(null);
 
+      const isEmpty = formSectionId === 'empty';
+
       const payload = {
         teacherId: currentUser.id,
         dayOfWeek: editingSlot.dayOfWeek,
         slotId: editingSlot.slot.id,
-        periodType: editingSlot.slot.period,
+        periodType: isEmpty ? 'empty' : editingSlot.slot.period,
         startTime: editingSlot.slot.startTime,
         endTime: editingSlot.slot.endTime,
         sectionId: formSectionId,
         room: formRoom.trim(),
-        subject: formSubject.trim() || currentUser.subject || '',
+        subject: isEmpty ? (formSubject.trim() || 'ساعة فراغ') : (formSubject.trim() || currentUser.subject || ''),
         notes: formNotes.trim()
       };
 
@@ -299,6 +301,15 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
     const renderSlotCell = (dayKey: TimetableDay, slotId: string) => {
       const entry = entries.find((e) => e.dayOfWeek === dayKey && e.slotId === slotId);
       if (!entry) return '<div class="empty-slot">—</div>';
+      if (entry.sectionId === 'empty' || entry.periodType === 'empty') {
+        return `
+          <div class="empty-period-slot" style="background:#fef3c7; border:1px dashed #d97706; border-radius:4px; padding:3px; color:#92400e;">
+            <div style="font-weight:bold; font-size:11px;">⏱️ ساعة فراغ</div>
+            ${entry.room ? `<div class="room-tag" style="font-size:9.5px; color:#78350f;">قاعة: ${escapeHtml(entry.room)}</div>` : ''}
+            ${entry.notes ? `<div class="subj-tag" style="font-size:9.5px; color:#78350f;">${escapeHtml(entry.notes)}</div>` : ''}
+          </div>
+        `;
+      }
       const sec = sections.find((s) => s.id === entry.sectionId);
       const secName = sec ? `${sec.level}/${sec.classNumber}` : entry.sectionName || 'قسم';
       return `
@@ -964,10 +975,20 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
                 </label>
                 <select
                   value={formSectionId}
-                  onChange={(e) => setFormSectionId(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setFormSectionId(val);
+                    if (val === 'empty') {
+                      if (!formSubject) setFormSubject('ساعة فراغ');
+                      if (!formRoom) setFormRoom('قاعة الأساتذة');
+                    }
+                  }}
                   className="w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-[#1F2926] text-xs font-bold focus:outline-hidden focus:border-[#1A4E47]"
                 >
-                  <option value="">-- اختر القسم --</option>
+                  <option value="">-- اختر القسم أو نوع الحصة --</option>
+                  <option value="empty" className="font-bold text-amber-900 bg-amber-50">
+                    ⏱️ حصة فارغة (ساعة فراغ / استراحة / تحضير)
+                  </option>
                   {displayedSectionsForPick.map((sec) => (
                     <option key={sec.id} value={sec.id}>
                       {sec.level} / {sec.classNumber}
@@ -975,7 +996,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
                   ))}
                 </select>
                 <p className="text-[11px] text-[#7A6B58] mt-1">
-                  عند النقر على الحصة مستقبلاً، سيتم فتح هذا القسم مباشرة لتسجيل الغيابات والمخالفات.
+                  يمكنك إسناد قسم للحصة، أو تحديدها كـ "حصة فارغة / ساعة فراغ" مع إمكانية تعديلها لاحقاً في أي وقت.
                 </p>
               </div>
 
@@ -1089,13 +1110,16 @@ const SlotCard: React.FC<SlotCardProps> = ({
   onSelectSection,
   onDelete
 }) => {
-  const isFilled = Boolean(entry && (section || entry.sectionName));
+  const isEmptySlot = Boolean(entry && (entry.sectionId === 'empty' || entry.periodType === 'empty'));
+  const isFilled = Boolean(entry && !isEmptySlot && (section || entry.sectionName));
 
   return (
     <div
       className={`rounded-xl border p-3 transition-all relative flex flex-col justify-between min-h-[115px] ${
         isCurrentSlot
           ? 'bg-emerald-50 border-2 border-emerald-500 shadow-md ring-2 ring-emerald-300 ring-offset-1'
+          : isEmptySlot
+          ? 'bg-amber-50/70 border-amber-300 hover:border-amber-400'
           : isFilled
           ? 'bg-[#F4F9F8] border-[#B9D8D2] hover:border-[#1A4E47]'
           : 'bg-[#FAF8F5]/60 border-dashed border-[#D5CDC0] hover:bg-white'
@@ -1117,7 +1141,37 @@ const SlotCard: React.FC<SlotCardProps> = ({
       </div>
 
       {/* Body of card */}
-      {isFilled && section ? (
+      {isEmptySlot ? (
+        <div className="my-1">
+          <button
+            type="button"
+            onClick={onOpenEdit}
+            className="w-full text-right p-2.5 rounded-lg bg-amber-100/60 border border-amber-300/80 hover:bg-amber-100 hover:border-amber-400 transition-colors cursor-pointer group shadow-2xs"
+            title="حصة فارغة محددة - انقر لتعديلها أو إسناد قسم لها"
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-xs text-amber-900 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                <span>⏱️ حصة فارغة (ساعة فراغ)</span>
+              </div>
+              <span className="text-[10px] text-amber-800 bg-amber-200/80 px-2 py-0.5 rounded-md font-bold group-hover:bg-amber-300">
+                تعديل ✎
+              </span>
+            </div>
+            {entry?.notes && (
+              <p className="text-[11px] text-amber-800 mt-1 line-clamp-1">
+                {entry.notes}
+              </p>
+            )}
+            {entry?.room && (
+              <div className="text-[10px] text-amber-700 mt-0.5 font-medium flex items-center gap-1">
+                <MapPin className="w-3 h-3 text-amber-600" />
+                <span>{entry.room}</span>
+              </div>
+            )}
+          </button>
+        </div>
+      ) : isFilled && section ? (
         <div className="my-1">
           {/* Main button to navigate to section for recording attendance & violations */}
           <button
@@ -1212,7 +1266,50 @@ const GridCellSlot: React.FC<GridCellSlotProps> = ({
   onOpenEdit,
   onSelectSection
 }) => {
-  const isFilled = Boolean(entry && section);
+  const isEmptySlot = Boolean(entry && (entry.sectionId === 'empty' || entry.periodType === 'empty'));
+  const isFilled = Boolean(entry && !isEmptySlot && section);
+
+  if (isEmptySlot) {
+    return (
+      <div className="w-full h-20 rounded-lg p-1.5 border border-amber-300 bg-amber-50/80 text-right relative flex flex-col justify-between">
+        <button
+          type="button"
+          onClick={onOpenEdit}
+          className="text-right cursor-pointer group"
+          title="حصة فارغة محددة في استعمال الزمان - انقر للتعديل"
+        >
+          <div className="flex items-center justify-between">
+            <span className="font-bold text-[11px] text-amber-900 group-hover:underline">
+              ⏱️ ساعة فراغ
+            </span>
+            <span className="text-[9px] text-amber-800 bg-amber-200/60 px-1 py-0.2 rounded font-bold">تعديل</span>
+          </div>
+          {entry?.room && (
+            <div className="text-[9px] text-amber-700 mt-0.5 truncate">
+              📍 {entry.room}
+            </div>
+          )}
+          {entry?.notes && (
+            <div className="text-[9px] text-amber-800 line-clamp-1 mt-0.5 font-medium">
+              {entry.notes}
+            </div>
+          )}
+        </button>
+
+        <div className="flex items-center justify-between pt-1 border-t border-amber-200 text-[9px]">
+          <span className="text-amber-800 font-semibold">حصة فارغة</span>
+          <button
+            type="button"
+            onClick={onOpenEdit}
+            className="text-amber-800 hover:text-amber-950 p-0.5 font-bold cursor-pointer"
+            title="تعديل الحصة الفارغة"
+          >
+            <Edit2 className="w-2.5 h-2.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!isFilled || !section) {
     return (
@@ -1220,7 +1317,7 @@ const GridCellSlot: React.FC<GridCellSlotProps> = ({
         type="button"
         onClick={onOpenEdit}
         className="w-full h-16 rounded-lg border border-dashed border-[#D5CDC0] bg-white/40 hover:bg-[#FAF8F5] hover:border-[#1A4E47] flex flex-col items-center justify-center text-[#7A6B58] hover:text-[#1A4E47] transition-colors cursor-pointer group p-1"
-        title="انقر لتعيين قسم لهذه الحصة"
+        title="انقر لتعيين قسم لهذه الحصة أو تحديدها كحصة فارغة"
       >
         <Plus className="w-4 h-4 opacity-40 group-hover:opacity-100" />
         <span className="text-[10px] mt-0.5 opacity-60 group-hover:opacity-100">فارغ</span>

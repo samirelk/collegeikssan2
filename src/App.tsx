@@ -40,6 +40,7 @@ import { TeacherTimetable } from './components/TeacherTimetable';
 import { RosterReorderModal } from './components/RosterReorderModal';
 import { StudentPortalDashboard, StudentData } from './components/StudentPortalDashboard';
 import { StudentLoginModal } from './components/StudentLoginModal';
+import { CustomDomainModal } from './components/CustomDomainModal';
 
 function normalizeArabicText(str?: string): string {
   if (!str) return '';

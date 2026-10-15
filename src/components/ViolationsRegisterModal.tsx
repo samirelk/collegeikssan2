@@ -514,6 +514,13 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   // WhatsApp notification
   const handleSendWhatsApp = (v: ViolationRecordItem) => {
     const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
+    const matchedSeat = sec?.seats.find((st) =>
+      (st.name && v.student_name && st.name.trim().toLowerCase() === v.student_name.trim().toLowerCase()) ||
+      (st.massarNumber && v.massar_number && st.massarNumber.trim().toLowerCase() === v.massar_number.trim().toLowerCase()) ||
+      (st.seat === Number(v.seat_num || v.seatNum))
+    );
+    const phone = (v as any).guardian_phone || (v as any).guardianPhone || (matchedSeat as any)?.guardianPhone || (matchedSeat as any)?.guardian_phone;
+
     shareViolationViaWhatsApp({
       institution: settings.institution || 'المدرسة الرقمية',
       studentName: v.student_name || v.studentName || '',
@@ -525,7 +532,8 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
       teacherName: v.teacher_name || v.teacherName || currentUser?.fullName || '',
       subject: v.teacher_subject || v.teacherSubject || currentUser?.subject || '',
       date: v.recorded_date || v.recordedDate || '',
-      time: v.recorded_time || v.recordedTime || ''
+      time: v.recorded_time || v.recordedTime || '',
+      phoneNumber: phone || undefined
     });
   };
 

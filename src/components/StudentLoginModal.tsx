@@ -150,8 +150,8 @@ export const StudentLoginModal: React.FC<StudentLoginModalProps> = ({
           <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#E5DFD4] text-[11px] text-[#6C6356] leading-relaxed flex items-start gap-2">
             <HelpCircle className="w-4 h-4 text-[#C98A3C] shrink-0 mt-0.5" />
             <div>
-              <strong className="text-[#1F2926] block">كيف أحصل على الكود السري؟</strong>
-              يتم تسليم كود الولوج السري لكل تلميذ من طرف إدارة المؤسسة أو الحارس العام. إذا أضعت كودك، يرجى التوجه لمكتب الإدارة.
+              <strong className="text-[#1F2926] block">تنبيه عند أول دخول:</strong>
+              يطلب منك النظام رفع صورتك الشخصية وتأكيد رقم ولي أمرك برسالة نصية لتفعيل استلام إشعارات الغيابات والمخالفات ورخص الأساتذة عبر تطبيق WhatsApp.
             </div>
           </div>
 

@@ -13,7 +13,8 @@ import {
   Eye,
   Lock,
   Download,
-  Users
+  Users,
+  Phone
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { Section, AppSettings } from '../types';
@@ -28,6 +29,10 @@ interface StudentAccountItem {
   sectionClass?: string;
   studentNumber: string;
   accessCode: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  guardianPhoneVerified?: boolean;
+  profileCompleted?: boolean;
   lastLogin: string | null;
   createdAt: string;
   updatedAt: string;
@@ -138,6 +143,8 @@ export const StudentAccountsManagementModal: React.FC<StudentAccountsManagementM
       'المستوى': a.sectionLevel || '—',
       'القسم': a.sectionClass || '—',
       'رقم مسار (Code Massar)': a.massarNumber,
+      'هاتف ولي الأمر': a.guardianPhone || 'غير مسجل',
+      'تأكيد الهاتف': a.guardianPhoneVerified ? 'مؤكد ✓' : 'غير مؤكد',
       'الكود السري للدخول': a.accessCode,
       'آخر تاريخ تسجيل دخول': a.lastLogin ? a.lastLogin.slice(0, 16).replace('T', ' ') : 'لم يدخل بعد'
     }));
@@ -283,7 +290,8 @@ export const StudentAccountsManagementModal: React.FC<StudentAccountsManagementM
       const matchName = a.studentName.toLowerCase().includes(q);
       const matchMassar = a.massarNumber.toLowerCase().includes(q);
       const matchCode = a.accessCode.includes(q);
-      if (!matchName && !matchMassar && !matchCode) return false;
+      const matchPhone = (a.guardianPhone || '').toLowerCase().includes(q);
+      if (!matchName && !matchMassar && !matchCode && !matchPhone) return false;
     }
     return true;
   });
@@ -419,10 +427,12 @@ export const StudentAccountsManagementModal: React.FC<StudentAccountsManagementM
               <table className="w-full text-xs text-right border-collapse">
                 <thead>
                   <tr className="bg-[#FAF8F5] border-b border-[#E5DFD4] text-[#6C6356]">
-                    <th className="py-3 px-4">#</th>
+                    <th className="py-3 px-3 text-center">#</th>
+                    <th className="py-3 px-3 text-center">الصورة</th>
                     <th className="py-3 px-4">اسم التلميذ</th>
                     <th className="py-3 px-4">القسم والمستوى</th>
                     <th className="py-3 px-4">رقم مسار (اسم الدخول)</th>
+                    <th className="py-3 px-4">هاتف ولي الأمر (واتساب)</th>
                     <th className="py-3 px-4">الكود السري (PIN)</th>
                     <th className="py-3 px-4">آخر دخول</th>
                     <th className="py-3 px-4 text-center">إجراء</th>
@@ -431,13 +441,60 @@ export const StudentAccountsManagementModal: React.FC<StudentAccountsManagementM
                 <tbody className="divide-y divide-[#E5DFD4]">
                   {filteredAccounts.map((a, idx) => (
                     <tr key={a.id} className="hover:bg-[#FAF8F5] transition-colors">
-                      <td className="py-3 px-4 font-mono text-[#6C6356]">{idx + 1}</td>
-                      <td className="py-3 px-4 font-bold text-[#1F2926]">{a.studentName}</td>
+                      <td className="py-3 px-3 text-center font-mono text-[#6C6356]">{idx + 1}</td>
+                      <td className="py-3 px-3 text-center">
+                        {a.photoUrl ? (
+                          <img
+                            src={a.photoUrl}
+                            alt={a.studentName}
+                            className="w-9 h-9 rounded-full object-cover border border-[#C98A3C]/60 mx-auto shadow-2xs"
+                          />
+                        ) : (
+                          <div className="w-9 h-9 rounded-full bg-amber-100 border border-amber-300 text-amber-900 flex items-center justify-center text-xs font-bold mx-auto">
+                            {a.studentName.trim()[0] || 'ت'}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-bold text-[#1F2926]">
+                        <div>{a.studentName}</div>
+                        {a.profileCompleted && (
+                          <span className="inline-block mt-0.5 text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.2 rounded-md">
+                            ملف مكتمل ✓
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 px-4 font-semibold text-[#1A4E47]">
                         {a.sectionLevel || ''} - ق {a.sectionClass || ''}
                       </td>
                       <td className="py-3 px-4 font-mono text-sm font-bold text-[#1A4E47]">
                         <code>{a.massarNumber}</code>
+                      </td>
+                      <td className="py-3 px-4">
+                        {a.guardianPhone ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={`https://wa.me/${a.guardianPhone.replace(/\D/g, '').startsWith('0') ? '212' + a.guardianPhone.replace(/\D/g, '').slice(1) : a.guardianPhone.replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-mono text-xs font-bold border border-emerald-300 transition-colors"
+                              title="انقر للمراسلة عبر واتساب"
+                            >
+                              <Phone className="w-3 h-3 text-emerald-700" />
+                              <span>{a.guardianPhone}</span>
+                            </a>
+                            {a.guardianPhoneVerified ? (
+                              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded-md" title="تم التحقق من الرقم عبر كود الواتساب">
+                                مؤكد ✓
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded-md">
+                                قيد التأكيد
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-[#A39989] italic">غير مسجل</span>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <span className="font-mono text-sm font-bold px-3 py-1 rounded-lg bg-[#EFE9D5] border border-[#C98A3C]/40 text-[#1A4E47] tracking-widest inline-block">
