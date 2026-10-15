@@ -108,8 +108,11 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
   // Filter sections belonging to teacher if teacher
   const teacherSections = useMemo(() => {
-    if (!isTeacher || !currentUser?.assignedSections) return sections;
-    return sections.filter((s) => currentUser.assignedSections?.includes(s.id));
+    if (!isTeacher || !currentUser) return sections;
+    return sections.filter((s) =>
+      s.assignedTeacherId === currentUser.id ||
+      s.assignedTeachers?.some((t) => t.teacherId === currentUser.id)
+    );
   }, [sections, isTeacher, currentUser]);
 
   const [violations, setViolations] = useState<ViolationRecordItem[]>([]);
@@ -204,12 +207,12 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const sectionStudentsList = useMemo(() => {
     if (!currentAddSection || !Array.isArray(currentAddSection.seats)) return [];
     return currentAddSection.seats
-      .filter((seat) => seat.student && seat.student.name?.trim())
+      .filter((seat) => seat.name && seat.name.trim())
       .map((seat) => ({
         seatNum: seat.seatNum,
-        name: seat.student.name.trim(),
-        studentNumber: seat.student.studentNumber || String(seat.seatNum),
-        massarNumber: seat.student.massarNumber || ''
+        name: seat.name.trim(),
+        studentNumber: seat.studentNumber || String(seat.seatNum),
+        massarNumber: seat.massarNumber || ''
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ar'));
   }, [currentAddSection]);
@@ -512,15 +515,17 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const handleSendWhatsApp = (v: ViolationRecordItem) => {
     const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
     shareViolationViaWhatsApp({
+      institution: settings.institution || 'المدرسة الرقمية',
       studentName: v.student_name || v.studentName || '',
-      sectionName: sec ? `${sec.level} (${sec.classNumber})` : v.section_level || 'الفصل',
+      level: sec?.level || v.section_level || 'الفصل الدراسي',
+      classNumber: sec?.classNumber || v.section_class || '1',
+      massarNumber: v.massar_number || v.massarNumber,
       violationType: v.violation_type || v.violationType || '',
       actionTaken: v.action_taken || v.actionTaken || 'تنبيه شفهي',
       teacherName: v.teacher_name || v.teacherName || currentUser?.fullName || '',
       subject: v.teacher_subject || v.teacherSubject || currentUser?.subject || '',
       date: v.recorded_date || v.recordedDate || '',
-      time: v.recorded_time || v.recordedTime || '',
-      institution: settings.institution || 'المدرسة الرقمية'
+      time: v.recorded_time || v.recordedTime || ''
     });
   };
 

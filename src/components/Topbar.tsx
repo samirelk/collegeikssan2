@@ -15,7 +15,8 @@ import {
   Home,
   Building2,
   Calendar,
-  UserX
+  UserX,
+  AlertTriangle
 } from 'lucide-react';
 import { AppSettings, DbStats, User as UserType } from '../types';
 import { PWAInstallButton } from './PWAInstallButton';

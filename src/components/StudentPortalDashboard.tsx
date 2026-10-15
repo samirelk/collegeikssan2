@@ -500,7 +500,7 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
         </table>
         <div class="footer">
           <span>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-MA')}</span>
-          <span>منظومة خرائط الأقسام وتدبير الفصول • فضاء التلميذ</span>
+          <span>المدرسة الرقمية • فضاء التلميذ وتتبع المواظبة</span>
         </div>
       </body>
       </html>

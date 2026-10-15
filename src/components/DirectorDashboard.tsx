@@ -60,6 +60,7 @@ import { DirectorPrintModal } from './DirectorPrintModal';
 import { TeacherCredentialsPrintModal } from './TeacherCredentialsPrintModal';
 import { DirectorAnalyticsDashboard } from './DirectorAnalyticsDashboard';
 import { StudentAccountsManagementModal } from './StudentAccountsManagementModal';
+import { ViolationsRegisterModal } from './ViolationsRegisterModal';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -84,6 +85,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'academic-years' | 'teachers' | 'violations' | 'absences' | 'students' | 'sections' | 'daily-archive' | 'analytics'>('academic-years');
   const [violationsSubTab, setViolationsSubTab] = useState<'top10' | 'manage-types'>('top10');
+  const [isViolationsRegisterOpen, setIsViolationsRegisterOpen] = useState(false);
   
   // Analytics & Teachers State
   const [analytics, setAnalytics] = useState<DirectorAnalytics | null>(null);
@@ -1099,8 +1101,8 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         {/* سجل المخالفات */}
         <button
           type="button"
-          onClick={() => navigateToTab('violations')}
-          title="انقر لفتح سجل المخالفات ومتابعة السلوك وتدبير أنواع المخالفات"
+          onClick={() => setIsViolationsRegisterOpen(true)}
+          title="انقر لفتح السجل العام للمخالفات، طباعة تقارير المخالفات، واستخراج استدعاءات أولياء الأمور"
           className={`text-right rounded-xl p-3 shadow-xs border transition-all cursor-pointer flex flex-col justify-between group hover:shadow-md hover:-translate-y-0.5 ${
             activeTab === 'violations' && !inspectSectionId
               ? 'bg-[#FDF2F2] border-[#A8443A] ring-2 ring-[#A8443A]/20 shadow-xs'
@@ -1629,6 +1631,16 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             </div>
 
             <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+              <button
+                type="button"
+                onClick={() => setIsViolationsRegisterOpen(true)}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                title="فتح سجل المخالفات التفاعلي المستقل، طباعة جميع المخالفات، واستخراج استدعاءات أولياء الأمور"
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-[#C98A3C]" />
+                <span>فتح السجل العام للمخالفات وإشعارات أولياء الأمور ↗</span>
+              </button>
+
               <div className="flex items-center bg-[#EFE9D5] p-1 rounded-xl border border-[#D9CEB0]">
                 <button
                   type="button"
@@ -3959,6 +3971,16 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         onClose={() => setShowStudentAccountsModal(false)}
         sections={sections}
         settings={settings}
+      />
+
+      {/* Full Violations & Disciplinary Register Modal (سجل المخالفات والانضباط المدرسي العام) */}
+      <ViolationsRegisterModal
+        isOpen={isViolationsRegisterOpen}
+        onClose={() => setIsViolationsRegisterOpen(false)}
+        currentUser={currentUser}
+        sections={sections}
+        settings={settings}
+        onRefreshData={onRefreshSections}
       />
 
     </div>

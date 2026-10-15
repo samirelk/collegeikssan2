@@ -619,7 +619,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
               </div>
               <div>
                 <h2 className="text-base sm:text-xl font-bold text-slate-800 flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                  <span>{isTeacher ? 'الغيابات الحالية (قيد الغياب الآن)' : 'أرشيف الغيابات والمخالفات اليومي'}</span>
+                  <span>{isTeacher ? 'سجل الغيابات الحالية (قيد الغياب الآن)' : 'سجل الغيابات اليومية وتتبع المواظبة'}</span>
                   {selectedDate === todayStr && (
                     <span className={`px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                       isTeacher ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'
@@ -629,7 +629,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                   )}
                 </h2>
                 <p className="text-xs sm:text-sm font-medium text-slate-500 mt-0.5">
-                  {isTeacher ? 'مراقبة فورية للمتغيبين حالياً في حصصك وأقسامك الدراسية' : formattedArabicDate}
+                  {isTeacher ? 'سجل رسمي مستقل لمراقبة المتغيبين حالياً في حصصك وأقسامك الدراسية' : formattedArabicDate}
                 </p>
               </div>
             </div>

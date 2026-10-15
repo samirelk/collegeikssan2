@@ -296,7 +296,7 @@ export default function App() {
             userEmail: currentUser?.email || '',
             subject: currentUser?.subject || '',
             path: window.location.pathname || '/',
-            pageTitle: document.title || 'منظومة خرائط الأقسام'
+            pageTitle: document.title || 'المدرسة الرقمية'
           })
         });
       } catch {
@@ -3404,7 +3404,7 @@ export default function App() {
           </table>
 
           <div className="print-footer">
-            تم استخراج هذه الوثيقة من نظام خرائط الأقسام بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
+            تم استخراج هذه الوثيقة من منظومة المدرسة الرقمية بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
           </div>
         </div>
       )}
