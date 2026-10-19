@@ -382,7 +382,7 @@ export function printViolationsReport(options: PrintViolationsOptions): boolean 
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الرقمية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>التواريخ والأوقات مسجلة رسمياً بالأرقام الفرنسية</span>
     </div>
   </div>
@@ -553,7 +553,7 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الرقمية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -732,7 +732,7 @@ export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الرقمية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -887,7 +887,7 @@ export function printSingleViolationNotice(options: PrintSingleViolationOptions)
     </table>
 
     <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10.5px; color: #777;">
-      <span>المدرسة الرقمية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية للتتبع السلوكي والتربوي</span>
     </div>
   </div>
@@ -1083,7 +1083,7 @@ export function printStudentRosterReport(options: PrintStudentRosterOptions): bo
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الرقمية • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -1301,7 +1301,7 @@ export function printClassroomSeatingPlan(options: PrintClassroomSeatingPlanOpti
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الرقمية • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
       <span>مخطط هندسي رسمي لتنظيم وتوزيع المقاعد داخل الحجرة الدراسية</span>
     </div>
   </div>
@@ -1633,7 +1633,7 @@ export function printDailyArchiveReport(options: PrintDailyArchiveOptions): bool
     </div>
 
     <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #777;">
-      <span>المدرسة الرقمية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>وثيقة الأرشيف اليومي الرسمية للإدارة والتربية</span>
     </div>
   </div>
@@ -1976,7 +1976,7 @@ export function printStudentPositiveParticipationsReport(options: PrintStudentPo
     </div>
 
     <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #777;">
-      <span>المدرسة الرقمية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>بطاقة تعزيز وتشجيع رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -2312,7 +2312,7 @@ export function printSectionPositiveParticipationsReport(options: PrintSectionPo
     </div>
 
     <div class="footer-bar" style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #ccc; display: flex; justify-content: space-between; font-size: 10px; color: #777;">
-      <span>المدرسة الرقمية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
       <span>لوحة التميز والمشاركات الإيجابية الرسمية</span>
     </div>
   </div>
@@ -2577,7 +2577,7 @@ export function printStudentAttendanceCard(options: PrintStudentAttendanceCardOp
       </div>
 
       <div style="margin-top: 25px; padding-top: 10px; border-top: 1px dashed #cbd5e1; display: flex; justify-content: space-between; font-size: 10px; color: #64748b;">
-        <span>المدرسة الرقمية • ${escapeHtml(options.institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+        <span>المدرسة الإلكترونية • ${escapeHtml(options.institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
         <span>كشف المواظبة والغياب الفردي الرسمي</span>
       </div>
     </body>
@@ -3095,7 +3095,7 @@ export interface PrintParentViolationNoticeOptions {
 
 export function printParentViolationNotice(options: PrintParentViolationNoticeOptions): boolean {
   const {
-    institution = 'المدرسة الرقمية',
+    institution = 'المدرسة الإلكترونية',
     academicYear = '2025/2026',
     studentName,
     studentNumber,
@@ -3166,7 +3166,7 @@ export function printParentViolationNotice(options: PrintParentViolationNoticeOp
 
     <div class="doc-title-container">
       <div class="doc-main-title">استدعاء رسمي وإشعار بمخالفة انضباطية</div>
-      <div class="sub-head">المدرسة الرقمية • تدبير الانضباط المدرسي والتواصل مع الأسر</div>
+      <div class="sub-head">المدرسة الإلكترونية • تدبير الانضباط المدرسي والتواصل مع الأسر</div>
     </div>
 
     <div style="margin-bottom: 12px; font-size: 13.5px;">
@@ -3260,7 +3260,7 @@ export function printParentViolationNotice(options: PrintParentViolationNoticeOp
     </div>
 
     <div style="margin-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; border-top: 1px dotted #cbd5e1; padding-top: 4px;">
-      <span>المدرسة الرقمية • ${escapeHtml(institution)}</span>
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution)}</span>
       <span>رمز الوثيقة: VIOL-SUMMONS-${now.getTime().toString().slice(-6)}</span>
     </div>
   </div>

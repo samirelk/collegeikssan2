@@ -101,7 +101,7 @@ export const Topbar: React.FC<TopbarProps> = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-bold text-[#1F2926] group-hover:text-[#1A4E47] m-0 tracking-wide font-['Amiri',serif] transition-colors">
-              المدرسة الرقمية
+              المدرسة الإلكترونية
             </h1>
             <span className="px-2 py-0.5 rounded-full bg-[#1A4E47]/10 text-[#1A4E47] font-bold text-[11px] hidden md:inline">
               منظومة تدبير الفصول والغيابات والمخالفات

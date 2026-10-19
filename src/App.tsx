@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, ShieldAlert, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award, ArrowUpDown, BookOpen, FileCheck2, Megaphone } from 'lucide-react';
 import { printNotesReport, printViolationsReport, printClassroomSeatingPlan } from './utils/printNotes';
@@ -297,7 +297,7 @@ export default function App() {
             userEmail: currentUser?.email || '',
             subject: currentUser?.subject || '',
             path: window.location.pathname || '/',
-            pageTitle: document.title || 'المدرسة الرقمية'
+            pageTitle: document.title || 'المدرسة الإلكترونية'
           })
         });
       } catch {
@@ -3449,7 +3449,7 @@ export default function App() {
           </table>
 
           <div className="print-footer">
-            تم استخراج هذه الوثيقة من منظومة المدرسة الرقمية بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
+            تم استخراج هذه الوثيقة من منظومة المدرسة الإلكترونية بتاريخ {new Date().toLocaleDateString('ar-SA', { timeZone: 'UTC' })} (توقيت غرينتش GMT)
           </div>
         </div>
       )}
@@ -3530,7 +3530,17 @@ function SeatCard({
     }
   }, [showColorPicker]);
 
-  const hasRoster = roster && roster.length > 0;
+  // Effective roster: use section roster if available; otherwise generate numbers 1..40 so dropdown is ALWAYS available
+  const effectiveRoster = useMemo<RosterItem[]>(() => {
+    if (roster && roster.length > 0) return roster;
+    return Array.from({ length: 40 }, (_, i) => ({
+      id: `num_${i + 1}`,
+      number: String(i + 1),
+      name: '',
+      massarNumber: ''
+    }));
+  }, [roster]);
+
   const hasStudent = Boolean(seat.name && seat.name.trim());
   const currentStatusColor = seat.statusColor || 'default';
 
@@ -3543,7 +3553,7 @@ function SeatCard({
       }
       return;
     }
-    const student = roster.find((r) => r.id === rosterId);
+    const student = effectiveRoster.find((r) => r.id === rosterId);
     if (student) {
       if (onAssignStudent) {
         onAssignStudent(sectionId, seat.seat, {
@@ -3554,9 +3564,9 @@ function SeatCard({
         });
       } else {
         onSeatChange(sectionId, seat.seat, 'rosterId', student.id);
-        onSeatChange(sectionId, seat.seat, 'name', student.name);
+        if (student.name) onSeatChange(sectionId, seat.seat, 'name', student.name);
         onSeatChange(sectionId, seat.seat, 'number', student.number);
-        onSeatChange(sectionId, seat.seat, 'massarNumber', student.massarNumber || '');
+        if (student.massarNumber) onSeatChange(sectionId, seat.seat, 'massarNumber', student.massarNumber);
       }
     }
   };
@@ -3705,40 +3715,34 @@ function SeatCard({
             <span>{isSelectedForSwap ? 'محدد ✓' : 'تبديل'}</span>
           </button>
         </div>
-        {hasRoster ? (
-          <select
-            id={`seat-num-input-${seat.seat}`}
-            value={seat.number}
-            onChange={(e) => {
-              const match = roster.find((item) => item.number === e.target.value);
-              if (match) {
-                handleSelectStudent(match.id);
-              } else {
-                onSeatChange(sectionId, seat.seat, 'number', e.target.value);
-              }
-            }}
-            className="w-full text-xs font-mono text-center"
-          >
-            <option value="">— اختر الرقم —</option>
-            {roster.map((r) => (
-              <option key={r.id} value={r.number}>{r.number}</option>
-            ))}
-          </select>
-        ) : (
-          <input
-            id={`seat-num-input-${seat.seat}`}
-            type="text"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            placeholder="1"
-            value={seat.number}
-            onChange={(e) => {
-              const clean = e.target.value.replace(/[^0-9]/g, '');
-              onSeatChange(sectionId, seat.seat, 'number', clean);
-            }}
-            className="w-full text-xs font-mono text-center"
-          />
-        )}
+        <select
+          id={`seat-num-input-${seat.seat}`}
+          value={seat.number}
+          onChange={(e) => {
+            const selectedNum = e.target.value;
+            if (!selectedNum) {
+              onSeatChange(sectionId, seat.seat, 'number', '');
+              return;
+            }
+            const match = effectiveRoster.find((item) => item.number === selectedNum);
+            if (match && match.name) {
+              handleSelectStudent(match.id);
+            } else {
+              onSeatChange(sectionId, seat.seat, 'number', selectedNum);
+            }
+          }}
+          className="w-full text-xs font-mono text-center bg-white border border-[#D5CDC0] rounded-md py-1 px-1 cursor-pointer focus:border-[#1A4E47] focus:ring-1 focus:ring-[#1A4E47]"
+        >
+          <option value="">— اختر الرقم —</option>
+          {seat.number && !effectiveRoster.some((r) => r.number === seat.number) && (
+            <option value={seat.number}>{seat.number}</option>
+          )}
+          {effectiveRoster.map((r) => (
+            <option key={r.id} value={r.number}>
+              {r.number} {r.name ? `• ${r.name}` : ''}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Daily Attendance Recording Toolbar */}

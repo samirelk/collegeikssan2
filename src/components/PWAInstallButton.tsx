@@ -69,7 +69,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
               </div>
               <div>
                 <h4 className="text-sm font-bold text-[#FDE88F] flex items-center gap-1.5">
-                  تثبيت تطبيق المدرسة الرقمية على هاتفك
+                  تثبيت تطبيق المدرسة الإلكترونية على هاتفك
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#E5B242]/20 border border-[#E5B242]/40 text-[#FDE88F]">
                     PWA سريع
                   </span>

@@ -597,7 +597,7 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
         </table>
         <div class="footer">
           <span>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-MA')}</span>
-          <span>المدرسة الرقمية • فضاء التلميذ وتتبع المواظبة</span>
+          <span>المدرسة الإلكترونية • فضاء التلميذ وتتبع المواظبة</span>
         </div>
       </body>
       </html>
@@ -804,7 +804,7 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="font-bold text-sm text-[#1F2926]">
-                    منظومة إشعارات WhatsApp لولي الأمر • المدرسة الرقمية
+                    منظومة إشعارات WhatsApp لولي الأمر • المدرسة الإلكترونية
                   </h3>
                   {student.guardianPhone && student.guardianPhoneVerified ? (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">

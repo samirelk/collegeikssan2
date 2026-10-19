@@ -180,7 +180,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
           </div>
           <div>
             <h1 className="text-xl md:text-2xl font-bold text-[#1F2926] m-0 font-['Amiri',serif]">
-              نظام تدبير الغيابات والمخالفات
+              المدرسة الإلكترونية
             </h1>
             <p className="text-xs text-[#6C6356] m-0">
               {institutionName || 'الثانوية الإعدادية ايكسان'} • الموسم الدراسي {academicYear || '2025/2026'}

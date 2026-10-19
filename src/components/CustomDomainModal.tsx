@@ -25,7 +25,7 @@ export const CustomDomainModal: React.FC<CustomDomainModalProps> = ({
   isOpen,
   onClose,
   domainName = 'ikssan.lyceecom.com',
-  appTitle = 'المدرسة الرقمية • ثانوية إيكسان'
+  appTitle = 'المدرسة الإلكترونية • ثانوية إيكسان'
 }) => {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 

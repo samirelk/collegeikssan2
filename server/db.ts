@@ -1351,6 +1351,24 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
       sectionRoster = [];
     }
 
+    // Auto-populate roster from occupied seats if missing or empty
+    if (sectionRoster.length === 0 && seatRows.length > 0) {
+      const occupied = seatRows.filter((s) => s.student_name && s.student_name.trim());
+      if (occupied.length > 0) {
+        sectionRoster = occupied.map((s, idx) => ({
+          id: s.roster_id || `r_${sec.id}_${s.seat_num}`,
+          name: s.student_name.trim(),
+          number: s.student_number || String(idx + 1),
+          massarNumber: s.massar_number || undefined
+        })).sort((a, b) => (Number(a.number) || 0) - (Number(b.number) || 0));
+
+        try {
+          db.prepare('UPDATE sections SET roster_json = ? WHERE id = ?')
+            .run(JSON.stringify(sectionRoster), sec.id);
+        } catch {}
+      }
+    }
+
     // Teacher-specific private seating arrangement
     const teacherOverrides = viewerRole === 'teacher' && viewerId
       ? db.prepare('SELECT * FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ?').all(viewerId, sec.id) as any[]

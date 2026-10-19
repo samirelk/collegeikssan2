@@ -470,7 +470,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
     });
 
     const printed = printAllViolationsReport({
-      institution: settings.institution || 'المدرسة الرقمية',
+      institution: settings.institution || 'المدرسة الإلكترونية',
       academicYear: settings.year || '2025/2026',
       sectionTitle,
       dateFilterText:
@@ -493,7 +493,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const handlePrintSingleNotice = (v: ViolationRecordItem) => {
     const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
     printSingleViolationNotice({
-      institution: settings.institution || 'المدرسة الرقمية',
+      institution: settings.institution || 'المدرسة الإلكترونية',
       academicYear: settings.year || '2025/2026',
       level: sec?.level || v.section_level || 'الفصل',
       classNumber: sec?.classNumber || v.section_class || '1',
@@ -514,7 +514,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const handlePrintParentSummons = (v: ViolationRecordItem) => {
     const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
     printParentViolationNotice({
-      institution: settings.institution || 'المدرسة الرقمية',
+      institution: settings.institution || 'المدرسة الإلكترونية',
       academicYear: settings.year || '2025/2026',
       studentName: v.student_name || v.studentName || '',
       studentNumber: v.student_number || v.studentNumber || '',
@@ -546,7 +546,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
     const phone = (v as any).guardian_phone || (v as any).guardianPhone || (matchedSeat as any)?.guardianPhone || (matchedSeat as any)?.guardian_phone;
 
     shareViolationViaWhatsApp({
-      institution: settings.institution || 'المدرسة الرقمية',
+      institution: settings.institution || 'المدرسة الإلكترونية',
       studentName: v.student_name || v.studentName || '',
       level: sec?.level || v.section_level || 'الفصل الدراسي',
       classNumber: sec?.classNumber || v.section_class || '1',
@@ -629,7 +629,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                 <span className="px-2.5 py-0.5 rounded-full bg-[#C98A3C] text-[#133D37] font-bold text-[11px] shadow-xs">
                   {isTeacher ? 'فضاء الأستاذ' : 'الإدارة العامة'}
                 </span>
-                <span className="text-white/60 text-xs hidden sm:inline">• المدرسة الرقمية</span>
+                <span className="text-white/60 text-xs hidden sm:inline">• المدرسة الإلكترونية</span>
               </div>
               <p className="text-xs text-[#F2EFE3]/80 mt-0.5">
                 سجل مستقل وشامل لرصد مخالفات التلاميذ، تحرير الإشعارات الرسمية لأولياء الأمور، والطباعة
@@ -1183,7 +1183,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
         <div className="bg-[#FAF8F5] p-3.5 sm:p-4 border-t border-[#E5DFD4] flex items-center justify-between text-xs text-[#6C6356] shrink-0">
           <div className="flex items-center gap-2">
             <School className="w-4 h-4 text-[#1A4E47]" />
-            <span>المدرسة الرقمية • {settings.institution || 'الثانوية الإعدادية ايكسان'}</span>
+            <span>المدرسة الإلكترونية • {settings.institution || 'الثانوية الإعدادية ايكسان'}</span>
           </div>
 
           <button

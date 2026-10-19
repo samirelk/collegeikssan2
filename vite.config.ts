@@ -14,9 +14,9 @@ export default defineConfig(() => {
         includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'icon.svg'],
         manifest: {
           id: '/',
-          name: 'خرائط الأقسام - إدارة الفصول وقاعدة البيانات',
-          short_name: 'خرائط الأقسام',
-          description: 'نظام إدارة مقاعد التلاميذ بثانوية ايكسان الإعدادية مع حسابات الأساتذة، ونظام إسناد الأقسام، ولوحة الإشراف للمدير',
+          name: 'المدرسة الإلكترونية',
+          short_name: 'المدرسة الإلكترونية',
+          description: 'منظومة المدرسة الإلكترونية لتدبير الفصول والغيابات والمخالفات والتواصل مع التلاميذ وأولياء الأمور',
           theme_color: '#1E3A8A',
           background_color: '#FAF8F5',
           display: 'standalone',
