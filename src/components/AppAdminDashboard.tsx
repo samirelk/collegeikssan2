@@ -24,11 +24,13 @@ import {
   Edit3,
   Download,
   Eye,
-  Activity
+  Activity,
+  Smartphone
 } from 'lucide-react';
 import { User as UserType, TeacherItem, TEACHER_SUBJECTS, TeacherSubject, AppSettings } from '../types';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
 import { VisitorManagement } from './VisitorManagement';
+import { AndroidSmsGatewayManagement } from './AndroidSmsGatewayManagement';
 
 interface AppAdminDashboardProps {
   currentUser: UserType;
@@ -45,7 +47,7 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
   onNavigateHome,
   onOpenDbModal
 }) => {
-  const [activeTab, setActiveTab] = useState<'directors' | 'teachers' | 'system' | 'visitors'>('directors');
+  const [activeTab, setActiveTab] = useState<'directors' | 'teachers' | 'system' | 'visitors' | 'sms-gateway'>('directors');
 
   // Teachers State
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
@@ -464,6 +466,19 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
           </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('sms-gateway')}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer ${
+              activeTab === 'sms-gateway'
+                ? 'bg-[#1A4E47] text-white shadow-sm'
+                : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
+            }`}
+          >
+            <Smartphone className="w-4 h-4 text-[#C98A3C]" />
+            <span>بوابة هاتف الإدارة (Android SMS)</span>
+          </button>
         </div>
 
         {/* TAB 1: DIRECTORS MANAGEMENT */}
@@ -693,6 +708,13 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
         {activeTab === 'visitors' && (
           <div className="space-y-4">
             <VisitorManagement currentUser={currentUser} />
+          </div>
+        )}
+
+        {/* TAB 5: ANDROID SMS GATEWAY & WHATSAPP MANAGEMENT */}
+        {activeTab === 'sms-gateway' && (
+          <div className="space-y-4">
+            <AndroidSmsGatewayManagement />
           </div>
         )}
       </main>

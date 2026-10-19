@@ -27,6 +27,7 @@ import {
 } from './firestoreSync.ts';
 import { commitBatchDocs } from './firestoreService.ts';
 import { markDirty, purgeAllSnapshots } from './cloudBackup.ts';
+import { sendSmsOtp } from './smsService.ts';
 
 // Ensure data directory exists for durable SQLite file persistence
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -1134,6 +1135,59 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
   return getAppSettings();
 }
 
+// ---------------- Android SMS Gateway Settings ----------------
+
+export interface AndroidSmsGatewayConfig {
+  enabled: boolean;
+  url: string;
+  token?: string;
+  schoolPhone?: string;
+  defaultChannel: 'whatsapp' | 'android_sms' | 'both';
+}
+
+export function getAndroidSmsGatewayConfig(): AndroidSmsGatewayConfig {
+  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'android_sms_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
+  const map: Record<string, string> = {};
+  for (const r of rows) {
+    map[r.key] = r.value;
+  }
+  return {
+    enabled: map['android_sms_enabled'] === '1' || process.env.ANDROID_SMS_ENABLED === '1',
+    url: map['android_sms_url'] || process.env.ANDROID_SMS_URL || '',
+    token: map['android_sms_token'] || process.env.ANDROID_SMS_TOKEN || '',
+    schoolPhone: map['android_sms_phone'] || process.env.ANDROID_SMS_PHONE || '',
+    defaultChannel: ((map['verification_channel'] as any) || 'whatsapp')
+  };
+}
+
+export function saveAndroidSmsGatewayConfig(config: Partial<AndroidSmsGatewayConfig>): AndroidSmsGatewayConfig {
+  const now = new Date().toISOString();
+  const upsert = db.prepare(`
+    INSERT INTO app_settings (key, value, updated_at)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `);
+
+  if (config.enabled !== undefined) upsert.run('android_sms_enabled', config.enabled ? '1' : '0', now);
+  if (config.url !== undefined) upsert.run('android_sms_url', config.url.trim(), now);
+  if (config.token !== undefined) upsert.run('android_sms_token', config.token.trim(), now);
+  if (config.schoolPhone !== undefined) upsert.run('android_sms_phone', config.schoolPhone.trim(), now);
+  if (config.defaultChannel !== undefined) upsert.run('verification_channel', config.defaultChannel, now);
+
+  db.prepare(`
+    INSERT INTO change_history (action, summary, details_json, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    'update_sms_gateway',
+    `تحديث إعدادات بوابة هاتف الإدارة (Android SMS Gateway): ${config.enabled ? 'مفعلة' : 'معطلة'}`,
+    JSON.stringify(config),
+    now
+  );
+
+  return getAndroidSmsGatewayConfig();
+}
+
+
 // ---------------- Sections Functions ----------------
 
 export function normalizeArabic(str?: string): string {
@@ -1248,8 +1302,16 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
   `;
   const params: any[] = [];
 
-  // Strict RBAC: If requester is a teacher, ONLY show sections assigned to this teacher in the database
-  const effectiveTeacherId = viewerRole === 'teacher' ? (viewerId || teacherFilterId) : teacherFilterId;
+  // Strict RBAC: resolve user role if not provided in headers
+  let resolvedRole = viewerRole;
+  const targetCheckId = viewerId || teacherFilterId;
+  if (!resolvedRole && targetCheckId) {
+    const u = db.prepare('SELECT role FROM users WHERE id = ?').get(targetCheckId) as any;
+    if (u?.role) resolvedRole = u.role;
+  }
+
+  // If requester is a teacher, ONLY show sections assigned to this teacher in the database
+  const effectiveTeacherId = resolvedRole === 'teacher' ? (viewerId || teacherFilterId) : teacherFilterId;
 
   if (effectiveTeacherId) {
     query += `
@@ -1307,13 +1369,29 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     `).all(sec.id) as any[];
 
     let currentTeacherName = '';
-    if (viewerRole === 'teacher' && viewerId) {
-      const u = db.prepare('SELECT full_name FROM users WHERE id = ?').get(viewerId) as any;
-      currentTeacherName = u?.full_name || '';
+    let currentTeacherUsername = '';
+    const activeTeacherId = effectiveTeacherId || viewerId || '';
+    if (resolvedRole === 'teacher' && activeTeacherId) {
+      const u = db.prepare('SELECT full_name, username FROM users WHERE id = ?').get(activeTeacherId) as any;
+      currentTeacherName = (u?.full_name || '').trim();
+      currentTeacherUsername = (u?.username || '').trim();
     }
     
+    // Strict separation per teacher:
+    // Teachers only see their own violations and positive participations.
+    // Administration (directors, supervisors, admins) sees everything across all teachers.
+    const isTeacherViewer = resolvedRole === 'teacher' && Boolean(activeTeacherId);
+
     // Get notes for section
-    const noteRows = db.prepare('SELECT * FROM notes WHERE section_id = ? ORDER BY created_at DESC').all(sec.id) as any[];
+    const noteRows = isTeacherViewer
+      ? (db.prepare(`
+          SELECT * FROM notes 
+          WHERE section_id = ? AND (
+            teacher_id = ? OR teacher_id IS NULL OR teacher_id = ''
+          )
+          ORDER BY created_at DESC
+        `).all(sec.id, activeTeacherId) as any[])
+      : (db.prepare('SELECT * FROM notes WHERE section_id = ? ORDER BY created_at DESC').all(sec.id) as any[]);
     const notesBySeat: Record<number, NoteItem[]> = {};
     for (const n of noteRows) {
       if (!notesBySeat[n.seat_num]) notesBySeat[n.seat_num] = [];
@@ -1326,24 +1404,54 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     }
 
     // Get violations for section with teacher and date/time info (attached to students)
-    const violRows = db.prepare(`
-      SELECT id, section_id, seat_num, student_name, student_number, massar_number,
-             violation_type, description, action_taken, teacher_name, teacher_subject, teacher_id,
-             recorded_date, recorded_time, created_at
-      FROM daily_violations
-      WHERE section_id = ?
-      ORDER BY created_at DESC
-    `).all(sec.id) as any[];
+    const violRows = isTeacherViewer
+      ? (db.prepare(`
+          SELECT id, section_id, seat_num, student_name, student_number, massar_number,
+                 violation_type, description, action_taken, teacher_name, teacher_subject, teacher_id,
+                 recorded_date, recorded_time, created_at
+          FROM daily_violations
+          WHERE section_id = ? AND (
+            teacher_id = ? 
+            OR (teacher_name != '' AND (
+              LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))
+              OR (? != '' AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?)))
+            ))
+          )
+          ORDER BY created_at DESC
+        `).all(sec.id, activeTeacherId, currentTeacherName, currentTeacherUsername, currentTeacherUsername) as any[])
+      : (db.prepare(`
+          SELECT id, section_id, seat_num, student_name, student_number, massar_number,
+                 violation_type, description, action_taken, teacher_name, teacher_subject, teacher_id,
+                 recorded_date, recorded_time, created_at
+          FROM daily_violations
+          WHERE section_id = ?
+          ORDER BY created_at DESC
+        `).all(sec.id) as any[]);
 
     // Get positive participations for section (attached to students)
-    const posRows = db.prepare(`
-      SELECT id, section_id, seat_num, student_name, student_number, massar_number,
-             participation_type, points, note, teacher_name, teacher_subject, teacher_id,
-             recorded_date, recorded_time, created_at
-      FROM positive_participations
-      WHERE section_id = ?
-      ORDER BY created_at DESC
-    `).all(sec.id) as any[];
+    const posRows = isTeacherViewer
+      ? (db.prepare(`
+          SELECT id, section_id, seat_num, student_name, student_number, massar_number,
+                 participation_type, points, note, teacher_name, teacher_subject, teacher_id,
+                 recorded_date, recorded_time, created_at
+          FROM positive_participations
+          WHERE section_id = ? AND (
+            teacher_id = ? 
+            OR (teacher_name != '' AND (
+              LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))
+              OR (? != '' AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?)))
+            ))
+          )
+          ORDER BY created_at DESC
+        `).all(sec.id, activeTeacherId, currentTeacherName, currentTeacherUsername, currentTeacherUsername) as any[])
+      : (db.prepare(`
+          SELECT id, section_id, seat_num, student_name, student_number, massar_number,
+                 participation_type, points, note, teacher_name, teacher_subject, teacher_id,
+                 recorded_date, recorded_time, created_at
+          FROM positive_participations
+          WHERE section_id = ?
+          ORDER BY created_at DESC
+        `).all(sec.id) as any[]);
 
     // Precalculate total accumulated absences count per student in this section
     const studentAbsenceCounts = db.prepare(`
@@ -2617,7 +2725,19 @@ export function addStudentViolation(
   };
 }
 
-export function deleteStudentViolation(sectionId: string, seatNum: number, violationId: string) {
+export function deleteStudentViolation(sectionId: string, seatNum: number, violationId: string, requesterId?: string, requesterRole?: string) {
+  if (requesterRole === 'teacher' && requesterId) {
+    const existing = db.prepare('SELECT teacher_id, teacher_name FROM daily_violations WHERE id = ?').get(violationId) as any;
+    if (existing) {
+      const u = findUserById(requesterId);
+      const requesterName = (u?.fullName || '').trim().toLowerCase();
+      const rowTid = (existing.teacher_id || '').trim();
+      const rowTname = (existing.teacher_name || '').trim().toLowerCase();
+      if (rowTid && rowTid !== requesterId && rowTname !== requesterName) {
+        throw new Error('غير مصرح لك بحذف مخالفة سجلها أستاذ آخر. الإدارة فقط هي من تملك هذه الصلاحية.');
+      }
+    }
+  }
   // Delete by ID to ensure it is cleanly deleted regardless of seat movements
   db.prepare('DELETE FROM daily_violations WHERE id = ?').run(violationId);
   try {
@@ -3995,12 +4115,11 @@ export function importFullBackup(backupData: any) {
           access_code, photo_url, guardian_phone, guardian_phone_verified,
           verification_code, profile_completed, last_login, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          massar_number = excluded.massar_number,
+        ON CONFLICT(massar_number) DO UPDATE SET
           student_name = excluded.student_name,
           section_id = excluded.section_id,
           student_number = excluded.student_number,
-          access_code = excluded.access_code,
+          access_code = COALESCE(NULLIF(student_accounts.access_code, ''), excluded.access_code),
           photo_url = COALESCE(NULLIF(excluded.photo_url, ''), student_accounts.photo_url),
           guardian_phone = COALESCE(NULLIF(excluded.guardian_phone, ''), student_accounts.guardian_phone),
           guardian_phone_verified = MAX(excluded.guardian_phone_verified, student_accounts.guardian_phone_verified),
@@ -7324,10 +7443,9 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
     violWhere += ` AND (
       v.teacher_id = ? 
       OR v.teacher_name = (SELECT full_name FROM users WHERE id = ?)
-      OR sec.assigned_teacher_id = ?
-      OR sec.id IN (SELECT section_id FROM section_assignments WHERE teacher_id = ?)
+      OR (v.teacher_name != '' AND LOWER(TRIM(v.teacher_name)) = (SELECT LOWER(TRIM(full_name)) FROM users WHERE id = ?))
     )`;
-    violParams.push(teacherId, teacherId, teacherId, teacherId);
+    violParams.push(teacherId, teacherId, teacherId);
   }
 
   if (sectionIds.length > 0) {
@@ -7498,7 +7616,7 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   };
 }
 
-export function getStudentHistory(sectionId: string, seatNum: number, studentName?: string, studentNumber?: string, viewerId?: string) {
+export function getStudentHistory(sectionId: string, seatNum: number, studentName?: string, studentNumber?: string, viewerId?: string, viewerRole?: string) {
   let targetName = (studentName || '').trim();
   let targetNumber = (studentNumber || '').trim();
 
@@ -7540,7 +7658,7 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
 
     violations = db.prepare(`
       SELECT id, violation_type, description, action_taken, teacher_name,
-             teacher_subject, recorded_date, recorded_time, created_at
+             teacher_subject, recorded_date, recorded_time, created_at, teacher_id
       FROM daily_violations
       WHERE section_id = ? AND (
         (student_number != '' AND student_number = ?)
@@ -7562,11 +7680,24 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
 
     violations = db.prepare(`
       SELECT id, violation_type, description, action_taken, teacher_name,
-             teacher_subject, recorded_date, recorded_time, created_at
+             teacher_subject, recorded_date, recorded_time, created_at, teacher_id
       FROM daily_violations
       WHERE section_id = ? AND seat_num = ?
       ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
     `).all(sectionId, seatNum) as any[];
+  }
+
+  // Strict separation per teacher:
+  // If the viewer is a teacher, only show violations recorded by this teacher.
+  // Administration (directors, supervisors, admins) sees everything.
+  if (viewerRole === 'teacher' && viewerId) {
+    const viewerTeacher = findUserById(viewerId);
+    const viewerTeacherName = viewerTeacher?.fullName?.trim().toLowerCase() || '';
+    violations = violations.filter((v: any) => {
+      const vTid = (v.teacher_id || '').trim();
+      const vTname = (v.teacher_name || '').trim().toLowerCase();
+      return vTid === viewerId || (viewerTeacherName && vTname === viewerTeacherName);
+    });
   }
 
   const days = Array.from(new Set(
@@ -8405,11 +8536,16 @@ export function getAllViolations(filters?: {
   }
 
   if (filters?.teacherId) {
-    query += ` AND (dv.teacher_id = ? OR dv.teacher_name = ?) `;
-    params.push(filters.teacherId, filters.teacherName || filters.teacherId);
+    if (filters.teacherName && filters.teacherName.trim()) {
+      query += ` AND (dv.teacher_id = ? OR (dv.teacher_name != '' AND LOWER(TRIM(dv.teacher_name)) = LOWER(TRIM(?)))) `;
+      params.push(filters.teacherId, filters.teacherName.trim());
+    } else {
+      query += ` AND (dv.teacher_id = ? OR dv.teacher_name = ?) `;
+      params.push(filters.teacherId, filters.teacherId);
+    }
   } else if (filters?.teacherName) {
-    query += ` AND dv.teacher_name LIKE ? `;
-    params.push(`%${filters.teacherName}%`);
+    query += ` AND (dv.teacher_name LIKE ? OR dv.teacher_id = ?) `;
+    params.push(`%${filters.teacherName}%`, filters.teacherName);
   }
 
   if (filters?.studentName) {
@@ -8458,6 +8594,95 @@ export function getAllViolations(filters?: {
     teacherId: r.teacher_id || '',
     recordedDate: r.recorded_date,
     recordedTime: r.recorded_time,
+    createdAt: r.created_at
+  }));
+}
+
+export function getAllPositiveParticipations(filters?: {
+  sectionId?: string;
+  teacherId?: string;
+  teacherName?: string;
+  studentName?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}) {
+  let query = `
+    SELECT 
+      pp.*,
+      sec.level as section_level,
+      sec.class_number as section_class,
+      COALESCE(st.massar_number, sa.massar_number, pp.massar_number, '') as massar_number,
+      COALESCE(st.student_number, pp.student_number, '') as clean_student_number
+    FROM positive_participations pp
+    LEFT JOIN sections sec ON pp.section_id = sec.id
+    LEFT JOIN seats st ON pp.section_id = st.section_id AND pp.seat_num = st.seat_num
+    LEFT JOIN student_accounts sa ON pp.section_id = sa.section_id AND LOWER(TRIM(pp.student_name)) = LOWER(TRIM(sa.student_name))
+    WHERE 1=1
+  `;
+  const params: any[] = [];
+
+  if (filters?.sectionId && filters.sectionId !== 'all') {
+    query += ` AND pp.section_id = ? `;
+    params.push(filters.sectionId);
+  }
+
+  if (filters?.teacherId) {
+    let tUser = findUserById(filters.teacherId);
+    let altName = (filters.teacherName || tUser?.fullName || '').trim();
+    let altUsername = (tUser?.username || '').trim();
+    if (altName || altUsername) {
+      query += ` AND (pp.teacher_id = ? OR (pp.teacher_name != '' AND (LOWER(TRIM(pp.teacher_name)) = LOWER(TRIM(?)) OR LOWER(TRIM(pp.teacher_name)) = LOWER(TRIM(?))))) `;
+      params.push(filters.teacherId, altName, altUsername);
+    } else {
+      query += ` AND (pp.teacher_id = ? OR pp.teacher_name = ?) `;
+      params.push(filters.teacherId, filters.teacherId);
+    }
+  } else if (filters?.teacherName) {
+    query += ` AND (pp.teacher_name LIKE ? OR pp.teacher_id = ?) `;
+    params.push(`%${filters.teacherName}%`, filters.teacherName);
+  }
+
+  if (filters?.studentName) {
+    query += ` AND (
+      LOWER(TRIM(pp.student_name)) LIKE ? OR 
+      LOWER(TRIM(COALESCE(st.massar_number, ''))) LIKE ? OR
+      LOWER(TRIM(COALESCE(sa.massar_number, ''))) LIKE ?
+    ) `;
+    const term = `%${filters.studentName.toLowerCase().trim()}%`;
+    params.push(term, term, term);
+  }
+
+  if (filters?.dateFrom) {
+    query += ` AND pp.recorded_date >= ? `;
+    params.push(filters.dateFrom);
+  }
+
+  if (filters?.dateTo) {
+    query += ` AND pp.recorded_date <= ? `;
+    params.push(filters.dateTo);
+  }
+
+  query += ` ORDER BY pp.recorded_date DESC, pp.recorded_time DESC, pp.created_at DESC `;
+
+  const rows = db.prepare(query).all(...params) as any[];
+  return rows.map(r => ({
+    id: r.id,
+    sectionId: r.section_id,
+    sectionName: r.section_level && r.section_class ? `${r.section_level} - ق ${r.section_class}` : '',
+    sectionLevel: r.section_level || '',
+    sectionClass: r.section_class || '',
+    seatNum: r.seat_num,
+    studentName: r.student_name,
+    studentNumber: r.clean_student_number || r.student_number || '',
+    massarNumber: r.massar_number || '',
+    participationType: r.participation_type,
+    points: Number(r.points || 1),
+    note: r.note || '',
+    teacherName: r.teacher_name || '',
+    teacherSubject: r.teacher_subject || '',
+    teacherId: r.teacher_id || '',
+    recordedDate: r.recorded_date,
+    recordedTime: r.recorded_time || '',
     createdAt: r.created_at
   }));
 }
@@ -8816,15 +9041,61 @@ export async function resetAllDataToZero(requesterRole: string = 'admin') {
 // ==========================================
 
 export function getTeacherTimetable(teacherId: string) {
-  const rows = db.prepare(`
+  // Normalize teacherId: If it is the admin user (Samir El Korachi), also include/alias usr_mus3qsxfuxy3
+  const queryIds = new Set<string>();
+  if (teacherId) queryIds.add(teacherId);
+
+  const u = teacherId ? findUserById(teacherId) : null;
+  const isSamir = teacherId === 'usr_admin_samir' || teacherId === 'usr_mus3qsxfuxy3' || teacherId === 'admin' ||
+                  (u && (u.username === 'admin' || u.username === 'smyr_alqrachy' || (u.fullName && u.fullName.includes('سمير'))));
+
+  if (isSamir) {
+    queryIds.add('usr_mus3qsxfuxy3');
+    queryIds.add('usr_admin_samir');
+    try {
+      const samirUsers = db.prepare("SELECT id FROM users WHERE username IN ('admin', 'smyr_alqrachy') OR full_name LIKE '%سمير%'").all() as any[];
+      samirUsers.forEach(su => queryIds.add(su.id));
+    } catch {}
+  } else if (!teacherId || (u && (u.role === 'admin' || u.role === 'director'))) {
+    // If an admin/director calls without specifying a teacher, default to Samir's timetable
+    queryIds.add('usr_mus3qsxfuxy3');
+    queryIds.add('usr_admin_samir');
+  }
+
+  const idsArray = Array.from(queryIds);
+  const placeholders = idsArray.map(() => '?').join(',');
+
+  let rows = db.prepare(`
     SELECT tt.*, sec.level, sec.class_number
     FROM teacher_timetable tt
     LEFT JOIN sections sec ON tt.section_id = sec.id
-    WHERE tt.teacher_id = ?
+    WHERE tt.teacher_id IN (${placeholders})
     ORDER BY tt.slot_id ASC
-  `).all(teacherId) as any[];
+  `).all(...idsArray) as any[];
 
-  return rows.map((r) => ({
+  // Fallback: If rows is empty and it's an admin/director viewing, fetch usr_mus3qsxfuxy3 directly
+  if (rows.length === 0 && (!teacherId || (u && (u.role === 'admin' || u.role === 'director')))) {
+    rows = db.prepare(`
+      SELECT tt.*, sec.level, sec.class_number
+      FROM teacher_timetable tt
+      LEFT JOIN sections sec ON tt.section_id = sec.id
+      WHERE tt.teacher_id IN ('usr_mus3qsxfuxy3', 'usr_admin_samir')
+      ORDER BY tt.slot_id ASC
+    `).all() as any[];
+  }
+
+  // Deduplicate slots by dayOfWeek + slotId
+  const seen = new Set<string>();
+  const uniqueRows: any[] = [];
+  for (const r of rows) {
+    const key = `${r.day_of_week}_${r.slot_id}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueRows.push(r);
+    }
+  }
+
+  return uniqueRows.map((r) => ({
     id: r.id,
     teacherId: r.teacher_id,
     dayOfWeek: r.day_of_week,
@@ -8854,130 +9125,151 @@ export function upsertTimetableSlot(teacherId: string, data: {
   notes?: string;
 }) {
   const now = new Date().toISOString();
-  // Check if an entry already exists for this teacher on this day and slot
-  const existing = db.prepare(`
-    SELECT id FROM teacher_timetable
-    WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?
-  `).get(teacherId, data.dayOfWeek, data.slotId) as any;
+  const u = findUserById(teacherId);
+  const isSamir = teacherId === 'usr_admin_samir' || teacherId === 'usr_mus3qsxfuxy3' || teacherId === 'admin' ||
+                  (u && (u.username === 'admin' || u.username === 'smyr_alqrachy' || (u.fullName && u.fullName.includes('سمير'))));
 
-  const id = existing?.id || ('tt_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const targetIds = isSamir ? ['usr_mus3qsxfuxy3', 'usr_admin_samir'] : [teacherId];
+  let primaryRecord: any = null;
 
-  db.prepare(`
-    INSERT INTO teacher_timetable (
-      id, teacher_id, day_of_week, slot_id, period_type,
-      start_time, end_time, section_id, room, subject, notes,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      period_type = excluded.period_type,
-      start_time = excluded.start_time,
-      end_time = excluded.end_time,
-      section_id = excluded.section_id,
-      room = excluded.room,
-      subject = excluded.subject,
-      notes = excluded.notes,
-      updated_at = excluded.updated_at
-  `).run(
-    id,
-    teacherId,
-    data.dayOfWeek,
-    data.slotId,
-    data.periodType,
-    data.startTime,
-    data.endTime,
-    data.sectionId,
-    data.room || '',
-    data.subject || '',
-    data.notes || '',
-    now,
-    now
-  );
+  for (const tId of targetIds) {
+    // Check if an entry already exists for this teacher on this day and slot
+    const existing = db.prepare(`
+      SELECT id FROM teacher_timetable
+      WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?
+    `).get(tId, data.dayOfWeek, data.slotId) as any;
 
-  const savedRecord = {
-    id,
-    teacherId,
-    dayOfWeek: data.dayOfWeek,
-    slotId: data.slotId,
-    periodType: data.periodType,
-    startTime: data.startTime,
-    endTime: data.endTime,
-    sectionId: data.sectionId,
-    room: data.room || '',
-    subject: data.subject || '',
-    notes: data.notes || '',
-    createdAt: now,
-    updatedAt: now
-  };
+    const id = existing?.id || ('tt_' + (tId === 'usr_admin_samir' ? 'adm_' : '') + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
 
-  try {
-    cloudSaveTimetableEntry(savedRecord);
-  } catch (err) {
-    console.warn('Firestore cloudSaveTimetableEntry error:', err);
-  }
+    db.prepare(`
+      INSERT INTO teacher_timetable (
+        id, teacher_id, day_of_week, slot_id, period_type,
+        start_time, end_time, section_id, room, subject, notes,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        period_type = excluded.period_type,
+        start_time = excluded.start_time,
+        end_time = excluded.end_time,
+        section_id = excluded.section_id,
+        room = excluded.room,
+        subject = excluded.subject,
+        notes = excluded.notes,
+        updated_at = excluded.updated_at
+    `).run(
+      id,
+      tId,
+      data.dayOfWeek,
+      data.slotId,
+      data.periodType,
+      data.startTime,
+      data.endTime,
+      data.sectionId,
+      data.room || '',
+      data.subject || '',
+      data.notes || '',
+      now,
+      now
+    );
 
-  // Ensure the section assignment is also preserved and approved for this teacher and section
-  if (data.sectionId && data.sectionId !== 'empty') {
+    const savedRecord = {
+      id,
+      teacherId: tId,
+      dayOfWeek: data.dayOfWeek,
+      slotId: data.slotId,
+      periodType: data.periodType,
+      startTime: data.startTime,
+      endTime: data.endTime,
+      sectionId: data.sectionId,
+      room: data.room || '',
+      subject: data.subject || '',
+      notes: data.notes || '',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    if (!primaryRecord) {
+      primaryRecord = savedRecord;
+    }
+
     try {
-      const teacher = findUserById(teacherId);
-      const subject = (data.subject || teacher?.subject || 'عام').trim();
-      const existingAsgn = db.prepare(`
-        SELECT id FROM section_assignments WHERE teacher_id = ? AND section_id = ?
-      `).get(teacherId, data.sectionId) as any;
+      cloudSaveTimetableEntry(savedRecord);
+    } catch (err) {
+      console.warn('Firestore cloudSaveTimetableEntry error:', err);
+    }
 
-      const asgnId = existingAsgn?.id || ('asgn_tt_' + teacherId.replace(/^usr_/, '') + '_' + data.sectionId.replace(/^sec_/, ''));
-      if (existingAsgn) {
+    // Ensure the section assignment is also preserved and approved for this teacher and section
+    if (data.sectionId && data.sectionId !== 'empty') {
+      try {
+        const teacher = findUserById(tId);
+        const subject = (data.subject || teacher?.subject || 'عام').trim();
+        const existingAsgn = db.prepare(`
+          SELECT id FROM section_assignments WHERE teacher_id = ? AND section_id = ?
+        `).get(tId, data.sectionId) as any;
+
+        const asgnId = existingAsgn?.id || ('asgn_tt_' + tId.replace(/^usr_/, '') + '_' + data.sectionId.replace(/^sec_/, ''));
+        if (existingAsgn) {
+          db.prepare(`
+            UPDATE section_assignments
+            SET status = 'approved', reviewed_by = 'system', reviewed_at = ?, subject = ?
+            WHERE id = ?
+          `).run(now, subject, existingAsgn.id);
+        } else {
+          db.prepare(`
+            INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
+            VALUES (?, ?, ?, 'approved', 'إسناد معتمد من استعمال الزمان', ?, ?, 'system', ?, ?)
+          `).run(asgnId, tId, data.sectionId, now, now, teacher?.academicYear || '2026/2027', subject);
+        }
+
         db.prepare(`
-          UPDATE section_assignments
-          SET status = 'approved', reviewed_by = 'system', reviewed_at = ?, subject = ?
+          UPDATE sections
+          SET assigned_teacher_id = COALESCE(assigned_teacher_id, ?), updated_at = ?
           WHERE id = ?
-        `).run(now, subject, existingAsgn.id);
-      } else {
-        db.prepare(`
-          INSERT INTO section_assignments (id, teacher_id, section_id, status, request_note, requested_at, reviewed_at, reviewed_by, academic_year, subject)
-          VALUES (?, ?, ?, 'approved', 'إسناد معتمد من استعمال الزمان', ?, ?, 'system', ?, ?)
-        `).run(asgnId, teacherId, data.sectionId, now, now, teacher?.academicYear || '2026/2027', subject);
+        `).run(tId, now, data.sectionId);
+
+        cloudSaveAssignment({
+          id: asgnId,
+          teacherId: tId,
+          sectionId: data.sectionId,
+          status: 'approved',
+          requestNote: 'إسناد معتمد من استعمال الزمان',
+          requestedAt: now,
+          reviewedAt: now,
+          reviewedBy: 'system',
+          academicYear: teacher?.academicYear || '2026/2027',
+          subject
+        });
+        syncSectionToCloud(data.sectionId);
+      } catch (asgnErr) {
+        console.warn('Error linking timetable to section_assignment:', asgnErr);
       }
-
-      db.prepare(`
-        UPDATE sections
-        SET assigned_teacher_id = COALESCE(assigned_teacher_id, ?), updated_at = ?
-        WHERE id = ?
-      `).run(teacherId, now, data.sectionId);
-
-      cloudSaveAssignment({
-        id: asgnId,
-        teacherId,
-        sectionId: data.sectionId,
-        status: 'approved',
-        requestNote: 'إسناد معتمد من استعمال الزمان',
-        requestedAt: now,
-        reviewedAt: now,
-        reviewedBy: 'system',
-        academicYear: teacher?.academicYear || '2026/2027',
-        subject
-      });
-      syncSectionToCloud(data.sectionId);
-    } catch (asgnErr) {
-      console.warn('Error linking timetable to section_assignment:', asgnErr);
     }
   }
 
   markDirty();
-  return savedRecord;
+  return primaryRecord;
 }
 
 export function deleteTimetableSlot(teacherId: string, slotId: string, dayOfWeek: string) {
-  const existing = db.prepare(`
-    SELECT id FROM teacher_timetable
-    WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?
-  `).get(teacherId, dayOfWeek, slotId) as any;
+  const u = findUserById(teacherId);
+  const isSamir = teacherId === 'usr_admin_samir' || teacherId === 'usr_mus3qsxfuxy3' || teacherId === 'admin' ||
+                  (u && (u.username === 'admin' || u.username === 'smyr_alqrachy' || (u.fullName && u.fullName.includes('سمير'))));
 
-  if (existing) {
-    db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(existing.id);
-    try {
-      cloudDeleteTimetableEntry(existing.id);
-    } catch (err) {
-      console.warn('Firestore cloudDeleteTimetableEntry error:', err);
+  const targetIds = isSamir ? ['usr_mus3qsxfuxy3', 'usr_admin_samir'] : [teacherId];
+
+  for (const tId of targetIds) {
+    const existing = db.prepare(`
+      SELECT id FROM teacher_timetable
+      WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?
+    `).get(tId, dayOfWeek, slotId) as any;
+
+    if (existing) {
+      db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(existing.id);
+      try {
+        cloudDeleteTimetableEntry(existing.id);
+      } catch (err) {
+        console.warn('Firestore cloudDeleteTimetableEntry error:', err);
+      }
     }
   }
 
@@ -8986,16 +9278,44 @@ export function deleteTimetableSlot(teacherId: string, slotId: string, dayOfWeek
 }
 
 export function deleteTimetableEntryById(id: string, teacherId?: string) {
+  let targetEntry: any = null;
   if (teacherId) {
-    db.prepare('DELETE FROM teacher_timetable WHERE id = ? AND teacher_id = ?').run(id, teacherId);
+    targetEntry = db.prepare('SELECT * FROM teacher_timetable WHERE id = ? AND teacher_id = ?').get(id, teacherId) as any;
+  } else {
+    targetEntry = db.prepare('SELECT * FROM teacher_timetable WHERE id = ?').get(id) as any;
+  }
+
+  if (targetEntry) {
+    // Check if this belongs to Samir and has companion slot
+    const u = findUserById(targetEntry.teacher_id);
+    const isSamir = targetEntry.teacher_id === 'usr_admin_samir' || targetEntry.teacher_id === 'usr_mus3qsxfuxy3' ||
+                    (u && (u.username === 'admin' || u.username === 'smyr_alqrachy' || (u.fullName && u.fullName.includes('سمير'))));
+
+    if (isSamir) {
+      const companionRows = db.prepare(`
+        SELECT id FROM teacher_timetable
+        WHERE day_of_week = ? AND slot_id = ? AND teacher_id IN ('usr_mus3qsxfuxy3', 'usr_admin_samir')
+      `).all(targetEntry.day_of_week, targetEntry.slot_id) as any[];
+
+      for (const cr of companionRows) {
+        db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(cr.id);
+        try {
+          cloudDeleteTimetableEntry(cr.id);
+        } catch {}
+      }
+    } else {
+      db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(targetEntry.id);
+      try {
+        cloudDeleteTimetableEntry(targetEntry.id);
+      } catch {}
+    }
   } else {
     db.prepare('DELETE FROM teacher_timetable WHERE id = ?').run(id);
+    try {
+      cloudDeleteTimetableEntry(id);
+    } catch {}
   }
-  try {
-    cloudDeleteTimetableEntry(id);
-  } catch (err) {
-    console.warn('Firestore cloudDeleteTimetableEntry error:', err);
-  }
+
   markDirty();
   return { success: true };
 }
@@ -9273,14 +9593,26 @@ export function addPositiveParticipation(data: {
   };
 }
 
-export function deletePositiveParticipation(id: string) {
+export function deletePositiveParticipation(id: string, requesterId?: string, requesterRole?: string) {
+  if (requesterRole === 'teacher' && requesterId) {
+    const existing = db.prepare('SELECT teacher_id, teacher_name FROM positive_participations WHERE id = ?').get(id) as any;
+    if (existing) {
+      const u = findUserById(requesterId);
+      const requesterName = (u?.fullName || '').trim().toLowerCase();
+      const rowTid = (existing.teacher_id || '').trim();
+      const rowTname = (existing.teacher_name || '').trim().toLowerCase();
+      if (rowTid && rowTid !== requesterId && rowTname !== requesterName) {
+        throw new Error('غير مصرح لك بحذف مشاركة إيجابية سجلها أستاذ آخر. الإدارة فقط هي من تملك هذه الصلاحية.');
+      }
+    }
+  }
   db.prepare('DELETE FROM positive_participations WHERE id = ?').run(id);
   cloudDeletePositiveParticipation(id);
   markDirty();
   return { success: true };
 }
 
-export function getPositiveParticipationsBySection(sectionId: string, teacherId?: string) {
+export function getPositiveParticipationsBySection(sectionId: string, teacherId?: string, teacherName?: string) {
   let query = `
     SELECT id, section_id as sectionId, seat_num as seatNum, student_name as studentName,
            student_number as studentNumber, massar_number as massarNumber,
@@ -9292,8 +9624,16 @@ export function getPositiveParticipationsBySection(sectionId: string, teacherId?
   `;
   const params: any[] = [sectionId];
   if (teacherId) {
-    query += ' AND teacher_id = ?';
-    params.push(teacherId);
+    if (teacherName && teacherName.trim()) {
+      query += ' AND (teacher_id = ? OR (teacher_name != "" AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))))';
+      params.push(teacherId, teacherName.trim());
+    } else {
+      query += ' AND teacher_id = ?';
+      params.push(teacherId);
+    }
+  } else if (teacherName && teacherName.trim()) {
+    query += ' AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))';
+    params.push(teacherName.trim());
   }
   query += ' ORDER BY created_at DESC';
   const participations = db.prepare(query).all(...params) as any[];
@@ -9939,8 +10279,20 @@ export interface StudentAccountItem {
   updatedAt: string;
 }
 
-export function generateStudentAccessCode(): string {
-  // Generate a friendly 6-digit numeric PIN
+export function generateStudentAccessCode(massarNumber?: string): string {
+  if (massarNumber && massarNumber.trim()) {
+    // Generate deterministic 6-digit numeric PIN from Massar code so it NEVER changes on restarts
+    let hash = 0;
+    const clean = massarNumber.trim().toUpperCase();
+    for (let i = 0; i < clean.length; i++) {
+      hash = ((hash << 5) - hash) + clean.charCodeAt(i);
+      hash |= 0;
+    }
+    const positive = Math.abs(hash);
+    const code = 100000 + (positive % 900000);
+    return String(code);
+  }
+  // Fallback 6-digit numeric PIN
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
@@ -10002,8 +10354,8 @@ export function ensureStudentAccountsExist() {
       `).get(finalMassar) as any;
 
       if (!existingAccount) {
-        const id = `sa_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-        const code = generateStudentAccessCode();
+        const id = 'sa_' + finalMassar.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const code = generateStudentAccessCode(finalMassar);
         db.prepare(`
           INSERT INTO student_accounts (
             id, massar_number, student_name, section_id, student_number, access_code, created_at, updated_at
@@ -10080,12 +10432,50 @@ export function regenerateStudentAccessCode(accountId: string, customCode?: stri
 
 export function regenerateSectionStudentAccessCodes(sectionId: string) {
   const now = new Date().toISOString();
-  const accounts = db.prepare('SELECT id FROM student_accounts WHERE section_id = ?').all(sectionId) as any[];
+  const accounts = db.prepare('SELECT id, massar_number FROM student_accounts WHERE section_id = ?').all(sectionId) as any[];
   const stmt = db.prepare('UPDATE student_accounts SET access_code = ?, updated_at = ? WHERE id = ?');
   accounts.forEach(acc => {
-    stmt.run(generateStudentAccessCode(), now, acc.id);
+    stmt.run(generateStudentAccessCode(acc.massar_number), now, acc.id);
   });
   return { success: true, count: accounts.length };
+}
+
+export function changeStudentPassword(massarNumber: string, newPassword: string, currentPassword?: string) {
+  const cleanMassar = massarNumber.trim();
+  const cleanNew = newPassword.trim();
+
+  if (!cleanMassar) {
+    throw new Error('رقم مسار مطلوب');
+  }
+  if (!cleanNew || cleanNew.length < 3) {
+    throw new Error('كلمة المرور الجديدة يجب أن تتكون من 3 أحرف أو أرقام على الأقل');
+  }
+
+  const account = db.prepare('SELECT id, access_code FROM student_accounts WHERE LOWER(TRIM(massar_number)) = LOWER(TRIM(?))').get(cleanMassar) as any;
+  if (!account) {
+    throw new Error('حساب التلميذ غير مسجل في قاعدة البيانات');
+  }
+
+  if (currentPassword && currentPassword.trim()) {
+    if (String(account.access_code).trim() !== currentPassword.trim()) {
+      throw new Error('كلمة المرور الحالية غير صحيحة');
+    }
+  }
+
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE student_accounts
+    SET access_code = ?, updated_at = ?
+    WHERE id = ?
+  `).run(cleanNew, now, account.id);
+
+  markDirty();
+
+  return {
+    success: true,
+    message: 'تم تغيير كلمة المرور بنجاح وحفظها في قاعدة البيانات، وتظهر الآن مباشرة لدى الإدارة ✓',
+    accessCode: cleanNew
+  };
 }
 
 export function getStudentFullData(massarNumber: string) {
@@ -10592,7 +10982,7 @@ export function studentLogin(massarNumber: string, accessCode: string) {
 // Student Profile & Guardian Verification
 // ==========================================
 
-export function generateGuardianVerificationCode(massarNumber: string, guardianPhone: string, institutionName?: string) {
+export async function generateGuardianVerificationCode(massarNumber: string, guardianPhone: string, institutionName?: string) {
   const cleanMassar = massarNumber.trim();
   const cleanPhone = guardianPhone.trim().replace(/\s+/g, '');
 
@@ -10600,7 +10990,7 @@ export function generateGuardianVerificationCode(massarNumber: string, guardianP
     throw new Error('رقم مسار ورقم هاتف ولي الأمر مطلوبان');
   }
 
-  // Generate 4-digit code (e.g. 5831)
+  // Generate 4-digit numeric OTP code (e.g. 5831)
   const code = Math.floor(1000 + Math.random() * 9000).toString();
   const now = new Date().toISOString();
 
@@ -10621,24 +11011,27 @@ export function generateGuardianVerificationCode(massarNumber: string, guardianP
     WHERE id = ?
   `).run(cleanPhone, code, now, account.id);
 
-  // International phone format for WhatsApp (e.g. 06xxxxxxxx -> 2126xxxxxxxx)
-  const intlPhone = cleanPhone.startsWith('0') ? '212' + cleanPhone.slice(1) : cleanPhone.replace('+', '');
-  const instName = institutionName || 'المدرسة الرقمية';
-  const studentName = account.student_name || '';
-  const sectionText = account.section_level ? `(${account.section_level} - ${account.section_class})` : '';
+  const instName = institutionName || 'ثانوية ايكسان الإعدادية';
+  const androidConfig = getAndroidSmsGatewayConfig();
 
-  // Official institution WhatsApp message containing the activation code
-  const waMessage = `*المدرسة الرقمية* 🏫\n*${instName}*\n\nالسلام عليكم ورحمة الله،\nولي أمر التلميذ(ة): *${studentName}* ${sectionText}\n\nنحيطكم علماً بأن كود التحقق والتفعيل الخاص برقمكم لاستقبال الإشعارات المباشرة (الغيابات، المخالفات، وغياب الأساتذة) عبر WhatsApp هو:\n\n🔐 كود التفعيل: *${code}*\n\nيرجى تزويد التلميذ بهذا الكود لإدخاله في التطبيق واستكمال التسجيل بنجاح.\n\n_مع تحيات إدارة المؤسسة والطاقم التربوي_`;
-
-  const waUrl = `https://wa.me/${intlPhone}?text=${encodeURIComponent(waMessage)}`;
+  // Automatically dispatch SMS OTP in the name of the school administration
+  const smsResult = await sendSmsOtp({
+    toPhone: cleanPhone,
+    code,
+    institutionName: instName,
+    studentName: account.student_name,
+    androidConfig
+  });
 
   return {
     success: true,
     phone: cleanPhone,
-    intlPhone,
-    waUrl,
-    waMessage,
-    message: `تم تجهيز رسالة WhatsApp الرسمية باسم المؤسسة إلى هاتف ولي الأمر (${cleanPhone}).`
+    intlPhone: smsResult.intlPhone,
+    senderName: smsResult.senderName,
+    dispatchId: smsResult.dispatchId,
+    gatewayUsed: smsResult.gatewayUsed,
+    whatsappUrl: smsResult.whatsappUrl,
+    message: smsResult.message
   };
 }
 
@@ -10659,7 +11052,7 @@ export function verifyGuardianPhoneCode(massarNumber: string, code: string) {
   const isValid = storedCode && storedCode === cleanCode;
 
   if (!isValid) {
-    throw new Error('كود التحقق غير صحيح. يرجى التأكد من كود التفعيل المكتوب في رسالة WhatsApp التي وصلت لولي أمرك.');
+    throw new Error('رمز التحقق غير صحيح. يرجى التأكد من كود التفعيل (OTP) الذي تم إرساله تلقائياً عبر SMS إلى هاتف ولي أمرك.');
   }
 
   const now = new Date().toISOString();
@@ -10671,7 +11064,7 @@ export function verifyGuardianPhoneCode(massarNumber: string, code: string) {
 
   return {
     success: true,
-    message: 'تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح ✓'
+    message: 'تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح عبر خدمة الرسائل القصيرة SMS ✓'
   };
 }
 

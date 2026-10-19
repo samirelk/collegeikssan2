@@ -103,6 +103,28 @@ export const StudentAccountsManagementModal: React.FC<StudentAccountsManagementM
     }
   };
 
+  // Administration set custom student password
+  const handleCustomCodePrompt = async (id: string, name: string, currentCode: string) => {
+    const newCode = prompt(`أدخل كلمة المرور (PIN) الجديدة للتلميذ (${name}):`, currentCode);
+    if (!newCode || !newCode.trim() || newCode.trim() === currentCode) return;
+    try {
+      setActionAccountId(id);
+      const res = await fetch(`/api/student/accounts/${id}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customCode: newCode.trim() })
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error || 'تعذر تعديل الكود');
+      setAccounts(prev => prev.map(a => a.id === id ? { ...a, accessCode: newCode.trim() } : a));
+      setFeedback({ message: `تم تعديل كلمة مرور التلميذ (${name}) بنجاح إلى: ${newCode.trim()} وحفظها في قاعدة البيانات ✓`, type: 'success' });
+    } catch (err: any) {
+      setFeedback({ message: err.message, type: 'error' });
+    } finally {
+      setActionAccountId(null);
+    }
+  };
+
   // Regenerate section access codes
   const handleRegenerateSectionCodes = async () => {
     if (selectedSectionId === 'all') {
@@ -505,16 +527,27 @@ export const StudentAccountsManagementModal: React.FC<StudentAccountsManagementM
                         {a.lastLogin ? a.lastLogin.slice(0, 16).replace('T', ' ') : 'لم يدخل بعد'}
                       </td>
                       <td className="py-3 px-4 text-center">
-                        <button
-                          type="button"
-                          onClick={() => handleRegenerateCode(a.id, a.studentName)}
-                          disabled={actionAccountId === a.id}
-                          className="px-2.5 py-1 rounded-lg bg-[#FAF8F5] hover:bg-[#F2EFE9] text-[#1A4E47] border border-[#D5CDC0] text-[11px] font-bold transition-all cursor-pointer shadow-xs inline-flex items-center gap-1 disabled:opacity-50"
-                          title="توليد كود سري جديد لهذا التلميذ"
-                        >
-                          <RefreshCw className={`w-3 h-3 ${actionAccountId === a.id ? 'animate-spin' : ''}`} />
-                          <span>تجديد الكود</span>
-                        </button>
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleCustomCodePrompt(a.id, a.studentName, a.accessCode)}
+                            disabled={actionAccountId === a.id}
+                            className="px-2 py-1 rounded-lg bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-300 text-[11px] font-bold cursor-pointer transition-colors shadow-2xs inline-flex items-center gap-1 disabled:opacity-50"
+                            title="تعديل كلمة مرور هذا التلميذ يدوياً وحفظها"
+                          >
+                            <span>تعديل ✎</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRegenerateCode(a.id, a.studentName)}
+                            disabled={actionAccountId === a.id}
+                            className="px-2 py-1 rounded-lg bg-[#FAF8F5] hover:bg-[#F2EFE9] text-[#1A4E47] border border-[#D5CDC0] text-[11px] font-bold transition-all cursor-pointer shadow-xs inline-flex items-center gap-1 disabled:opacity-50"
+                            title="توليد كود سري جديد لهذا التلميذ"
+                          >
+                            <RefreshCw className={`w-3 h-3 ${actionAccountId === a.id ? 'animate-spin' : ''}`} />
+                            <span>تجديد</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

@@ -38,7 +38,8 @@ import {
   SlidersHorizontal,
   Settings2,
   BarChart3,
-  Globe
+  Globe,
+  Smartphone
 } from 'lucide-react';
 import {
   SectionItem,
@@ -63,6 +64,7 @@ import { DirectorAnalyticsDashboard } from './DirectorAnalyticsDashboard';
 import { StudentAccountsManagementModal } from './StudentAccountsManagementModal';
 import { ViolationsRegisterModal } from './ViolationsRegisterModal';
 import { CustomDomainModal } from './CustomDomainModal';
+import { AndroidSmsGatewayManagement } from './AndroidSmsGatewayManagement';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -205,6 +207,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [resetAbsencesSectionId, setResetAbsencesSectionId] = useState<string>('');
   const [isResettingAbsences, setIsResettingAbsences] = useState(false);
   const [absencesSectionFilter, setAbsencesSectionFilter] = useState<string>('all');
+  const [showSmsGatewayModal, setShowSmsGatewayModal] = useState(false);
 
   // Auth headers for backend RBAC verification
   const getAuthHeaders = () => ({
@@ -940,18 +943,6 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             <span>تسجيل أستاذ جديد</span>
           </button>
 
-          {/* Quick Add Section Button */}
-          {onOpenSectionModal && (
-            <button
-              type="button"
-              onClick={onOpenSectionModal}
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#C98A3C] hover:bg-[#B37830] text-[#1E362D] font-bold text-sm shadow-xs transition-colors cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>إضافة قسم جديد</span>
-            </button>
-          )}
-
           <button
             type="button"
             onClick={() => setShowHeaderActions((value) => !value)}
@@ -965,6 +956,16 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
           {showHeaderActions && (
             <div className="basis-full flex flex-wrap items-center gap-2 justify-end pt-1">
+              {onOpenSectionModal && (
+                <button
+                  type="button"
+                  onClick={onOpenSectionModal}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-bold text-xs border border-amber-300 transition-colors cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-amber-800" />
+                  <span>إضافة قسم جديد</span>
+                </button>
+              )}
               {onOpenApprovalsModal && (
                 <button
                   type="button"
@@ -1377,6 +1378,17 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         >
           <GraduationCap className="w-3.5 h-3.5 text-[#C98A3C]" />
           <span>أكواد فضاء التلميذ (مسار)</span>
+        </button>
+
+        {/* Android SMS Gateway Settings Button */}
+        <button
+          type="button"
+          onClick={() => setShowSmsGatewayModal(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] bg-[#E8F2F0] hover:bg-[#D5EAE6] text-[#1A4E47] border border-[#1A4E47]/20 transition-all cursor-pointer shadow-2xs"
+          title="إعدادات واختبار بوابة هاتف الإدارة لإرسال رسائل SMS وفورفي WhatsApp"
+        >
+          <Smartphone className="w-3.5 h-3.5 text-[#C98A3C]" />
+          <span>بوابة هاتف الإدارة (SMS)</span>
         </button>
       </div>
 
@@ -3985,6 +3997,37 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         settings={settings}
         onRefreshData={onRefreshSections}
       />
+
+      {/* Android SMS Gateway & WhatsApp Modal */}
+      {showSmsGatewayModal && (
+        <div
+          className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          dir="rtl"
+          onClick={() => setShowSmsGatewayModal(false)}
+        >
+          <div
+            className="bg-white rounded-3xl max-w-4xl w-full p-5 sm:p-6 shadow-2xl border border-[#E5DFD4] my-auto space-y-4 animate-fadeIn"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
+              <div className="flex items-center gap-2">
+                <Smartphone className="w-5 h-5 text-[#1A4E47]" />
+                <h3 className="font-bold text-base text-[#1F2926]">
+                  إعدادات بوابة هاتف الإدارة للرسائل القصيرة (Android SMS Gateway)
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowSmsGatewayModal(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center text-[#6C6356] hover:bg-[#FAF8F5] cursor-pointer font-bold"
+              >
+                ✕
+              </button>
+            </div>
+            <AndroidSmsGatewayManagement />
+          </div>
+        </div>
+      )}
 
     </div>
   );

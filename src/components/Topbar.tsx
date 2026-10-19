@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plus,
   Database,
@@ -64,6 +64,18 @@ export const Topbar: React.FC<TopbarProps> = ({
   onNavigateAdmin,
   isAdminRoute = false,
 }) => {
+  const [utcTime, setUtcTime] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setUtcTime(new Date());
+    }, 15000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const utcHours = String(utcTime.getUTCHours()).padStart(2, '0');
+  const utcMinutes = String(utcTime.getUTCMinutes()).padStart(2, '0');
+
   return (
     <div className="relative flex items-center justify-between gap-4 flex-wrap mb-6 pb-4 border-b border-[#E5DFD4]">
       
@@ -102,8 +114,27 @@ export const Topbar: React.FC<TopbarProps> = ({
               {currentUser ? `الموسم: ${currentUser.academicYear || settings.year}` : `الموسم: ${settings.year || '2025/2026'}`}
             </span>
             <span className="text-[#D5CDC0]">•</span>
+            
+            {/* Legal time badge prominently displayed right next to institution info */}
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-700 text-white font-bold text-xs shadow-xs border border-emerald-800"
+              title="التوقيت القانوني الرسمي المعتمد بالمملكة المغربية (GMT)"
+            >
+              <Clock className="w-3.5 h-3.5 text-[#FDE047] animate-pulse shrink-0" />
+              <span className="text-emerald-100 font-semibold">التوقيت القانوني:</span>
+              <span className="font-mono font-black text-sm text-white tracking-wider">
+                {utcHours}:{utcMinutes}
+              </span>
+              <span className="text-[10px] bg-emerald-950 text-[#FDE047] px-1 py-0.2 rounded font-mono font-extrabold">
+                GMT
+              </span>
+            </span>
+
             {saveStatusText ? (
-              <span className="text-emerald-700 font-semibold animate-pulse">{saveStatusText}</span>
+              <>
+                <span className="text-[#D5CDC0]">•</span>
+                <span className="text-emerald-700 font-semibold animate-pulse">{saveStatusText}</span>
+              </>
             ) : null}
             <span className="text-[11px] text-[#1A4E47] font-semibold opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
               ← العودة للرئيسية
@@ -222,46 +253,51 @@ export const Topbar: React.FC<TopbarProps> = ({
               </button>
             ) : null}
 
-            {/* Profile / Account Settings Button */}
-            <button
-              type="button"
-              id="btn-user-profile"
-              onClick={onOpenProfileModal}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl hover:bg-[#FAF8F5] text-xs text-[#1F2926] font-semibold transition-all cursor-pointer"
-              title="إعدادات الحساب والموسم الدراسي"
-            >
-              {currentUser.role === 'admin' ? (
-                <ShieldCheck className="w-3.5 h-3.5 text-[#1A4E47]" />
-              ) : currentUser.role === 'director' ? (
-                <Building2 className="w-3.5 h-3.5 text-[#1A4E47]" />
-              ) : (
-                <User className="w-3.5 h-3.5 text-[#1A4E47]" />
-              )}
-              <span className="max-w-[150px] truncate">
-                {currentUser.fullName}
-                {currentUser.role === 'teacher' && currentUser.subject && (
-                  <span className="text-[10px] text-[#1A4E47] mr-1">({currentUser.subject})</span>
+            {/* Integrated Profile & Quick Logout Capsule */}
+            <div className="flex items-center bg-[#FAF8F5] border border-[#D5CDC0] rounded-xl pl-1 pr-2.5 py-1 text-xs shadow-2xs">
+              <button
+                type="button"
+                id="btn-user-profile"
+                onClick={onOpenProfileModal}
+                className="flex items-center gap-1.5 text-[#1F2926] hover:text-[#1A4E47] font-semibold transition-all cursor-pointer"
+                title="إعدادات الحساب والموسم الدراسي"
+              >
+                {currentUser.role === 'admin' ? (
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#1A4E47]" />
+                ) : currentUser.role === 'director' ? (
+                  <Building2 className="w-3.5 h-3.5 text-[#1A4E47]" />
+                ) : (
+                  <User className="w-3.5 h-3.5 text-[#1A4E47]" />
                 )}
-              </span>
-              <Settings className="w-3 h-3 text-[#6C6356]" />
-            </button>
+                <span className="max-w-[120px] sm:max-w-[160px] truncate">
+                  {currentUser.fullName}
+                  {currentUser.role === 'teacher' && currentUser.subject && (
+                    <span className="text-[10px] text-[#1A4E47] mr-1">({currentUser.subject})</span>
+                  )}
+                </span>
+                <Settings className="w-3 h-3 text-[#6C6356]" />
+              </button>
 
-            {/* Logout Button */}
-            <span
-              className="w-2 h-2 rounded-full bg-emerald-600 shadow-[0_0_0_3px_rgba(16,185,129,0.14)]"
-              title="الاتصال بقاعدة البيانات نشط"
-              aria-label="الاتصال بقاعدة البيانات نشط"
-            />
-            <button
-              type="button"
-              id="btn-logout"
-              onClick={onLogout}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold text-[#6C6356] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-              title="تسجيل الخروج"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>تسجيل الخروج</span>
-            </button>
+              <div className="w-[1px] h-3.5 bg-[#D5CDC0] mx-1.5" />
+
+              <span
+                className="w-2 h-2 rounded-full bg-emerald-600 shadow-[0_0_0_2px_rgba(16,185,129,0.18)]"
+                title="الاتصال بقاعدة البيانات نشط ومؤمن"
+                aria-label="الاتصال بقاعدة البيانات نشط"
+              />
+
+              {/* Compact, unobtrusive Logout Button with clear tooltip */}
+              <button
+                type="button"
+                id="btn-logout"
+                onClick={onLogout}
+                className="p-1 rounded-lg text-[#6C6356] hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer flex items-center justify-center mr-0.5"
+                title="تسجيل الخروج"
+                aria-label="تسجيل الخروج"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         ) : (
           /* Not Logged In: Login & Register Buttons */
@@ -292,7 +328,7 @@ export const Topbar: React.FC<TopbarProps> = ({
             type="button"
             id="btn-open-db-tools"
             onClick={onOpenDbModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold text-[#1F2926] bg-white hover:bg-[#FAF8F5] border border-[#D5CDC0] transition-all cursor-pointer shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[#1F2926] bg-white hover:bg-[#FAF8F5] border border-[#D5CDC0] transition-all cursor-pointer shadow-xs"
             title="عرض إحصائيات قاعدة البيانات والنسخ الاحتياطي (خاص بالمدير)"
           >
             <HardDrive className="w-3.5 h-3.5 text-[#1A4E47]" />
@@ -311,7 +347,7 @@ export const Topbar: React.FC<TopbarProps> = ({
             type="button"
             id="btn-open-history"
             onClick={onOpenHistoryModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold text-[#1F2926] bg-white hover:bg-[#FAF8F5] border border-[#D5CDC0] transition-all cursor-pointer shadow-xs"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold text-[#1F2926] bg-white hover:bg-[#FAF8F5] border border-[#D5CDC0] transition-all cursor-pointer shadow-xs"
             title="سجل التعديلات المحفوظة (خاص بالمدير)"
           >
             <History className="w-3.5 h-3.5 text-[#1A4E47]" />
@@ -319,16 +355,18 @@ export const Topbar: React.FC<TopbarProps> = ({
           </button>
         )}
 
-        {/* Add Section Button (Always accessible or for admin/teachers) */}
-        <button
-          type="button"
-          id="btn-add-section"
-          onClick={onOpenAddModal}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs sm:text-sm font-bold bg-[#1A4E47] hover:bg-[#133D37] text-white shadow-sm transition-all cursor-pointer"
-        >
-          <Plus className="w-4 h-4" />
-          <span>إضافة قسم</span>
-        </button>
+        {/* Add Section Button: Hidden for administration to prevent obstructing clean visibility; available contextually inside sections tab */}
+        {(!currentUser || currentUser.role === 'teacher') && (
+          <button
+            type="button"
+            id="btn-add-section"
+            onClick={onOpenAddModal}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold bg-[#1A4E47] hover:bg-[#133D37] text-white shadow-2xs transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>إضافة قسم</span>
+          </button>
+        )}
 
       </div>
 

@@ -268,6 +268,19 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
 
         {/* Content body */}
         <div className="p-3 sm:p-5 overflow-y-auto space-y-4 sm:space-y-5 flex-1 bg-[#FAF8F5]">
+          {/* Separation Badge */}
+          <div className="p-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 bg-white shadow-2xs">
+            {currentUser?.role === 'teacher' ? (
+              <span className="text-emerald-800">
+                👤 وضع الأستاذ ({currentUser?.fullName || 'الأستاذ'}): تظهر وتُسجل نقاطك ومشاركاتك الإيجابية فقط (مفصولة ومستقلة عن باقي الأساتذة).
+              </span>
+            ) : (
+              <span className="text-amber-900">
+                🏛️ وضع الإدارة الشامل: تعرض الإدارة كافة المشاركات الإيجابية ونقاط التميز المسجلة من طرف جميع الأساتذة.
+              </span>
+            )}
+          </div>
+
           {errorMsg && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs sm:text-sm flex items-center justify-between">
               <span>{errorMsg}</span>

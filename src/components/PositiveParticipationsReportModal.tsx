@@ -38,9 +38,11 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
   initialSectionId,
   initialStudentName
 }) => {
+  const isTeacher = currentUser?.role === 'teacher';
   const [selectedSectionId, setSelectedSectionId] = useState<string>(
     initialSectionId || (sections.length > 0 ? sections[0].id : '')
   );
+  const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('all');
   const [reportScope, setReportScope] = useState<'section' | 'student'>(
     initialStudentName ? 'student' : 'section'
   );
@@ -70,6 +72,26 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
     return sections.find((s) => s.id === selectedSectionId) || sections[0];
   }, [sections, selectedSectionId]);
 
+  // Extract unique teachers who recorded positive participations in this section
+  const sectionTeachers = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; subject?: string }>();
+    currentSection?.seats?.forEach((seat) => {
+      seat.positiveParticipations?.forEach((p) => {
+        const name = (p.teacherName || '').trim();
+        const id = p.teacherId || name;
+        if (name && !map.has(id)) {
+          map.set(id, { id, name, subject: p.teacherSubject });
+        }
+      });
+    });
+    currentSection?.assignedTeachers?.forEach((at) => {
+      if (!map.has(at.teacherId)) {
+        map.set(at.teacherId, { id: at.teacherId, name: at.teacherName, subject: at.subject });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [currentSection]);
+
   // Aggregate all students and their positive participations in currentSection
   const studentsData = useMemo(() => {
     if (!currentSection) return [];
@@ -92,11 +114,15 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
       const name = (seat.name || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
-      const parts = seat.positiveParticipations || [];
-      const pts =
-        seat.positiveParticipationCount !== undefined
-          ? seat.positiveParticipationCount
-          : parts.reduce((sum, p) => sum + (p.points || 1), 0);
+      let parts = seat.positiveParticipations || [];
+      if (!isTeacher && selectedTeacherFilter !== 'all') {
+        parts = parts.filter(
+          (p) =>
+            (p.teacherId && p.teacherId === selectedTeacherFilter) ||
+            (p.teacherName && p.teacherName.trim() === selectedTeacherFilter)
+        );
+      }
+      const pts = parts.reduce((sum, p) => sum + (p.points || 1), 0);
 
       map.set(key, {
         name,
@@ -114,15 +140,25 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
       const name = (r.name || '').trim();
       if (!name) return;
       const key = name.toLowerCase();
+      let parts = r.positiveParticipations || [];
+      if (!isTeacher && selectedTeacherFilter !== 'all') {
+        parts = parts.filter(
+          (p) =>
+            (p.teacherId && p.teacherId === selectedTeacherFilter) ||
+            (p.teacherName && p.teacherName.trim() === selectedTeacherFilter)
+        );
+      }
+      const pts = parts.reduce((sum, p) => sum + (p.points || 1), 0);
+
       if (!map.has(key)) {
         map.set(key, {
           name,
           number: r.number || '',
           massarNumber: r.massarNumber || '',
           seatNum: undefined,
-          points: r.positiveParticipationCount || 0,
-          participationsCount: 0,
-          participations: []
+          points: pts,
+          participationsCount: parts.length,
+          participations: parts
         });
       } else {
         const existing = map.get(key)!;
@@ -136,7 +172,7 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
     });
 
     return Array.from(map.values()).sort((a, b) => b.points - a.points);
-  }, [currentSection]);
+  }, [currentSection, isTeacher, selectedTeacherFilter]);
 
   // Collect all participations across this section
   const allSectionParticipations = useMemo(() => {
@@ -261,25 +297,61 @@ export const PositiveParticipationsReportModal: React.FC<PositiveParticipationsR
 
         {/* Filter & Controls Toolbar */}
         <div className="bg-[#EFE9D5] border-b border-[#D9CEB0] p-2.5 sm:p-4 space-y-2.5 sm:space-y-3 shrink-0">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3">
-            {/* Section Selector */}
-            <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Users className="w-4 h-4 text-[#1A4E47] shrink-0" />
-              <span className="text-xs font-bold text-[#2A2118] shrink-0">القسم:</span>
-              <select
-                value={selectedSectionId}
-                onChange={(e) => {
-                  setSelectedSectionId(e.target.value);
-                  setSelectedStudentName('');
-                }}
-                className="bg-white border border-[#D9CEB0] rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-[#1F2926] shadow-xs focus:ring-2 focus:ring-[#1A4E47] focus:outline-hidden flex-1 sm:flex-none"
-              >
-                {sections.map((sec) => (
-                  <option key={sec.id} value={sec.id}>
-                    {sec.level} ({sec.classNumber})
-                  </option>
-                ))}
-              </select>
+          {/* Separation & Role Notice */}
+          <div className="flex items-center justify-between gap-2 p-2 rounded-xl text-xs font-bold border bg-white shadow-2xs">
+            {isTeacher ? (
+              <div className="flex items-center gap-2 text-emerald-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                <span>👤 وضع الأستاذ ({currentUser?.fullName || 'الأستاذ'}): مفصول ومستقل — يتم عرض مشاركاتك ونقاطك فقط. الإدارة تطلع على السجل الشامل لجميع الأساتذة.</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-amber-900">
+                <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                <span>🏛️ وضع الإدارة الشامل: تعرض الإدارة كافة المشاركات الإيجابية لجميع الأساتذة مع إمكانية التصفية بحسب الأستاذ.</span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 flex-wrap">
+            {/* Section & Teacher Selectors */}
+            <div className="flex items-center gap-2 flex-wrap flex-1">
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-[#1A4E47] shrink-0" />
+                <span className="text-xs font-bold text-[#2A2118] shrink-0">القسم:</span>
+                <select
+                  value={selectedSectionId}
+                  onChange={(e) => {
+                    setSelectedSectionId(e.target.value);
+                    setSelectedStudentName('');
+                  }}
+                  className="bg-white border border-[#D9CEB0] rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-[#1F2926] shadow-xs focus:ring-2 focus:ring-[#1A4E47] focus:outline-hidden"
+                >
+                  {sections.map((sec) => (
+                    <option key={sec.id} value={sec.id}>
+                      {sec.level} ({sec.classNumber})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {!isTeacher && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-[#2A2118] shrink-0">الأستاذ:</span>
+                  <select
+                    value={selectedTeacherFilter}
+                    onChange={(e) => setSelectedTeacherFilter(e.target.value)}
+                    className="bg-white border border-[#D9CEB0] rounded-xl px-2.5 py-1.5 text-xs sm:text-sm font-bold text-[#1A4E47] shadow-xs focus:ring-2 focus:ring-[#1A4E47] focus:outline-hidden"
+                    title="تصفية المشاركات حسب الأستاذ"
+                  >
+                    <option value="all">كافة الأساتذة (عرض شامل)</option>
+                    {sectionTeachers.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} {t.subject ? `(${t.subject})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Scope Switcher: By Section OR By Student */}

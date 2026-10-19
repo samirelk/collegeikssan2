@@ -1117,6 +1117,7 @@ export default function App() {
             actionTaken: data.actionTaken,
             teacherName: currentUser?.fullName || data.teacherName,
             teacherSubject: currentUser?.subject || data.teacherSubject,
+            teacherId: currentUser?.id || '',
             date: data.date,
             time: data.time
           })
@@ -1181,7 +1182,10 @@ export default function App() {
     try {
       const res = await fetch(
         `/api/sections/${activeSectionId}/seats/${activeSeatModal.seatNum}/violations/${violationId}`,
-        { method: 'DELETE' }
+        { 
+          method: 'DELETE',
+          headers: currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {}
+        }
       );
       const resData = await res.json();
       if (resData.success) {
@@ -1253,6 +1257,7 @@ export default function App() {
             note: data.note,
             teacherName: currentUser?.fullName || '',
             teacherSubject: currentUser?.subject || '',
+            teacherId: currentUser?.id || '',
             recordedDate: data.date,
             recordedTime: data.time
           })
@@ -1703,7 +1708,9 @@ export default function App() {
         ...(seat.name ? { studentName: seat.name } : {}),
         ...(seat.number ? { studentNumber: seat.number } : {})
       });
-      const response = await fetch(`/api/students/${encodeURIComponent(activeSectionId)}/${seat.seat}/history?${qParams.toString()}`);
+      const response = await fetch(`/api/students/${encodeURIComponent(activeSectionId)}/${seat.seat}/history?${qParams.toString()}`, {
+        headers: currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {}
+      });
       const data = await response.json();
       if (data.success) setStudentHistory(data.history);
     } catch (error) {
@@ -1985,6 +1992,21 @@ export default function App() {
             </div>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => {
+                setActiveSectionId(null);
+                setTeacherFilterTab(teacherFilterTab === 'timetable' ? 'all' : 'timetable');
+              }}
+              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors ${
+                teacherFilterTab === 'timetable'
+                  ? 'bg-[#1A4E47] text-white'
+                  : 'bg-[#E8F2F0] hover:bg-[#D0E4E0] text-[#1A4E47] border border-[#B9D8D2]'
+              }`}
+              title="عرض وتدبير استعمال الزمان وجدول الحصص"
+            >
+              <Calendar className="w-4 h-4" />
+              <span>{teacherFilterTab === 'timetable' ? 'عرض بطاقات الأقسام' : 'استعمال الزمان (جدول الحصص)'}</span>
+            </button>
             <button
               onClick={() => setShowProfileModal(true)}
               className="px-3.5 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#1F2926] font-semibold text-xs border border-[#D5CDC0] cursor-pointer flex items-center gap-1.5"
@@ -2665,9 +2687,31 @@ export default function App() {
                   </button>
                 </>
               ) : (
-                <span className="text-xs text-[#6C6356] font-medium">
-                  لوحة المدير العام • إدارة وتوزيع جميع أقسام ومستويات المؤسسة
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setTeacherFilterTab(teacherFilterTab === 'timetable' ? 'all' : 'timetable')}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                      teacherFilterTab === 'timetable'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'bg-white text-[#6C6356] border border-[#D5CDC0] hover:bg-[#FAF8F5]'
+                    }`}
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>📅 استعمال الزمان (جدول الحصص)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTeacherFilterTab('all')}
+                    className={`px-3.5 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                      teacherFilterTab === 'all'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'bg-white text-[#6C6356] border border-[#D5CDC0] hover:bg-[#FAF8F5]'
+                    }`}
+                  >
+                    عرض بطاقات الأقسام ({sections.length})
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -2756,7 +2800,7 @@ export default function App() {
             </div>
           )}
 
-          {currentUser?.role === 'teacher' && teacherFilterTab === 'timetable' ? (
+          {teacherFilterTab === 'timetable' && currentUser ? (
             <TeacherTimetable
               currentUser={currentUser}
               sections={sections}

@@ -34,7 +34,11 @@ import {
   Smartphone,
   MessageSquare,
   Camera,
-  Share2
+  Share2,
+  KeyRound,
+  Lock,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { printReportHtml } from '../utils/printNotes';
 import { StudentProfileCompletionModal } from './StudentProfileCompletionModal';
@@ -230,6 +234,70 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
   });
 
   const [whatsappToast, setWhatsappToast] = useState<string | null>(null);
+
+  // Change Password state
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [currentPasswordInput, setCurrentPasswordInput] = useState('');
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSuccess, setPasswordSuccess] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+    setPasswordSuccess(null);
+
+    const cleanNew = newPasswordInput.trim();
+    const cleanConfirm = confirmPasswordInput.trim();
+
+    if (!cleanNew) {
+      setPasswordError('يرجى كتابة كلمة المرور الجديدة');
+      return;
+    }
+    if (cleanNew.length < 3) {
+      setPasswordError('كلمة المرور يجب أن تتكون من 3 أحرف أو أرقام على الأقل');
+      return;
+    }
+    if (cleanNew !== cleanConfirm) {
+      setPasswordError('كلمتا المرور غير متطابقتين، يرجى التأكد من تطابق كلمة المرور الجديدة');
+      return;
+    }
+
+    try {
+      setIsChangingPassword(true);
+      const res = await fetch('/api/student/profile/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          massarNumber: student.massarNumber,
+          currentPassword: currentPasswordInput.trim(),
+          newPassword: cleanNew
+        })
+      });
+
+      const resData = await res.json();
+      if (!res.ok || !resData.success) {
+        throw new Error(resData.error || 'تعذر تغيير كلمة المرور');
+      }
+
+      setPasswordSuccess(resData.message || 'تم حفظ وتحديث كلمة المرور بنجاح في قاعدة البيانات ✓');
+      setTimeout(() => {
+        setIsChangePasswordOpen(false);
+        setPasswordSuccess(null);
+        setCurrentPasswordInput('');
+        setNewPasswordInput('');
+        setConfirmPasswordInput('');
+      }, 2500);
+    } catch (err: any) {
+      setPasswordError(err.message || 'خطأ أثناء تغيير كلمة المرور');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   const handleCopyLink = (url: string, id: string) => {
     try {
@@ -609,6 +677,23 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             >
               <Camera className="w-4 h-4 text-[#C98A3C]" />
               <span className="hidden sm:inline">تعديل ملفي</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setIsChangePasswordOpen(true);
+                setPasswordError(null);
+                setPasswordSuccess(null);
+                setCurrentPasswordInput('');
+                setNewPasswordInput('');
+                setConfirmPasswordInput('');
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer border border-white/20 shadow-xs"
+              title="تعديل كلمة المرور أو الكود السري الخاص بك"
+            >
+              <KeyRound className="w-4 h-4 text-[#C98A3C]" />
+              <span className="hidden sm:inline">كلمة المرور</span>
             </button>
 
             <button
@@ -1967,6 +2052,161 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
       <footer className="w-full bg-[#1A4E47] text-white/70 text-center py-3 border-t border-[#C98A3C]/30 text-xs">
         {institutionName} • فضاء التلميذ الرقمي للمتابعة والانضباط التربوي
       </footer>
+
+      {/* Student Change Password Modal */}
+      {isChangePasswordOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-[#0F1914]/80 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsChangePasswordOpen(false);
+          }}
+          dir="rtl"
+        >
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border-2 border-[#C98A3C]/40 overflow-hidden animate-in zoom-in-95 duration-200 my-auto">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-[#1A4E47] via-[#143E38] to-[#1A4E47] text-white p-5 relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#133D37] border-2 border-[#C98A3C] flex items-center justify-center text-[#C98A3C]">
+                    <KeyRound className="w-5 h-5 text-[#C98A3C]" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-base font-serif text-white">
+                      تعديل كلمة المرور (PIN)
+                    </h3>
+                    <p className="text-xs text-[#F2EFE3]/80">
+                      رقم مسار: <code className="font-mono text-[#C98A3C] font-bold">{student.massarNumber}</code>
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsChangePasswordOpen(false)}
+                  className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleChangePassword} className="p-5 space-y-4">
+              <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200 text-emerald-950 text-xs flex items-start gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                <p className="leading-relaxed">
+                  كلمة المرور الجديدة تحفظ مباشرة في قاعدة البيانات، وتظهر كذلك لدى إدارة المؤسسة لضمان عدم ضياع حسابك أو نسيانها.
+                </p>
+              </div>
+
+              {passwordError && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{passwordError}</span>
+                </div>
+              )}
+
+              {passwordSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span className="font-bold">{passwordSuccess}</span>
+                </div>
+              )}
+
+              {/* Current Password */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1">
+                  كلمة المرور الحالية (إن كنت تتذكرها):
+                </label>
+                <div className="relative">
+                  <input
+                    type={showCurrentPass ? 'text' : 'password'}
+                    value={currentPasswordInput}
+                    onChange={(e) => setCurrentPasswordInput(e.target.value)}
+                    placeholder="أدخل كلمة المرور الحالية أو اتركها فارغة"
+                    className="w-full px-3 py-2 pl-9 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-xs font-mono text-[#1F2926] focus:outline-hidden focus:border-[#1A4E47]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCurrentPass(!showCurrentPass)}
+                    className="absolute left-2.5 top-2.5 text-[#7A6B58] hover:text-[#1A4E47] cursor-pointer"
+                  >
+                    {showCurrentPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* New Password */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1">
+                  كلمة المرور الجديدة: <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewPass ? 'text' : 'password'}
+                    value={newPasswordInput}
+                    onChange={(e) => setNewPasswordInput(e.target.value)}
+                    placeholder="مثال: 6 أرقام أو كلمة سر سهلة التذكر"
+                    required
+                    className="w-full px-3 py-2 pl-9 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-xs font-mono text-[#1F2926] focus:outline-hidden focus:border-[#1A4E47]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPass(!showNewPass)}
+                    className="absolute left-2.5 top-2.5 text-[#7A6B58] hover:text-[#1A4E47] cursor-pointer"
+                  >
+                    {showNewPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Confirm New Password */}
+              <div>
+                <label className="block text-xs font-bold text-[#1F2926] mb-1">
+                  تأكيد كلمة المرور الجديدة: <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type={showNewPass ? 'text' : 'password'}
+                  value={confirmPasswordInput}
+                  onChange={(e) => setConfirmPasswordInput(e.target.value)}
+                  placeholder="أعد إدخال كلمة المرور الجديدة"
+                  required
+                  className="w-full px-3 py-2 rounded-xl bg-[#FAF8F5] border border-[#D5CDC0] text-xs font-mono text-[#1F2926] focus:outline-hidden focus:border-[#1A4E47]"
+                />
+              </div>
+
+              {/* Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#E5DFD4]">
+                <button
+                  type="button"
+                  onClick={() => setIsChangePasswordOpen(false)}
+                  disabled={isChangingPassword}
+                  className="px-4 py-2 rounded-xl border border-[#D5CDC0] text-[#6C6356] hover:bg-[#FAF8F5] font-bold text-xs cursor-pointer"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="submit"
+                  disabled={isChangingPassword || !newPasswordInput.trim()}
+                  className="px-5 py-2 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+                >
+                  {isChangingPassword ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>جاري الحفظ...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#C98A3C]" />
+                      <span>حفظ كلمة المرور الجديدة</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Student Profile Completion Modal (First-time mandatory / on-demand edit) */}
       <StudentProfileCompletionModal

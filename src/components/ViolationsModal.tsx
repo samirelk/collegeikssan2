@@ -332,6 +332,19 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-4 sm:space-y-5">
+          {/* Separation Badge */}
+          <div className="p-2.5 rounded-xl text-xs font-bold border flex items-center gap-2 bg-white shadow-2xs">
+            {currentUser?.role === 'teacher' ? (
+              <span className="text-emerald-800">
+                👤 وضع الأستاذ ({currentUser?.fullName || 'الأستاذ'}): تظهر وتُسجل مخالفاتك فقط (مفصولة ومستقلة عن باقي الأساتذة). الإدارة تطلع على كافة مخالفات المؤسسة.
+              </span>
+            ) : (
+              <span className="text-amber-900">
+                🏛️ وضع الإدارة الشامل: تطلع الإدارة على كافة المخالفات المسجلة من طرف جميع الأساتذة لجميع المواد.
+              </span>
+            )}
+          </div>
+
           {errorMsg && (
             <div className="p-3 bg-red-50 text-red-800 text-xs rounded-xl border border-red-200 flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0" />

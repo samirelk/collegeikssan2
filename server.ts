@@ -77,6 +77,7 @@ import {
   updateDailyViolation,
   deleteDailyViolation,
   getAllViolations,
+  getAllPositiveParticipations,
   getAllAcademicYears,
   createAcademicYear,
   setCurrentAcademicYear,
@@ -118,14 +119,18 @@ import {
   generateGuardianVerificationCode,
   verifyGuardianPhoneCode,
   completeStudentProfile,
+  changeStudentPassword,
   getClassHomeworks,
   createClassHomework,
   deleteClassHomework,
   getTeacherLeaveNotices,
   createTeacherLeaveNotice,
   deleteTeacherLeaveNotice,
+  getAndroidSmsGatewayConfig,
+  saveAndroidSmsGatewayConfig,
   db
 } from './server/db.ts';
+import { testAndroidGateway, getSmsDispatchLogs } from './server/smsService.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
 import {
   configureCloudBackup,
@@ -595,7 +600,8 @@ async function startServer() {
       const sectionId = req.params.id;
       const seatNum = Number(req.params.seatNum);
       const violationId = req.params.violationId;
-      const result = deleteStudentViolation(sectionId, seatNum, violationId);
+      const requester = getRequester(req);
+      const result = deleteStudentViolation(sectionId, seatNum, violationId, requester.userId, requester.role);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -640,8 +646,21 @@ async function startServer() {
   app.get('/api/sections/:id/positive-participations', (req, res) => {
     try {
       const sectionId = req.params.id;
-      const teacherId = (req.query.teacherId as string) || undefined;
-      const list = getPositiveParticipationsBySection(sectionId, teacherId);
+      const requester = getRequester(req);
+      const userRole = requester.role || (req.headers['x-user-role'] as string) || '';
+      let teacherId = (req.query.teacherId as string) || undefined;
+      let teacherName = (req.query.teacherName as string) || undefined;
+
+      // Strict separation per teacher:
+      // If requester is a teacher, strictly enforce their teacherId and teacherName
+      if (userRole === 'teacher') {
+        teacherId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
+        if (teacherId) {
+          const tUser = findUserById(teacherId);
+          if (tUser) teacherName = tUser.fullName;
+        }
+      }
+      const list = getPositiveParticipationsBySection(sectionId, teacherId, teacherName);
       res.json({ success: true, participations: list });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -651,7 +670,8 @@ async function startServer() {
   app.delete('/api/sections/:id/positive-participations/:participationId', (req, res) => {
     try {
       const participationId = req.params.participationId;
-      const result = deletePositiveParticipation(participationId);
+      const requester = getRequester(req);
+      const result = deletePositiveParticipation(participationId, requester.userId, requester.role);
       markDirty();
       res.json(result);
     } catch (err: any) {
@@ -1560,7 +1580,15 @@ async function startServer() {
     try {
       const date = req.query.date as string | undefined;
       const rawSectionId = req.query.sectionId as string | undefined;
-      const teacherId = req.query.teacherId as string | undefined;
+      const requester = getRequester(req);
+      const userRole = requester.role || (req.headers['x-user-role'] as string) || '';
+      let teacherId = req.query.teacherId as string | undefined;
+
+      // Strict separation per teacher:
+      if (!teacherId && userRole === 'teacher') {
+        teacherId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
+      }
+
       const sectionId = rawSectionId && rawSectionId !== 'all' ? rawSectionId : undefined;
       const data = getDailyArchive(date, sectionId, teacherId);
       res.json({ success: true, ...data });
@@ -1575,10 +1603,12 @@ async function startServer() {
       if (!req.params.sectionId || !Number.isInteger(seatNum) || seatNum < 1) {
         return res.status(400).json({ success: false, error: 'بيانات التلميذ غير صالحة' });
       }
+      const requester = getRequester(req);
       const studentName = (req.query.studentName as string) || undefined;
       const studentNumber = (req.query.studentNumber as string) || undefined;
-      const viewerId = (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
-      res.json({ success: true, history: getStudentHistory(req.params.sectionId, seatNum, studentName, studentNumber, viewerId) });
+      const viewerId = requester.userId || (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
+      const viewerRole = requester.role || (req.headers['x-user-role'] as string) || (req.query.viewerRole as string) || undefined;
+      res.json({ success: true, history: getStudentHistory(req.params.sectionId, seatNum, studentName, studentNumber, viewerId, viewerRole) });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -1589,13 +1619,15 @@ async function startServer() {
     try {
       const sectionId = (req.query.sectionId as string) || '';
       const seatNum = Number(req.query.seatNum || 1);
+      const requester = getRequester(req);
       const studentName = (req.query.studentName as string) || undefined;
       const studentNumber = (req.query.studentNumber as string) || undefined;
-      const viewerId = (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
+      const viewerId = requester.userId || (req.headers['x-user-id'] as string) || (req.query.viewerId as string) || undefined;
+      const viewerRole = requester.role || (req.headers['x-user-role'] as string) || (req.query.viewerRole as string) || undefined;
       if (!sectionId) {
         return res.status(400).json({ success: false, error: 'معرف القسم مطلوب' });
       }
-      res.json({ success: true, history: getStudentHistory(sectionId, seatNum, studentName, studentNumber, viewerId) });
+      res.json({ success: true, history: getStudentHistory(sectionId, seatNum, studentName, studentNumber, viewerId, viewerRole) });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -2029,13 +2061,13 @@ async function startServer() {
     }
   });
 
-  // Request Guardian Phone Verification Code (إرسال رسالة واتساب بكود التفعيل إلى ولي الأمر)
-  app.post('/api/student/profile/request-code', (req, res) => {
+  // Request Guardian Phone Verification Code (إرسال رسالة قصيرة SMS بكود OTP تلقائياً باسم المؤسسة إلى ولي الأمر)
+  app.post('/api/student/profile/request-code', async (req, res) => {
     try {
       const { massarNumber, guardianPhone, institutionName } = req.body;
       const settings = getAppSettings();
-      const inst = institutionName || settings.institution || 'المدرسة الرقمية';
-      const result = generateGuardianVerificationCode(massarNumber, guardianPhone, inst);
+      const inst = institutionName || settings.institution || 'ثانوية ايكسان الإعدادية';
+      const result = await generateGuardianVerificationCode(massarNumber, guardianPhone, inst);
       res.json(result);
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
@@ -2071,6 +2103,74 @@ async function startServer() {
       });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Change Student Password (تعديل كلمة مرور التلميذ وتسجيلها بقاعدة البيانات)
+  app.post('/api/student/profile/change-password', (req, res) => {
+    try {
+      const { massarNumber, newPassword, currentPassword } = req.body;
+      const result = changeStudentPassword(massarNumber, newPassword, currentPassword);
+      markDirty();
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Android SMS Gateway Endpoints (إدارة بوابة هاتف الإدارة لإرسال SMS)
+  // ==========================================
+  app.get('/api/admin/sms-gateway/config', (req, res) => {
+    try {
+      const config = getAndroidSmsGatewayConfig();
+      res.json({ success: true, config });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/admin/sms-gateway/config', (req, res) => {
+    try {
+      const role = (req.headers['x-user-role'] as string) || '';
+      if (role !== 'admin' && role !== 'director') {
+        return res.status(403).json({ success: false, error: 'غير مصرح: تعديل إعدادات بوابة SMS متاح للإدارة فقط' });
+      }
+      const updated = saveAndroidSmsGatewayConfig(req.body);
+      markDirty();
+      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات بوابة هاتف الإدارة (Android SMS Gateway) بنجاح ✓' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/admin/sms-gateway/test', async (req, res) => {
+    try {
+      const role = (req.headers['x-user-role'] as string) || '';
+      if (role !== 'admin' && role !== 'director') {
+        return res.status(403).json({ success: false, error: 'غير مصرح: اختبار بوابة SMS متاح للإدارة فقط' });
+      }
+      const { url, token, testPhone } = req.body;
+      const targetUrl = url || getAndroidSmsGatewayConfig().url;
+      if (!targetUrl) {
+        return res.status(400).json({ success: false, error: 'يرجى إدخال رابط خادم هاتف الإدارة أولاً (URL)' });
+      }
+      if (!testPhone) {
+        return res.status(400).json({ success: false, error: 'يرجى إدخال رقم هاتف لإرسال رسالة الاختبار إليه' });
+      }
+      const testResult = await testAndroidGateway(targetUrl, token, testPhone);
+      res.json(testResult);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  app.get('/api/admin/sms-gateway/logs', (req, res) => {
+    try {
+      const logs = getSmsDispatchLogs();
+      res.json({ success: true, logs });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -2194,13 +2294,21 @@ async function startServer() {
   app.get('/api/violations', (req, res) => {
     try {
       const sectionId = (req.query.sectionId as string) || undefined;
-      const userRole = (req.headers['x-user-role'] as string) || '';
+      const requester = getRequester(req);
+      const userRole = requester.role || (req.headers['x-user-role'] as string) || '';
       let teacherId = (req.query.teacherId as string) || undefined;
-      // Only filter by teacherId if the requester is specifically a teacher
-      if (!teacherId && userRole === 'teacher') {
-        teacherId = (req.headers['x-user-id'] as string) || undefined;
+      let teacherName = (req.query.teacherName as string) || undefined;
+
+      // Strict separation per teacher:
+      // If requester is a teacher, strictly enforce their own teacherId and teacherName
+      if (userRole === 'teacher') {
+        teacherId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
+        if (teacherId) {
+          const tUser = findUserById(teacherId);
+          if (tUser) teacherName = tUser.fullName;
+        }
       }
-      const teacherName = (req.query.teacherName as string) || undefined;
+      // If administration (director, supervisor, admin), they see everything across all teachers unless they filter:
       const studentName = (req.query.studentName as string) || undefined;
       const violationType = (req.query.violationType as string) || undefined;
       const dateFrom = (req.query.dateFrom as string) || undefined;
@@ -2217,6 +2325,48 @@ async function startServer() {
       });
 
       res.json({ success: true, violations });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // ==========================================
+  // Positive Participations Global API (سجل المشاركات الإيجابية والتعزيز)
+  // Teachers only see their own participations.
+  // Administration sees all participations across all teachers.
+  // ==========================================
+  app.get('/api/positive-participations', (req, res) => {
+    try {
+      const sectionId = (req.query.sectionId as string) || undefined;
+      const requester = getRequester(req);
+      const userRole = requester.role || (req.headers['x-user-role'] as string) || '';
+      let teacherId = (req.query.teacherId as string) || undefined;
+      let teacherName = (req.query.teacherName as string) || undefined;
+
+      // Strict separation per teacher:
+      // If requester is a teacher, strictly enforce their own teacherId and teacherName
+      if (userRole === 'teacher') {
+        teacherId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
+        if (teacherId) {
+          const tUser = findUserById(teacherId);
+          if (tUser) teacherName = tUser.fullName;
+        }
+      }
+      // If administration (director, supervisor, admin), they see everything across all teachers unless they filter:
+      const studentName = (req.query.studentName as string) || undefined;
+      const dateFrom = (req.query.dateFrom as string) || undefined;
+      const dateTo = (req.query.dateTo as string) || undefined;
+
+      const participations = getAllPositiveParticipations({
+        sectionId,
+        teacherId,
+        teacherName,
+        studentName,
+        dateFrom,
+        dateTo
+      });
+
+      res.json({ success: true, participations });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

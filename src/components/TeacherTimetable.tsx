@@ -86,12 +86,47 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
-  // View modes: 'grid' (full week table) or 'day' (tabbed daily cards, best on mobile)
+  // View modes: default to 'day' (tabbed daily cards) so the teacher sees today's timetable directly by default!
   const [viewMode, setViewMode] = useState<'day' | 'grid'>('day');
 
-  // Currently selected day for day view (enforcing GMT / UTC)
+  // Teacher selection for Administration (Admin / Director)
+  const [teachersList, setTeachersList] = useState<Array<{ id: string; fullName: string; subject?: string }>>([]);
+  const [selectedTeacherId, setSelectedTeacherId] = useState<string>(() => {
+    if (currentUser.role === 'admin' || currentUser.role === 'director') {
+      return 'usr_mus3qsxfuxy3'; // Default to Teacher Samir El Korachi
+    }
+    return currentUser.id;
+  });
+
+  const effectiveTeacherId = (currentUser.role === 'admin' || currentUser.role === 'director')
+    ? (selectedTeacherId || 'usr_mus3qsxfuxy3')
+    : currentUser.id;
+
+  const activeTeacherObj = useMemo(() => {
+    return teachersList.find((t) => t.id === effectiveTeacherId);
+  }, [teachersList, effectiveTeacherId]);
+
+  const activeTeacherName = activeTeacherObj?.fullName || (currentUser.role === 'admin' ? 'سمير القراشي' : currentUser.fullName) || 'أستاذ المادة';
+  const activeTeacherSubject = activeTeacherObj?.subject || currentUser.subject || 'الرياضيات';
+
+  // Fetch teachers list if administrator or director
+  useEffect(() => {
+    if (currentUser.role === 'admin' || currentUser.role === 'director') {
+      fetch('/api/auth/teachers')
+        .then((r) => r.json())
+        .then((d) => {
+          if (d.success && Array.isArray(d.teachers)) {
+            setTeachersList(d.teachers);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [currentUser.role]);
+
+  // Currently selected day for day view (enforcing GMT / UTC, defaulting to Monday if weekend)
   const [selectedDay, setSelectedDay] = useState<TimetableDay>(() => {
     const todayNum = new Date().getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat (GMT)
+    if (todayNum === 0) return 'monday';
     const found = DAYS_OF_WEEK.find((d) => d.jsDay === todayNum);
     return found ? found.key : 'monday';
   });
@@ -158,7 +193,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
     try {
       setIsLoading(true);
       setErrorMsg(null);
-      const res = await fetch(`/api/teacher/timetable?teacherId=${currentUser.id}`, {
+      const res = await fetch(`/api/teacher/timetable?teacherId=${effectiveTeacherId}`, {
         headers: {
           'x-user-id': currentUser.id,
           'x-user-role': currentUser.role
@@ -179,7 +214,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
 
   useEffect(() => {
     fetchTimetable();
-  }, [currentUser.id]);
+  }, [effectiveTeacherId, currentUser.id]);
 
   // Open slot editor
   const handleOpenEdit = (dayOfWeek: TimetableDay, slot: TimetableSlotConfig) => {
@@ -188,16 +223,16 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
     if (existing) {
       setFormSectionId(existing.sectionId);
       setFormRoom(existing.room || '');
-      setFormSubject(existing.subject || currentUser.subject || '');
+      setFormSubject(existing.subject || activeTeacherSubject || '');
       setFormNotes(existing.notes || '');
     } else {
       // Default to first assigned section if available
       const teacherSections = sections.filter(
-        (s) => s.assignedTeacherId === currentUser.id || s.assignedTeachers?.some((t) => t.teacherId === currentUser.id)
+        (s) => s.assignedTeacherId === effectiveTeacherId || s.assignedTeachers?.some((t) => t.teacherId === effectiveTeacherId)
       );
       setFormSectionId(teacherSections[0]?.id || sections[0]?.id || '');
       setFormRoom('');
-      setFormSubject(currentUser.subject || '');
+      setFormSubject(activeTeacherSubject || '');
       setFormNotes('');
     }
   };
@@ -216,7 +251,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
       const isEmpty = formSectionId === 'empty';
 
       const payload = {
-        teacherId: currentUser.id,
+        teacherId: effectiveTeacherId,
         dayOfWeek: editingSlot.dayOfWeek,
         slotId: editingSlot.slot.id,
         periodType: isEmpty ? 'empty' : editingSlot.slot.period,
@@ -224,7 +259,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
         endTime: editingSlot.slot.endTime,
         sectionId: formSectionId,
         room: formRoom.trim(),
-        subject: isEmpty ? (formSubject.trim() || 'ساعة فراغ') : (formSubject.trim() || currentUser.subject || ''),
+        subject: isEmpty ? (formSubject.trim() || 'ساعة فراغ') : (formSubject.trim() || activeTeacherSubject || ''),
         notes: formNotes.trim()
       };
 
@@ -263,7 +298,7 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   const handleDeleteSlot = async (dayOfWeek: TimetableDay, slotId: string) => {
     try {
       setIsSaving(true);
-      const res = await fetch(`/api/teacher/timetable/slot/${dayOfWeek}/${slotId}?teacherId=${currentUser.id}`, {
+      const res = await fetch(`/api/teacher/timetable/slot/${dayOfWeek}/${slotId}?teacherId=${effectiveTeacherId}`, {
         method: 'DELETE',
         headers: {
           'x-user-id': currentUser.id,
@@ -288,10 +323,10 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
 
   // Print Timetable
   const handlePrintTimetable = () => {
-    const teacherName = currentUser.fullName || 'أستاذ المادة';
+    const teacherName = activeTeacherName || currentUser.fullName || 'أستاذ المادة';
     const institution = settings.institution || 'الثانوية الإعدادية ايكسان';
     const academicYear = currentUser.academicYear || settings.year || '2026/2027';
-    const subject = currentUser.subject || '';
+    const subject = activeTeacherSubject || currentUser.subject || '';
 
     const now = new Date();
     const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
@@ -434,29 +469,26 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
             <Calendar className="w-6 h-6" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold text-[#1F2926] font-['Amiri',serif]">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-xl sm:text-2xl font-bold text-[#1F2926] font-['Amiri',serif]">
                 استعمال زمان الأستاذ(ة)
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-[#E8F2F0] text-[#1A4E47] text-xs font-bold border border-[#1A4E47]/20">
-                {currentUser.fullName}
+              <span className="px-3 py-1 rounded-full bg-[#E8F2F0] text-[#1A4E47] text-xs font-bold border border-[#1A4E47]/20">
+                {activeTeacherName}
               </span>
-              {currentUser.subject && (
-                <span className="px-2 py-0.5 rounded-full bg-white text-[#6C6356] text-xs font-semibold border border-[#D5CDC0]">
-                  {currentUser.subject}
+              {activeTeacherSubject && (
+                <span className="px-2.5 py-1 rounded-full bg-white text-[#6C6356] text-xs font-semibold border border-[#D5CDC0]">
+                  {activeTeacherSubject}
                 </span>
               )}
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-xs font-semibold border border-emerald-300 flex items-center gap-1.5 shadow-2xs" title="نظام استعمال الزمان يعتمد توقيت غرينتش القانوني (GMT) دون زيادة ساعة">
-                <Clock className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                <span>التوقيت القانوني:</span>
-                <span className="font-mono font-bold text-emerald-900">
-                  {String(currentTime.getUTCHours()).padStart(2, '0')}:{String(currentTime.getUTCMinutes()).padStart(2, '0')}
+              {entries.length > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold border border-emerald-200">
+                  {entries.length} حصة مبرمجة
                 </span>
-                <span className="text-[10px] px-1 py-0.2 bg-emerald-200 text-emerald-900 rounded font-black">GMT</span>
-              </span>
+              )}
             </div>
-            <p className="text-xs text-[#6C6356] mt-0.5">
-              جدول الحصص الأسبوعي بالتوقيت القانوني (GMT) • الفترة الصباحية (8:00 - 14:00) والمسائية (14:00 - 18:00). اضغط على أي قسم للانتقال فوراً لتسجيل الغيابات والمخالفات.
+            <p className="text-xs text-[#6C6356] mt-1">
+              جدول الحصص الأسبوعي • الفترة الصباحية (8:00 - 12:00) والمسائية (14:00 - 18:00). اضغط على أي قسم للانتقال فوراً لتسجيل الغيابات والمخالفات.
             </p>
           </div>
         </div>
@@ -544,6 +576,47 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
           )}
         </div>
       </div>
+
+      {/* Administration Teacher Selector Bar */}
+      {(currentUser.role === 'admin' || currentUser.role === 'director') && (
+        <div className="mt-4 p-3.5 sm:p-4 rounded-2xl bg-[#E8F2F0] border-2 border-[#1A4E47]/20 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-[#1A4E47] text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+              <Calendar className="w-5 h-5 text-emerald-300" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-bold text-[#1A4E47] flex items-center gap-2">
+                <span>تدبير استعمال زمان الأساتذة (خاص بالإدارة)</span>
+                <span className="px-2 py-0.2 rounded-full bg-[#1A4E47] text-white text-[10px] font-bold">
+                  {currentUser.role === 'admin' ? 'مشرف التطبيق' : 'مدير المؤسسة'}
+                </span>
+              </div>
+              <div className="text-[11px] text-[#5C746F] mt-0.5">
+                اختر أي أستاذ لعرض أو تعديل جدول حصصه الأسبوعي، أو للتأكد من مواعيد أقسامه
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-bold text-[#1A4E47]">عرض جدول:</span>
+            <select
+              value={effectiveTeacherId}
+              onChange={(e) => setSelectedTeacherId(e.target.value)}
+              className="bg-white border-2 border-[#1A4E47] text-xs font-bold text-[#1F2926] px-3.5 py-2 rounded-xl shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1A4E47]"
+            >
+              {teachersList.length > 0 ? (
+                teachersList.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.fullName} ({t.subject || 'عام'})
+                  </option>
+                ))
+              ) : (
+                <option value="usr_mus3qsxfuxy3">الأستاذ: سمير القراشي (الرياضيات)</option>
+              )}
+            </select>
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       {errorMsg && (

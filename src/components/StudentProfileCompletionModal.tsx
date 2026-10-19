@@ -16,7 +16,8 @@ import {
   Lock,
   PhoneCall,
   BellRing,
-  Check
+  Check,
+  Mail
 } from 'lucide-react';
 import { StudentData } from './StudentPortalDashboard';
 
@@ -48,7 +49,7 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
   // Verification Code flow
   const [verificationCodeInput, setVerificationCodeInput] = useState('');
   const [codeSent, setCodeSent] = useState(false);
-  const [whatsappNotice, setWhatsappNotice] = useState<{ waUrl: string; phone: string } | null>(null);
+  const [smsNotice, setSmsNotice] = useState<{ senderName: string; phone: string; intlPhone?: string; whatsappUrl?: string } | null>(null);
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [codeCountdown, setCodeCountdown] = useState<number>(0);
@@ -188,8 +189,8 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
     reader.readAsDataURL(file);
   };
 
-  // Request Verification Code via official WhatsApp message
-  const handleRequestVerificationCode = async () => {
+  // Request Verification Code via WhatsApp or Android SMS Gateway
+  const handleRequestVerificationCode = async (channel: 'whatsapp' | 'sms' = 'whatsapp') => {
     setErrorMessage(null);
     const cleanPhone = guardianPhone.trim().replace(/\s+/g, '');
     if (!cleanPhone || cleanPhone.length < 8) {
@@ -205,7 +206,8 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
         body: JSON.stringify({
           massarNumber: student.massarNumber,
           guardianPhone: cleanPhone,
-          institutionName
+          institutionName,
+          channel
         })
       });
 
@@ -216,17 +218,20 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
 
       setCodeSent(true);
       setCodeCountdown(60);
-      setWhatsappNotice({
-        waUrl: json.waUrl || `https://wa.me/${cleanPhone}`,
-        phone: cleanPhone
+      setSmsNotice({
+        senderName: json.senderName || institutionName || 'ثانوية ايكسان الإعدادية',
+        phone: cleanPhone,
+        intlPhone: json.intlPhone || cleanPhone,
+        whatsappUrl: json.whatsappUrl
       });
 
-      // Open WhatsApp chat directly with official formatted activation message
-      if (json.waUrl) {
-        try {
-          window.open(json.waUrl, '_blank');
-        } catch {}
+      if (channel === 'whatsapp' && json.whatsappUrl) {
+        window.open(json.whatsappUrl, '_blank');
+        setSuccessToast(`تم فتح تطبيق واتساب لإرسال رمز التحقق الرسمي إلى ولي الأمر بنجاح ✓`);
+      } else {
+        setSuccessToast(`تم إرسال رمز التحقق (OTP) بنجاح باسم "${json.senderName || institutionName}" إلى هاتف ولي الأمر ✓`);
       }
+      setTimeout(() => setSuccessToast(null), 5000);
     } catch (err: any) {
       setErrorMessage(err.message || 'حدث خطأ أثناء إرسال رمز التحقق');
     } finally {
@@ -239,7 +244,7 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
     setErrorMessage(null);
     const code = verificationCodeInput.trim();
     if (!code) {
-      setErrorMessage('يرجى إدخال رمز التحقق المكون من 4 أرقام المكتوب في رسالة WhatsApp');
+      setErrorMessage('يرجى إدخال رمز التحقق المكون من 4 أرقام المكتوب في الرسالة القصيرة SMS');
       return;
     }
 
@@ -256,12 +261,12 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
 
       const json = await res.json();
       if (!json.success) {
-        throw new Error(json.error || 'رمز التحقق غير صحيح. يرجى مراجعة الكود الذي وصل ولي أمرك على WhatsApp');
+        throw new Error(json.error || 'رمز التحقق غير صحيح. يرجى التأكد من كود التفعيل (OTP) المرسل في رسالة SMS لولي أمرك.');
       }
 
       setGuardianPhoneVerified(true);
-      setSuccessToast('تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح ✓');
-      setTimeout(() => setSuccessToast(null), 3000);
+      setSuccessToast('تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح عبر خدمة الرسائل القصيرة SMS ✓');
+      setTimeout(() => setSuccessToast(null), 3500);
     } catch (err: any) {
       setErrorMessage(err.message || 'تعذر تأكيد الرمز');
     } finally {
@@ -329,6 +334,9 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
   return (
     <div
       className="fixed inset-0 z-50 bg-[#0F1914]/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       dir="rtl"
     >
       <div className="bg-white rounded-3xl max-w-2xl w-full shadow-2xl border-2 border-[#C98A3C]/40 overflow-hidden animate-in zoom-in-95 duration-200 my-4 flex flex-col max-h-[92vh]">
@@ -344,7 +352,7 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
               <div>
                 <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#C98A3C]/20 border border-[#C98A3C]/50 text-[#C98A3C] text-[10px] font-bold mb-1">
                   <Sparkles className="w-3 h-3" />
-                  <span>إشعار أول دخول للتلميذ(ة) • إلزامي</span>
+                  <span>الملف الشخصي • فضاء التلميذ</span>
                 </div>
                 <h2 className="text-lg sm:text-xl font-bold font-serif text-white tracking-wide">
                   استكمال الملف الشخصي وتأكيد رقم ولي الأمر 📱
@@ -355,15 +363,14 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
               </div>
             </div>
 
-            {!isMandatoryFirstTime && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer"
+              title="إغلاق النافذة والمتابعة لاحقاً"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -413,34 +420,21 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
             </div>
           )}
 
-          {/* Official WhatsApp Dispatch Notice */}
-          {whatsappNotice && !guardianPhoneVerified && (
+          {/* Automated SMS OTP Dispatch Notice */}
+          {smsNotice && !guardianPhoneVerified && (
             <div className="p-4 rounded-2xl bg-emerald-500/10 border-2 border-emerald-500 text-emerald-950 space-y-2.5 animate-in zoom-in-95">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-emerald-900 font-bold">
-                  <MessageSquare className="w-4 h-4 text-emerald-700" />
-                  <span>رسالة WhatsApp رسمية باسم المؤسسة</span>
+                  <Mail className="w-4 h-4 text-emerald-700" />
+                  <span>رسالة نصية قصيرة (SMS) رسمية باسم المؤسسة</span>
                 </div>
-                <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-bold">
-                  تم التوجيه
+                <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full font-bold">
+                  تم الإرسال تلقائياً ✓
                 </span>
               </div>
               <p className="text-xs text-emerald-900 leading-relaxed">
-                تم تجهيز وإرسال كود التفعيل المكون من 4 أرقام في رسالة رسمية باسم المؤسسة إلى هاتف ولي الأمر (<strong>{whatsappNotice.phone}</strong>). يُرجى تزويدك بهذا الرمز من طرف ولي أمرك لإدخاله في الخانة المخصصة أسفله.
+                تم إرسال رمز التحقق (OTP) المكون من 4 أرقام في رسالة قصيرة SMS مباشرة باسم <strong>{smsNotice.senderName}</strong> إلى هاتف ولي الأمر (<strong>{smsNotice.phone}</strong>). يُرجى إدخال الرمز المكون من 4 أرقام في الخانة المخصصة أسفله.
               </p>
-              {whatsappNotice.waUrl && (
-                <div className="pt-1">
-                  <a
-                    href={whatsappNotice.waUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>فتح محادثة WhatsApp لولي الأمر فوراً 💬</span>
-                  </a>
-                </div>
-              )}
             </div>
           )}
 
@@ -580,23 +574,23 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
             </div>
           </div>
 
-          {/* STEP 2: Guardian Phone Number & Message Verification */}
+          {/* STEP 2: Guardian Phone Number & Automated SMS OTP Verification */}
           <div className="bg-[#FAF8F5] p-4 sm:p-5 rounded-2xl border border-[#E5DFD4] space-y-4">
             <div className="flex items-center justify-between border-b border-[#E5DFD4] pb-2.5">
               <div className="flex items-center gap-2 font-bold text-[#1F2926] text-sm">
                 <span className="w-6 h-6 rounded-lg bg-[#1A4E47] text-white flex items-center justify-center text-xs font-bold">
                   2
                 </span>
-                <span>رقم هاتف ولي الأمر (لتلقي إشعارات الواتساب)</span>
+                <span>رقم هاتف ولي الأمر (لتلقي رسائل SMS والإشعارات التلقائية)</span>
                 <span className="text-rose-600 font-black">*</span>
               </div>
               {guardianPhoneVerified ? (
                 <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>تم تأكيد الرقم برمز التحقق ✓</span>
+                  <span>تم تأكيد الرقم بنجاح عبر SMS ✓</span>
                 </span>
               ) : (
-                <span className="text-[11px] text-amber-700 font-semibold">يجب تأكيده برسالة</span>
+                <span className="text-[11px] text-amber-700 font-semibold">يتم التحقق تلقائياً عبر SMS</span>
               )}
             </div>
 
@@ -621,50 +615,81 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
                     />
                     <Smartphone className="w-4 h-4 text-[#1A4E47] absolute left-3 top-3 pointer-events-none" />
                   </div>
+                </div>
 
+                {/* Dispatch Action Buttons: WhatsApp & Android SMS */}
+                <div className="flex items-center gap-2 flex-wrap pt-1">
                   <button
                     type="button"
-                    onClick={handleRequestVerificationCode}
+                    onClick={() => handleRequestVerificationCode('whatsapp')}
                     disabled={isSendingCode || !guardianPhone.trim() || (codeCountdown > 0 && !guardianPhoneVerified)}
-                    className="px-4 py-2.5 rounded-xl bg-[#1A4E47] hover:bg-[#133D37] text-white font-bold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                    className="flex-1 min-w-[200px] px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 hover:scale-[1.01]"
+                    title="فتح تطبيق واتساب وإرسال رسالة التحقق الرسمية لولي الأمر مجاناً وبنقرة واحدة"
                   >
                     {isSendingCode ? (
                       <>
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                        <span>جاري الإرسال...</span>
+                        <span>جاري التحضير...</span>
                       </>
                     ) : codeCountdown > 0 ? (
                       <span>إعادة الإرسال بعد ({codeCountdown}ث)</span>
                     ) : (
                       <>
-                        <Send className="w-3.5 h-3.5 text-[#C98A3C]" />
-                        <span>إرسال رمز التأكيد ✉️</span>
+                        <span className="text-sm">💬</span>
+                        <span>إرسال الرمز عبر واتساب (مجاني وفوري)</span>
                       </>
                     )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleRequestVerificationCode('sms')}
+                    disabled={isSendingCode || !guardianPhone.trim() || (codeCountdown > 0 && !guardianPhoneVerified)}
+                    className="px-4 py-2.5 rounded-xl bg-white hover:bg-[#FAF8F5] text-[#1A4E47] font-bold text-xs border border-[#C5DDD8] hover:border-[#1A4E47] shadow-2xs transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-1.5"
+                    title="إرسال رسالة نصية قصيرة SMS عبر هاتف الإدارة (Android SMS Gateway) بسعر الفورفي"
+                  >
+                    <Mail className="w-3.5 h-3.5 text-[#C98A3C]" />
+                    <span>إرسال عبر SMS (هاتف الإدارة) 📱</span>
                   </button>
                 </div>
               </div>
 
               {/* Verification Code Input Section */}
               {codeSent && !guardianPhoneVerified && (
-                <div className="p-4 rounded-xl bg-white border-2 border-[#1A4E47]/30 space-y-2.5 animate-in fade-in">
+                <div className="p-4 rounded-2xl bg-white border-2 border-emerald-500/40 shadow-xs space-y-3 animate-in fade-in">
+                  <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-50/80 border border-emerald-200 text-emerald-950 text-xs">
+                    <Mail className="w-5 h-5 text-emerald-700 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-black text-emerald-900">تم إرسال رسالة قصيرة SMS تلقائياً بنجاح!</span>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 font-bold text-[10px]">
+                          المرسل: {smsNotice?.senderName || institutionName}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-emerald-800 leading-relaxed">
+                        تم إرسال رمز التحقق (OTP) في رسالة قصيرة مباشرة باسم إدارة المؤسسة إلى هاتف ولي أمرك (<strong className="font-mono">{guardianPhone}</strong>) دون الحاجة لإرسال أي شيء يدوياً.
+                      </p>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="text-xs font-bold text-[#1F2926] block mb-1">
-                      أدخل كود التفعيل المكون من 4 أرقام (من رسالة WhatsApp الواردة لولي الأمر):
+                      أدخل رمز التحقق (OTP) المكون من 4 أرقام المكتوب في الرسالة القصيرة SMS:
                     </label>
                     <span className="text-[11px] text-[#6C6356]">
-                      يصل الكود إلى هاتف ولي أمرك فوراً، يرجى طلبه منه وإدخاله هنا لإتمام التفعيل.
+                      اطلب من ولي أمرك قراءة رمز OTP الوارد في الرسالة النصية وأدخله هنا:
                     </span>
                   </div>
 
                   <div className="flex gap-2 items-center flex-wrap">
                     <input
                       type="text"
+                      inputMode="numeric"
                       maxLength={4}
                       value={verificationCodeInput}
                       onChange={(e) => setVerificationCodeInput(e.target.value.replace(/\D/g, ''))}
                       placeholder="----"
-                      className="w-36 px-4 py-2.5 text-center font-mono font-black text-xl tracking-widest rounded-xl border-2 border-[#1A4E47] focus:ring-2 focus:ring-[#1A4E47]/20 outline-none bg-[#FAF8F5]"
+                      className="w-36 px-4 py-2.5 text-center font-mono font-black text-2xl tracking-widest rounded-xl border-2 border-[#1A4E47] focus:ring-2 focus:ring-[#1A4E47]/20 outline-none bg-[#FAF8F5]"
                     />
 
                     <button
@@ -681,10 +706,22 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
                       ) : (
                         <>
                           <CheckCircle2 className="w-4 h-4" />
-                          <span>تأكيد كود التفعيل الآن ✓</span>
+                          <span>تأكيد رمز التحقق (OTP) ✓</span>
                         </>
                       )}
                     </button>
+
+                    {smsNotice?.whatsappUrl && (
+                      <a
+                        href={smsNotice.whatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] text-emerald-800 bg-emerald-100 hover:bg-emerald-200 px-3 py-2 rounded-xl font-bold border border-emerald-300 transition-colors inline-flex items-center gap-1.5 shadow-2xs"
+                        title="إرسال رمز التحقق مباشرة لهاتف ولي الأمر عبر تطبيق واتساب (WhatsApp)"
+                      >
+                        <span>💬 إرسال الرسالة لولي الأمر عبر واتساب</span>
+                      </a>
+                    )}
                   </div>
                 </div>
               )}
@@ -693,14 +730,14 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
                 <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-center justify-between text-xs font-bold">
                   <div className="flex items-center gap-2">
                     <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>تم تأكيد هاتف ولي الأمر ({guardianPhone}) وهو جاهز لتلقي إشعارات الواتساب.</span>
+                    <span>تم تأكيد هاتف ولي الأمر ({guardianPhone}) بنجاح عبر خدمة الرسائل القصيرة SMS باسم المؤسسة.</span>
                   </div>
                   <button
                     type="button"
                     onClick={() => {
                       setGuardianPhoneVerified(false);
                       setCodeSent(false);
-                      setWhatsappNotice(null);
+                      setSmsNotice(null);
                     }}
                     className="text-[10px] text-emerald-700 underline hover:text-emerald-900 cursor-pointer"
                   >
@@ -726,15 +763,13 @@ export const StudentProfileCompletionModal: React.FC<StudentProfileCompletionMod
           </div>
 
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-            {!isMandatoryFirstTime && (
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2.5 rounded-xl border border-[#D5E2DF] text-[#6C6356] hover:bg-white font-bold text-xs cursor-pointer"
-              >
-                إغلاق
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl border border-[#D5E2DF] text-[#6C6356] hover:bg-white font-bold text-xs cursor-pointer transition-colors"
+            >
+              إغلاق والمتابعة لاحقاً
+            </button>
 
             <button
               type="button"

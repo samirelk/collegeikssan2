@@ -122,10 +122,24 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
   // Filters
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>('all');
+  const [selectedTeacherFilter, setSelectedTeacherFilter] = useState<string>('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedActionFilter, setSelectedActionFilter] = useState<string>('all');
   const [dateRangeFilter, setDateRangeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Extract unique teachers from violations for Admin filtering
+  const recordedTeachers = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; subject?: string }>();
+    violations.forEach((v) => {
+      const name = (v.teacher_name || v.teacherName || '').trim();
+      const id = v.teacher_id || v.teacherId || name;
+      if (name && !map.has(id)) {
+        map.set(id, { id, name, subject: v.teacher_subject || v.teacherSubject });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }, [violations]);
 
   // Add Violation Modal
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -263,6 +277,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
           actionTaken: newActionTaken,
           teacherName: currentUser?.fullName || 'الأستاذ',
           teacherSubject: currentUser?.subject || '',
+          teacherId: currentUser?.id || '',
           recordedDate: todayStr,
           recordedTime: nowTimeStr,
           issueParentSummons: issueSummons,
@@ -328,6 +343,15 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
     const todayStr = new Date().toISOString().split('T')[0];
 
     return violations.filter((v) => {
+      // Teacher filter for Administration
+      if (!isTeacher && selectedTeacherFilter !== 'all') {
+        const vTid = v.teacher_id || v.teacherId || '';
+        const vTname = (v.teacher_name || v.teacherName || '').trim();
+        if (vTid !== selectedTeacherFilter && vTname !== selectedTeacherFilter) {
+          return false;
+        }
+      }
+
       // Category filter
       const vType = v.violation_type || v.violationType || '';
       if (selectedCategoryFilter !== 'all' && vType !== selectedCategoryFilter) {
@@ -379,7 +403,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
       return true;
     });
-  }, [violations, selectedCategoryFilter, selectedActionFilter, dateRangeFilter, searchQuery]);
+  }, [violations, isTeacher, selectedTeacherFilter, selectedCategoryFilter, selectedActionFilter, dateRangeFilter, searchQuery]);
 
   // Statistics
   const stats = useMemo(() => {
@@ -753,8 +777,23 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
             </div>
           </div>
 
+          {/* Separation & Scope Info Banner */}
+          <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl text-xs font-bold shadow-2xs border bg-white">
+            {isTeacher ? (
+              <div className="flex items-center gap-2 text-emerald-800">
+                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                <span>👤 وضع الأستاذ ({currentUser?.fullName || 'الأستاذ'}): مفصول ومستقل — يتم عرض مخالفاتك فقط. الإدارة تطلع على كافة مخالفات المؤسسة.</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-amber-900">
+                <span className="w-2 h-2 rounded-full bg-amber-600"></span>
+                <span>🏛️ وضع الإدارة الشامل: تعرض الإدارة كافة مخالفات المؤسسة لجميع الأساتذة مع إمكانية التصفية بحسب الأستاذ أو القسم.</span>
+              </div>
+            )}
+          </div>
+
           {/* Filters Bar */}
-          <div className="bg-white p-3 rounded-2xl border border-[#E5DFD4] shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
+          <div className={`bg-white p-3 rounded-2xl border border-[#E5DFD4] shadow-xs grid grid-cols-1 sm:grid-cols-2 ${!isTeacher ? 'lg:grid-cols-6' : 'lg:grid-cols-5'} gap-2.5 text-xs`}>
             {/* Search Input */}
             <div className="relative">
               <Search className="w-4 h-4 text-[#8A7E6C] absolute right-3 top-2.5 pointer-events-none" />
@@ -766,6 +805,25 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                 className="w-full pr-9 pl-3 py-2 rounded-xl border border-[#D5CDC0] bg-[#FAF8F5] focus:bg-white focus:border-[#1A4E47] outline-none text-xs"
               />
             </div>
+
+            {/* Teacher Filter (Only for Admin / Director) */}
+            {!isTeacher && (
+              <div>
+                <select
+                  value={selectedTeacherFilter}
+                  onChange={(e) => setSelectedTeacherFilter(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#D5CDC0] bg-[#FAF8F5] focus:bg-white focus:border-[#1A4E47] outline-none text-xs cursor-pointer font-bold text-[#1A4E47]"
+                  title="تصفية حسب الأستاذ المسجل للمخالفة"
+                >
+                  <option value="all">كافة الأساتذة (عرض شامل)</option>
+                  {recordedTeachers.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} {t.subject ? `(${t.subject})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Section Filter */}
             <div>
