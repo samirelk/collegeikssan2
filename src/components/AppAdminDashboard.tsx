@@ -25,7 +25,8 @@ import {
   Download,
   Eye,
   Activity,
-  Smartphone
+  Smartphone,
+  MessageSquare
 } from 'lucide-react';
 import { User as UserType, TeacherItem, TEACHER_SUBJECTS, TeacherSubject, AppSettings } from '../types';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
@@ -476,8 +477,8 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
                 : 'text-[#6C6356] hover:text-[#1F2926] hover:bg-[#FAF8F5]'
             }`}
           >
-            <Smartphone className="w-4 h-4 text-[#C98A3C]" />
-            <span>بوابة هاتف الإدارة (Android SMS)</span>
+            <MessageSquare className="w-4 h-4 text-emerald-400" />
+            <span>بوابة واتساب (WhatsApp Cloud)</span>
           </button>
         </div>
 

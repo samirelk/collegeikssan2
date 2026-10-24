@@ -2,6 +2,9 @@ export interface AppSettings {
   institution: string;
   year: string;
   teacher: string;
+  academy?: string;
+  directorate?: string;
+  institutionFr?: string;
 }
 
 export type TeacherSubject =
@@ -351,6 +354,9 @@ export interface DirectorStudentItem {
   statusColor?: SeatStatusColor;
   lastViolationText?: string;
   lastViolationDate?: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  approvalStatus?: 'approved' | 'pending' | 'rejected';
 }
 
 export interface DirectorAnalytics {

@@ -12,10 +12,13 @@ import {
   BookOpen,
   CheckCircle2,
   MessageCircle,
-  Share2
+  Share2,
+  Smartphone,
+  MessageSquare
 } from 'lucide-react';
 import { SeatItem, SectionItem, AppSettings, User as UserType, ViolationTypeItem, StudentViolationRecord } from '../types';
 import { printViolationsReport, printSingleViolationNotice, shareViolationViaWhatsApp } from '../utils/printNotes';
+import { ParentNotificationModal, StudentNotificationItem } from './ParentNotificationModal';
 
 interface ViolationsModalProps {
   section: SectionItem;
@@ -88,6 +91,10 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
     date: string;
     time: string;
   } | null>(null);
+
+  // Parent Notification Modal State (SMS / WhatsApp)
+  const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
+  const [notifyTargetStudent, setNotifyTargetStudent] = useState<StudentNotificationItem | null>(null);
 
   // Load predefined violation types
   useEffect(() => {
@@ -574,11 +581,29 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
 
                   <button
                     type="button"
-                    onClick={() => handleWhatsAppShare(justRecordedViolation)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs cursor-pointer transition-colors"
+                    onClick={() => {
+                      setNotifyTargetStudent({
+                        studentName: seat.studentName || 'التلميذ',
+                        massarNumber: seat.massarNumber,
+                        sectionId: section.id,
+                        sectionLevel: section.level,
+                        sectionClass: section.classNumber,
+                        guardianPhone: seat.guardianPhone,
+                        type: 'violation',
+                        details: {
+                          date: justRecordedViolation.date,
+                          time: justRecordedViolation.time,
+                          reason: `${justRecordedViolation.violationType} - ${justRecordedViolation.actionTaken}`,
+                          subject: justRecordedViolation.teacherSubject
+                        }
+                      });
+                      setIsNotifyModalOpen(true);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs cursor-pointer transition-colors"
+                    title="إرسال إشعار فوري لولي الأمر عبر واتساب"
                   >
-                    <MessageCircle className="w-3.5 h-3.5" />
-                    <span>إرسال عبر واتساب (WhatsApp)</span>
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>إشعار ولي الأمر (واتساب) 💬</span>
                   </button>
                 </div>
               </div>
@@ -662,21 +687,31 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
                           <Printer className="w-4 h-4" />
                         </button>
 
-                        {/* Send via WhatsApp */}
+                        {/* Send via SMS / WhatsApp Modal */}
                         <button
                           type="button"
-                          onClick={() => handleWhatsAppShare({
-                            violationType: v.violationType || (v as any).text,
-                            actionTaken: v.actionTaken,
-                            teacherName: v.teacherName,
-                            teacherSubject: v.teacherSubject,
-                            date: v.recordedDate || (v as any).date,
-                            time: v.recordedTime || (v as any).time
-                          })}
-                          className="text-emerald-600 hover:text-emerald-800 p-1.5 rounded-lg hover:bg-emerald-50 transition-colors cursor-pointer"
-                          title="إرسال إشعار المخالفة عبر واتساب"
+                          onClick={() => {
+                            setNotifyTargetStudent({
+                              studentName: seat.studentName || 'التلميذ',
+                              massarNumber: seat.massarNumber,
+                              sectionId: section.id,
+                              sectionLevel: section.level,
+                              sectionClass: section.classNumber,
+                              guardianPhone: seat.guardianPhone,
+                              type: 'violation',
+                              details: {
+                                date: v.recordedDate || (v as any).date,
+                                time: v.recordedTime || (v as any).time,
+                                reason: `${v.violationType || (v as any).text} - ${v.actionTaken || ''}`,
+                                subject: v.teacherSubject
+                              }
+                            });
+                            setIsNotifyModalOpen(true);
+                          }}
+                          className="text-emerald-800 hover:text-emerald-950 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors cursor-pointer"
+                          title="إرسال إشعار رسمي لولي الأمر عبر WhatsApp Cloud API"
                         >
-                          <MessageCircle className="w-4 h-4" />
+                          <MessageSquare className="w-4 h-4 text-emerald-700" />
                         </button>
 
                         {/* Delete Violation */}
@@ -710,28 +745,39 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* WhatsApp Share for Latest Violation */}
+            {/* SMS / WhatsApp Official Parent Notification */}
             <button
               type="button"
               onClick={() => {
-                if (violationsList.length > 0) {
-                  const target = violationsList[0];
-                  handleWhatsAppShare({
-                    violationType: target.violationType || (target as any).text,
-                    actionTaken: target.actionTaken,
-                    teacherName: target.teacherName,
-                    teacherSubject: target.teacherSubject,
-                    date: target.recordedDate || (target as any).date,
-                    time: target.recordedTime || (target as any).time
-                  });
-                }
+                const target = violationsList[0];
+                setNotifyTargetStudent({
+                  studentName: seat.studentName || 'التلميذ',
+                  massarNumber: seat.massarNumber,
+                  sectionId: section.id,
+                  sectionLevel: section.level,
+                  sectionClass: section.classNumber,
+                  guardianPhone: seat.guardianPhone,
+                  type: 'violation',
+                  details: target
+                    ? {
+                        date: target.recordedDate || (target as any).date,
+                        time: target.recordedTime || (target as any).time,
+                        reason: `${target.violationType || (target as any).text} - ${target.actionTaken || ''}`,
+                        subject: target.teacherSubject,
+                        count: violationsList.length
+                      }
+                    : {
+                        count: violationsList.length
+                      }
+                });
+                setIsNotifyModalOpen(true);
               }}
               disabled={violationsList.length === 0}
-              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-              title="إرسال المخالفة الأخيرة عبر تطبيق واتساب لولي الأمر"
+              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-800 hover:brightness-110 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+              title="إرسال إشعار رسمي لولي الأمر عبر WhatsApp Cloud API"
             >
-              <MessageCircle className="w-3.5 h-3.5" />
-              <span>إرسال عبر واتساب</span>
+              <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
+              <span>إشعار ولي الأمر (WhatsApp Cloud) 🚀</span>
             </button>
 
             <button
@@ -752,6 +798,17 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Parent Notification Modal (SMS / WhatsApp) */}
+      <ParentNotificationModal
+        isOpen={isNotifyModalOpen}
+        onClose={() => {
+          setIsNotifyModalOpen(false);
+          setNotifyTargetStudent(null);
+        }}
+        student={notifyTargetStudent}
+        institutionName={settings.institution || 'المدرسة الإلكترونية'}
+      />
     </div>
   );
 };

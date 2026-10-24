@@ -16,62 +16,296 @@ export interface PrintViolationsOptions {
 }
 
 /**
- * Standard Official Moroccan Header for all printable documents across the system.
+ * Official Royal Kingdom of Morocco Coat of Arms (شعار المملكة المغربية الشريفة)
+ * Vector SVG with the Royal Crown, Atlas Mountains, Radiant Sun, Green Pentagram, Atlas Lions, and Sacred Motto.
  */
-export function buildOfficialMoroccanHeaderHtml(options: {
+export const MOROCCAN_COAT_OF_ARMS_SVG = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 110" width="70" height="65" style="display:block; margin:0 auto;" aria-label="شعار المملكة المغربية">
+  <defs>
+    <linearGradient id="marocGold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FDE047" />
+      <stop offset="45%" stop-color="#D97706" />
+      <stop offset="100%" stop-color="#854D0E" />
+    </linearGradient>
+    <linearGradient id="marocRed" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#DC2626" />
+      <stop offset="100%" stop-color="#991B1B" />
+    </linearGradient>
+    <linearGradient id="marocGreen" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#16A34A" />
+      <stop offset="100%" stop-color="#166534" />
+    </linearGradient>
+  </defs>
+
+  <!-- Royal Moroccan Crown -->
+  <g transform="translate(60, 16)">
+    <polygon points="0,-14 2,-9 7,-9 3,-6 5,-1 0,-4 -5,-1 -3,-6 -7,-9 -2,-9" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.5" />
+    <ellipse cx="0" cy="-5" rx="14" ry="7" fill="url(#marocRed)" />
+    <path d="M-13,-2 C-10,-12 10,-12 13,-2" fill="none" stroke="url(#marocGold)" stroke-width="2.5" />
+    <path d="M0,-12 L0,-1" fill="none" stroke="url(#marocGold)" stroke-width="2" />
+    <path d="M-8,-7 C-4,-11 4,-11 8,-7" fill="none" stroke="url(#marocGold)" stroke-width="1.5" />
+    <rect x="-14" y="-2" width="28" height="4.5" rx="1.5" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.5" />
+    <circle cx="-10" cy="0.2" r="1.2" fill="#DC2626" />
+    <circle cx="-5" cy="0.2" r="1.2" fill="#16A34A" />
+    <circle cx="0" cy="0.2" r="1.4" fill="#DC2626" />
+    <circle cx="5" cy="0.2" r="1.2" fill="#16A34A" />
+    <circle cx="10" cy="0.2" r="1.2" fill="#DC2626" />
+  </g>
+
+  <!-- Left Atlas Lion (Dexter Supporter) -->
+  <g transform="translate(24, 52)">
+    <ellipse cx="4" cy="-14" rx="7" ry="8" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <circle cx="8" cy="-15" r="3" fill="#D97706" />
+    <circle cx="0" cy="-21" r="2.2" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.5" />
+    <path d="M2,-7 C-2,2 -4,14 4,20 C10,22 13,16 11,8 C10,0 8,-4 2,-7 Z" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M5,-9 C12,-11 18,-6 20,-3 C18,-1 14,-4 8,-4" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M6,-3 C12,-5 16,0 18,3 C15,4 12,1 8,2" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M-2,16 C-8,17 -10,24 -7,26 C-4,27 -2,22 2,21" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M-3,10 C-10,8 -14,-4 -7,-12 C-5,-10 -9,-2 -3,2" fill="none" stroke="url(#marocGold)" stroke-width="2" stroke-linecap="round" />
+    <circle cx="-7" cy="-12" r="2.5" fill="#B45309" />
+  </g>
+
+  <!-- Right Atlas Lion (Sinister Supporter) -->
+  <g transform="translate(96, 52) scale(-1, 1)">
+    <ellipse cx="4" cy="-14" rx="7" ry="8" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <circle cx="8" cy="-15" r="3" fill="#D97706" />
+    <circle cx="0" cy="-21" r="2.2" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.5" />
+    <path d="M2,-7 C-2,2 -4,14 4,20 C10,22 13,16 11,8 C10,0 8,-4 2,-7 Z" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M5,-9 C12,-11 18,-6 20,-3 C18,-1 14,-4 8,-4" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M6,-3 C12,-5 16,0 18,3 C15,4 12,1 8,2" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M-2,16 C-8,17 -10,24 -7,26 C-4,27 -2,22 2,21" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.6" />
+    <path d="M-3,10 C-10,8 -14,-4 -7,-12 C-5,-10 -9,-2 -3,2" fill="none" stroke="url(#marocGold)" stroke-width="2" stroke-linecap="round" />
+    <circle cx="-7" cy="-12" r="2.5" fill="#B45309" />
+  </g>
+
+  <!-- The Heraldic Shield -->
+  <g id="shield">
+    <path d="M42,22 L78,22 Q81,46 76,58 Q66,74 60,78 Q54,74 44,58 Q39,46 42,22 Z" fill="url(#marocGold)" stroke="#78350F" stroke-width="1.2" />
+    <path d="M44,24 L76,24 Q78.5,45 74,56 Q65,71 60,75 Q55,71 46,56 Q41.5,45 44,24 Z" fill="url(#marocRed)" />
+    <!-- Rising Sun with Rays -->
+    <g transform="translate(60, 40)">
+      <circle cx="0" cy="0" r="7" fill="url(#marocGold)" />
+      <line x1="0" y1="-7" x2="0" y2="-12" stroke="url(#marocGold)" stroke-width="1.5" />
+      <line x1="-5" y1="-5" x2="-9" y2="-9" stroke="url(#marocGold)" stroke-width="1.5" />
+      <line x1="5" y1="-5" x2="9" y2="-9" stroke="url(#marocGold)" stroke-width="1.5" />
+      <line x1="-7" y1="0" x2="-12" y2="0" stroke="url(#marocGold)" stroke-width="1.5" />
+      <line x1="7" y1="0" x2="12" y2="0" stroke="url(#marocGold)" stroke-width="1.5" />
+    </g>
+    <!-- Atlas Mountains Profile -->
+    <path d="M45,48 L53,38 L60,45 L67,37 L75,48 Q72,58 60,73 Q48,58 45,48 Z" fill="url(#marocGreen)" stroke="#064E3B" stroke-width="0.8" />
+    <!-- Green 5-Pointed Pentagram -->
+    <g transform="translate(60, 56)">
+      <polygon points="0,-7 2,-2 7,-2 3,1 5,6 0,3 -5,6 -3,1 -7,-2 -2,-2" fill="#22C55E" stroke="#14532D" stroke-width="0.7" />
+    </g>
+  </g>
+
+  <!-- Golden Motto Ribbon Scroll -->
+  <g id="ribbon" transform="translate(60, 88)">
+    <path d="M-42,-2 Q0,-7 42,-2 Q46,4 40,8 Q0,3 -40,8 Q-46,4 -42,-2 Z" fill="url(#marocGold)" stroke="#78350F" stroke-width="0.8" />
+    <polygon points="-42,-2 -46,4 -40,8 -48,11 -45,3" fill="#B45309" />
+    <polygon points="42,-2 46,4 40,8 48,11 45,3" fill="#B45309" />
+    <text x="0" y="4" font-family="'Amiri', 'Traditional Arabic', serif" font-size="6.8" font-weight="bold" fill="#451A03" text-anchor="middle" letter-spacing="0.4">
+      إِنْ تَنْصُرُوا اللَّهَ يَنْصُرْكُمْ
+    </text>
+  </g>
+</svg>
+`;
+
+export interface MoroccanHeaderOptions {
   institution?: string;
+  academy?: string;
+  directorate?: string;
   academicYear?: string;
   date?: string;
   time?: string;
   dateLabel?: string;
   middleIcon?: string;
-}): string {
+  institutionCode?: string;
+}
+
+/**
+ * Standard Official Moroccan Header for all printable documents across the system
+ * Formatted for the 2026 Government & Ministry of National Education, Preschool & Sports guidelines.
+ */
+export function buildOfficialMoroccanHeaderHtml(options: MoroccanHeaderOptions = {}): string {
   const inst = options.institution || 'الثانوية الإعدادية ايكسان';
+  const academy = options.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق';
+  const directorate = options.directorate || 'المديرية الإقليمية بالناظور';
   const year = options.academicYear || '2026/2027';
+  const instCode = options.institutionCode || '08846P';
   const now = new Date();
   const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
   const dStr = options.date || `${pad(now.getUTCDate())}/${pad(now.getUTCMonth() + 1)}/${now.getUTCFullYear()}`;
   const tStr = options.time || `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
   const dLabel = options.dateLabel || 'تاريخ الاستخراج';
-  const icon = options.middleIcon || '🏛️';
 
   return `
-    <table class="header-table">
+    <table class="official-moroccan-header-table header-table">
       <tr>
-        <td style="width: 38%; text-align: right;" class="official-head">
-          المملكة المغربية<br>
-          وزارة التربية الوطنية والتعليم الأولي والرياضة<br>
-          <b>${escapeHtml(inst)}</b>
+        <td class="header-col-ar official-head">
+          <div class="header-country-ar">المملكة المغربية</div>
+          <div class="header-ministry-ar">وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
+          <div class="header-sub-ar">${escapeHtml(academy)}</div>
+          <div class="header-sub-ar">${escapeHtml(directorate)}</div>
+          <div class="header-institution-ar"><b>${escapeHtml(inst)}</b></div>
+          <div class="header-code-ar">رمز المؤسسة (GRESA): <b>${escapeHtml(instCode)}</b></div>
         </td>
-        <td style="width: 24%; text-align: center;">
-          <div style="font-size: 24px; color: #854d0e;">${icon}</div>
-          <div style="font-size: 11px; font-weight: bold; color: #1E3B2C; direction: ltr; font-family: monospace; margin-top: 3px;">www.lyceecom.com</div>
+        <td class="header-col-center">
+          <div class="header-emblem-wrap">
+            ${MOROCCAN_COAT_OF_ARMS_SVG}
+          </div>
+          <div class="header-system-tag">منظومة التدبير المدرسي 2026</div>
+          <div class="header-sub-system">مسار التربوي • تدبير الحياة المدرسية</div>
         </td>
-        <td style="width: 38%; text-align: left;" class="official-head">
-          الموسم الدراسي: <b>${escapeHtml(year)}</b><br>
-          ${escapeHtml(dLabel)}: <b>${escapeHtml(dStr)}</b><br>
-          الساعة: <b>${escapeHtml(tStr)} (GMT)</b>
+        <td class="header-col-fr official-head">
+          <div class="header-country-fr">ROYAUME DU MAROC</div>
+          <div class="header-ministry-fr">Ministère de l'Éducation Nationale,</div>
+          <div class="header-ministry-fr-sub">du Préscolaire et des Sports</div>
+          <div class="header-sub-fr">AREF de l'Oriental • DP Nador</div>
+          <div class="header-meta-box">
+            <div class="header-meta-item">الموسم الدراسي: <b>${escapeHtml(year)}</b></div>
+            <div class="header-meta-item">${escapeHtml(dLabel)}: <b>${escapeHtml(dStr)}</b></div>
+            <div class="header-meta-item">الساعة: <b>${escapeHtml(tStr)} (GMT)</b></div>
+          </div>
         </td>
       </tr>
     </table>
+    <div class="header-morocco-tricolor-bar"></div>
   `;
 }
 
 export const OFFICIAL_HEADER_CSS = `
-    .header-table {
+    .official-moroccan-header-table, .header-table {
       width: 100%;
       border-collapse: collapse;
-      border-bottom: 2px solid #854d0e;
-      padding-bottom: 12px;
-      margin-bottom: 18px;
-    }
-    .header-table td {
-      vertical-align: middle;
       border: none;
+      margin-bottom: 4px;
+      page-break-inside: avoid;
+    }
+    .official-moroccan-header-table td, .header-table td {
+      border: none !important;
+      padding: 2px 4px;
+      vertical-align: middle;
+    }
+    .header-col-ar {
+      width: 38%;
+      text-align: right;
+      vertical-align: top;
+      font-family: 'Amiri', 'Traditional Arabic', 'Tajawal', Arial, sans-serif;
+      line-height: 1.45;
+      color: #1f2937;
+    }
+    .header-col-center {
+      width: 24%;
+      text-align: center;
+      vertical-align: middle;
+      padding: 0 4px;
+    }
+    .header-col-fr {
+      width: 38%;
+      text-align: left;
+      direction: ltr;
+      vertical-align: top;
+      font-family: 'Segoe UI', Arial, Tahoma, sans-serif;
+      line-height: 1.4;
+      color: #1f2937;
+    }
+    .header-country-ar {
+      font-size: 13.5px;
+      font-weight: 800;
+      color: #1E3B2C;
+      letter-spacing: 0.3px;
+    }
+    .header-ministry-ar {
+      font-size: 11.5px;
+      font-weight: 700;
+      color: #854d0e;
+      margin-top: 1px;
+    }
+    .header-sub-ar {
+      font-size: 11px;
+      color: #374151;
+      line-height: 1.35;
+    }
+    .header-institution-ar {
+      font-size: 13px;
+      font-weight: 800;
+      color: #991b1b;
+      margin-top: 2px;
+    }
+    .header-code-ar {
+      font-size: 10px;
+      color: #64748b;
+      font-family: monospace;
+      margin-top: 1px;
+    }
+    .header-emblem-wrap {
+      display: inline-block;
+      margin: 0 auto;
+    }
+    .header-system-tag {
+      font-size: 11px;
+      font-weight: 800;
+      color: #1E3B2C;
+      margin-top: 2px;
+      font-family: 'Amiri', 'Traditional Arabic', serif;
+    }
+    .header-sub-system {
+      font-size: 9.5px;
+      color: #64748b;
+      font-family: monospace;
+      margin-top: 1px;
+    }
+    .header-country-fr {
+      font-size: 12px;
+      font-weight: 800;
+      color: #1E3B2C;
+      letter-spacing: 0.5px;
+    }
+    .header-ministry-fr {
+      font-size: 10px;
+      font-weight: 700;
+      color: #854d0e;
+      line-height: 1.25;
+    }
+    .header-ministry-fr-sub {
+      font-size: 9.5px;
+      font-weight: 600;
+      color: #854d0e;
+      margin-bottom: 2px;
+    }
+    .header-sub-fr {
+      font-size: 9.5px;
+      color: #4b5563;
+      margin-bottom: 3px;
+    }
+    .header-meta-box {
+      border-top: 1px dashed #cbd5e1;
+      padding-top: 2px;
+      margin-top: 2px;
+    }
+    .header-meta-item {
+      font-size: 10.5px;
+      color: #374151;
+      direction: rtl;
+      text-align: left;
+      line-height: 1.35;
+    }
+    .header-meta-item b {
+      color: #1E3B2C;
+      font-family: monospace, Arial;
+    }
+    .header-morocco-tricolor-bar {
+      width: 100%;
+      height: 3.5px;
+      background: linear-gradient(to right, #1E3B2C 0%, #1E3B2C 34%, #D97706 34%, #D97706 66%, #991b1b 66%, #991b1b 100%);
+      border-radius: 2px;
+      margin-top: 5px;
+      margin-bottom: 14px;
     }
     .official-head {
       font-size: 12px;
-      line-height: 1.6;
+      line-height: 1.5;
       color: #333;
     }
     .official-head b {
@@ -80,24 +314,25 @@ export const OFFICIAL_HEADER_CSS = `
     }
     .doc-title-box {
       text-align: center;
-      margin: 15px 0 20px 0;
+      margin: 12px 0 16px 0;
     }
     .doc-title {
       display: inline-block;
-      font-size: 20px;
+      font-size: 19px;
       font-weight: bold;
       color: #991b1b;
       background: #fef2f2;
       border: 1.5px solid #dc2626;
       border-radius: 30px;
-      padding: 6px 32px;
-      margin: 0 0 6px 0;
+      padding: 5px 30px;
+      margin: 0 0 4px 0;
     }
     .doc-sub {
       font-size: 12px;
-      color: #666;
+      color: #555;
     }
 `;
+
 
 export function printViolationsReport(options: PrintViolationsOptions): boolean {
   const {
@@ -1356,7 +1591,7 @@ export interface PrintDailyArchiveOptions {
 export function printDailyArchiveReport(options: PrintDailyArchiveOptions): boolean {
   const {
     institution = 'الثانوية الإعدادية ايكسان',
-    academicYear = '2025/2026',
+    academicYear = '2026/2027',
     dateStr,
     formattedArabicDate,
     sectionFilterName = 'كافة الأقسام',
@@ -1662,7 +1897,7 @@ export interface PrintStudentPositiveParticipationsOptions {
 export function printStudentPositiveParticipationsReport(options: PrintStudentPositiveParticipationsOptions): boolean {
   const {
     institution = 'الثانوية الإعدادية ايكسان',
-    academicYear = '2025/2026',
+    academicYear = '2026/2027',
     level,
     classNumber,
     studentName,
@@ -2009,7 +2244,7 @@ export interface PrintSectionPositiveParticipationsOptions {
 export function printSectionPositiveParticipationsReport(options: PrintSectionPositiveParticipationsOptions): boolean {
   const {
     institution = 'الثانوية الإعدادية ايكسان',
-    academicYear = '2025/2026',
+    academicYear = '2026/2027',
     level,
     classNumber,
     teacherName,
@@ -2332,10 +2567,10 @@ export function printReportHtml(html: string): boolean {
     printIframe = document.createElement('iframe');
     printIframe.id = 'notes-print-iframe';
     printIframe.style.position = 'fixed';
-    printIframe.style.right = '0';
-    printIframe.style.bottom = '0';
-    printIframe.style.width = '0';
-    printIframe.style.height = '0';
+    printIframe.style.left = '-9999px';
+    printIframe.style.top = '-9999px';
+    printIframe.style.width = '1024px';
+    printIframe.style.height = '1024px';
     printIframe.style.border = '0';
     printIframe.style.opacity = '0';
     printIframe.style.pointerEvents = 'none';
@@ -3095,8 +3330,8 @@ export interface PrintParentViolationNoticeOptions {
 
 export function printParentViolationNotice(options: PrintParentViolationNoticeOptions): boolean {
   const {
-    institution = 'المدرسة الإلكترونية',
-    academicYear = '2025/2026',
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2026/2027',
     studentName,
     studentNumber,
     massarNumber,
@@ -3262,6 +3497,173 @@ export function printParentViolationNotice(options: PrintParentViolationNoticeOp
     <div style="margin-top: 12px; display: flex; justify-content: space-between; font-size: 10px; color: #94a3b8; border-top: 1px dotted #cbd5e1; padding-top: 4px;">
       <span>المدرسة الإلكترونية • ${escapeHtml(institution)}</span>
       <span>رمز الوثيقة: VIOL-SUMMONS-${now.getTime().toString().slice(-6)}</span>
+    </div>
+  </div>
+</body>
+</html>`;
+
+  return printReportHtml(html);
+}
+
+export interface PrintDetailedSectionRosterOptions {
+  institution?: string;
+  academicYear?: string;
+  level: string;
+  classNumber: string;
+  teacherName?: string;
+  subject?: string;
+  students: Array<{
+    number: string;
+    massarNumber?: string;
+    name: string;
+    seatNum?: number | null;
+    attendance?: string | null;
+    positivePoints?: number;
+    violationsCount?: number;
+    guardianPhone?: string;
+    statusColor?: string;
+  }>;
+}
+
+export function printDetailedSectionRosterReport(options: PrintDetailedSectionRosterOptions): boolean {
+  const {
+    institution = 'الثانوية الإعدادية ايكسان',
+    academicYear = '2026/2027',
+    level,
+    classNumber,
+    teacherName,
+    subject,
+    students = []
+  } = options;
+
+  const now = new Date();
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+  const dateStr = `${pad(now.getDate())}/${pad(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const timeStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const headerHtml = buildOfficialMoroccanHeaderHtml({
+    institution,
+    academicYear,
+    date: dateStr,
+    time: timeStr,
+    dateLabel: 'تاريخ الاستخراج',
+    middleIcon: '📋'
+  });
+
+  const totalStudents = students.length;
+  const presentCount = students.filter(s => s.attendance === 'present').length;
+  const absentCount = students.filter(s => s.attendance === 'absent').length;
+  const lateCount = students.filter(s => s.attendance === 'late').length;
+
+  const rowsHtml = students.map((s, idx) => {
+    let attBadge = '<span style="color: #64748b;">—</span>';
+    if (s.attendance === 'present') attBadge = '<span style="color: #15803d; font-weight: bold;">حاضر ✓</span>';
+    else if (s.attendance === 'absent') attBadge = '<span style="color: #b91c1c; font-weight: bold; background: #fee2e2; padding: 2px 6px; border-radius: 4px;">غائب ✕</span>';
+    else if (s.attendance === 'late') attBadge = '<span style="color: #b45309; font-weight: bold; background: #fef3c7; padding: 2px 6px; border-radius: 4px;">متأخر ⏳</span>';
+
+    const pointsBadge = (s.positivePoints && s.positivePoints > 0)
+      ? `<span style="color: #15803d; font-weight: bold;">+${s.positivePoints} ⭐</span>`
+      : '0';
+
+    const violBadge = (s.violationsCount && s.violationsCount > 0)
+      ? `<span style="color: #b91c1c; font-weight: bold; background: #fee2e2; padding: 2px 6px; border-radius: 4px;">${s.violationsCount} ⚠️</span>`
+      : '0';
+
+    const seatLabel = s.seatNum ? `مقعد ${s.seatNum}` : '—';
+
+    return `
+      <tr style="background: ${idx % 2 === 0 ? '#ffffff' : '#f8fafc'};">
+        <td style="text-align: center; font-weight: bold; font-family: monospace;">${escapeHtml(s.number || String(idx + 1))}</td>
+        <td style="text-align: center; font-family: monospace; font-size: 11px; color: #475569;">${escapeHtml(s.massarNumber || '—')}</td>
+        <td style="text-align: right; font-weight: bold; color: #0f172a;">${escapeHtml(s.name)}</td>
+        <td style="text-align: center; font-size: 11px;">${escapeHtml(seatLabel)}</td>
+        <td style="text-align: center;">${attBadge}</td>
+        <td style="text-align: center;">${pointsBadge}</td>
+        <td style="text-align: center;">${violBadge}</td>
+        <td style="text-align: center; font-family: monospace; font-size: 10px;">${escapeHtml(s.guardianPhone || '—')}</td>
+        <td style="width: 15%;"></td>
+      </tr>
+    `;
+  }).join('');
+
+  const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="UTF-8">
+  <title>لائحة القسم الرسمية - ${escapeHtml(level)} القسم ${escapeHtml(classNumber)}</title>
+  <style>
+    ${OFFICIAL_HEADER_CSS}
+    @page { size: A4 portrait; margin: 10mm; }
+    body { font-family: 'Amiri', 'Traditional Arabic', 'Segoe UI', Tahoma, sans-serif; background: #fff; color: #1e293b; margin: 0; padding: 15px; }
+    .page-box { border: 2px solid #1E3B2C; padding: 15px; border-radius: 8px; }
+    .title-banner { background: #1E3B2C; color: #fff; text-align: center; padding: 10px; border-radius: 6px; margin: 12px 0; }
+    .title-banner h2 { margin: 0; font-size: 18px; font-weight: bold; }
+    .info-bar { display: flex; justify-content: space-between; background: #f1f5f9; padding: 8px 12px; border-radius: 6px; font-size: 12px; margin-bottom: 12px; border: 1px solid #cbd5e1; }
+    .stats-chips { display: flex; gap: 10px; }
+    .stats-chip { padding: 2px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; }
+    table.roster-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+    table.roster-table th { background: #1E3B2C; color: #fff; padding: 7px 5px; font-size: 11px; border: 1px solid #0f172a; }
+    table.roster-table td { border: 1px solid #cbd5e1; padding: 6px 5px; }
+    .sig-table { width: 100%; margin-top: 20px; font-size: 11px; border-collapse: collapse; }
+    .sig-table td { width: 50%; text-align: center; padding: 20px 10px 40px; border: 1px dashed #94a3b8; }
+  </style>
+</head>
+<body>
+  <div class="page-box">
+    ${headerHtml}
+
+    <div class="title-banner">
+      <h2>لائحة تلاميذ القسم الرسمية (مسار)</h2>
+      <div style="font-size: 13px; margin-top: 3px; color: #fde68a;">
+        ${escapeHtml(level)} - القسم: ${escapeHtml(classNumber)}
+        ${teacherName ? ` • الأستاذ(ة): ${escapeHtml(teacherName)} ${subject ? `(${escapeHtml(subject)})` : ''}` : ''}
+      </div>
+    </div>
+
+    <div class="info-bar">
+      <div>إجمالي المسجلين بالقسم: <b>${totalStudents} تلميذاً</b></div>
+      <div class="stats-chips">
+        <span class="stats-chip" style="background: #dcfce7; color: #166534;">الحاضرون: ${presentCount}</span>
+        <span class="stats-chip" style="background: #fee2e2; color: #991b1b;">الغياب: ${absentCount}</span>
+        <span class="stats-chip" style="background: #fef3c7; color: #92400e;">التأخرات: ${lateCount}</span>
+      </div>
+    </div>
+
+    <table class="roster-table">
+      <thead>
+        <tr>
+          <th style="width: 5%;">الرقم</th>
+          <th style="width: 14%;">رقم مسار</th>
+          <th style="width: 25%; text-align: right;">الاسم الكامل للتلميذ(ة)</th>
+          <th style="width: 10%;">المقعد</th>
+          <th style="width: 10%;">الوضعية</th>
+          <th style="width: 8%;">التميز ⭐</th>
+          <th style="width: 8%;">المخالفات ⚠️</th>
+          <th style="width: 10%;">هاتف الولي</th>
+          <th style="width: 10%;">ملاحظات وتوقيع</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+
+    <table class="sig-table">
+      <tr>
+        <td>
+          <div style="font-weight: bold; margin-bottom: 5px;">تأشيرة وتوقيع الأستاذ(ة)</div>
+          <div style="font-size: 10px; color: #64748b;">${escapeHtml(teacherName || 'الأستاذ(ة) المشرف(ة)')}</div>
+        </td>
+        <td>
+          <div style="font-weight: bold; margin-bottom: 5px;">تأشيرة السيد رئيس المؤسسة (المدير) / الحراسة العامة</div>
+          <div style="font-size: 10px; color: #64748b;">إدارة المؤسسة</div>
+        </td>
+      </tr>
+    </table>
+
+    <div style="margin-top: 15px; font-size: 10px; color: #64748b; display: flex; justify-content: space-between; border-top: 1px dotted #cbd5e1; padding-top: 5px;">
+      <span>المدرسة الإلكترونية • ${escapeHtml(institution)} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>وثيقة ضبط وتتبع لائحة تلاميذ القسم الرسمية</span>
     </div>
   </div>
 </body>

@@ -432,7 +432,7 @@ export const AdminDirectorsManagement: React.FC<AdminDirectorsManagementProps> =
 
                     <td className="p-3">
                       <span className="px-2 py-0.5 rounded-md bg-[#E8F2F0] text-[#1A4E47] font-bold text-[11px]">
-                        مدير تربوي ({dir.academicYear || '2025/2026'})
+                        مدير تربوي ({dir.academicYear || '2026/2027'})
                       </span>
                     </td>
 

@@ -50,6 +50,9 @@ export interface AppSettings {
   institution: string;
   year: string;
   teacher: string;
+  academy?: string;
+  directorate?: string;
+  institutionFr?: string;
 }
 
 export interface NoteItem {
@@ -638,15 +641,20 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tln_dates ON teacher_leave_notices(start_date, end_date);
   `);
 
-  // Ensure photo, guardian phone, and verification columns in student_accounts & seats
+  // Ensure photo, guardian phone, verification, and director approval columns in student_accounts & seats
   const studentProfileMigrations = [
     'ALTER TABLE student_accounts ADD COLUMN photo_url TEXT DEFAULT "";',
     'ALTER TABLE student_accounts ADD COLUMN guardian_phone TEXT DEFAULT "";',
     'ALTER TABLE student_accounts ADD COLUMN guardian_phone_verified INTEGER DEFAULT 0;',
     'ALTER TABLE student_accounts ADD COLUMN verification_code TEXT DEFAULT "";',
     'ALTER TABLE student_accounts ADD COLUMN profile_completed INTEGER DEFAULT 0;',
+    'ALTER TABLE student_accounts ADD COLUMN approval_status TEXT DEFAULT "approved";',
+    'ALTER TABLE student_accounts ADD COLUMN approval_notes TEXT DEFAULT "";',
+    'ALTER TABLE student_accounts ADD COLUMN approved_at TEXT DEFAULT "";',
+    'ALTER TABLE student_accounts ADD COLUMN approved_by TEXT DEFAULT "";',
     'ALTER TABLE seats ADD COLUMN photo_url TEXT DEFAULT "";',
-    'ALTER TABLE seats ADD COLUMN guardian_phone TEXT DEFAULT "";'
+    'ALTER TABLE seats ADD COLUMN guardian_phone TEXT DEFAULT "";',
+    'ALTER TABLE seats ADD COLUMN approval_status TEXT DEFAULT "approved";'
   ];
   for (const sql of studentProfileMigrations) {
     try {
@@ -715,6 +723,23 @@ export function initDatabase() {
     db.prepare(`
       INSERT INTO app_settings (key, value, updated_at) VALUES ('year', '2026/2027', ?)
       ON CONFLICT(key) DO UPDATE SET value = '2026/2027', updated_at = ?
+    `).run(now, now);
+  }
+
+  // Ensure default Moroccan Academy and Directorate (New 2026 Educational Hierarchy)
+  const academyRow = db.prepare('SELECT value FROM app_settings WHERE key = ?').get('academy') as { value: string } | undefined;
+  if (!academyRow || !academyRow.value.trim()) {
+    db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at) VALUES ('academy', 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق', ?)
+      ON CONFLICT(key) DO UPDATE SET value = 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق', updated_at = ?
+    `).run(now, now);
+  }
+
+  const directorateRow = db.prepare('SELECT value FROM app_settings WHERE key = ?').get('directorate') as { value: string } | undefined;
+  if (!directorateRow || !directorateRow.value.trim()) {
+    db.prepare(`
+      INSERT INTO app_settings (key, value, updated_at) VALUES ('directorate', 'المديرية الإقليمية بالناظور', ?)
+      ON CONFLICT(key) DO UPDATE SET value = 'المديرية الإقليمية بالناظور', updated_at = ?
     `).run(now, now);
   }
 
@@ -1037,7 +1062,9 @@ function seedInitialData() {
   const now = new Date().toISOString();
   const insertSetting = db.prepare('INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)');
   insertSetting.run('institution', 'الثانوية الإعدادية ايكسان', now);
-  insertSetting.run('year', '2025/2026', now);
+  insertSetting.run('academy', 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق', now);
+  insertSetting.run('directorate', 'المديرية الإقليمية بالناظور', now);
+  insertSetting.run('year', '2026/2027', now);
   insertSetting.run('teacher', 'أستاذ المادة', now);
 
   // Insert a sample first section
@@ -1093,14 +1120,22 @@ function seedInitialData() {
 
 export function getAppSettings(): AppSettings {
   const rows = db.prepare('SELECT key, value FROM app_settings').all() as { key: string; value: string }[];
-  const map: Record<string, string> = { institution: '', year: '', teacher: '' };
+  const map: Record<string, string> = {
+    institution: 'الثانوية الإعدادية ايكسان',
+    year: '2026/2027',
+    teacher: '',
+    academy: 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق',
+    directorate: 'المديرية الإقليمية بالناظور'
+  };
   for (const row of rows) {
     map[row.key] = row.value;
   }
   return {
-    institution: map.institution || '',
-    year: map.year || '',
-    teacher: map.teacher || ''
+    institution: map.institution || 'الثانوية الإعدادية ايكسان',
+    year: map.year || '2026/2027',
+    teacher: map.teacher || '',
+    academy: map.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق',
+    directorate: map.directorate || 'المديرية الإقليمية بالناظور'
   };
 }
 
@@ -1120,6 +1155,8 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
     db.prepare(`UPDATE users SET academic_year = ?, updated_at = ?`).run(cleanYear, now);
   }
   if (settings.teacher !== undefined) upsert.run('teacher', settings.teacher, now);
+  if (settings.academy !== undefined) upsert.run('academy', settings.academy, now);
+  if (settings.directorate !== undefined) upsert.run('directorate', settings.directorate, now);
 
   // Record history
   db.prepare(`
@@ -1137,6 +1174,32 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
 
 // ---------------- Android SMS Gateway Settings ----------------
 
+// ---------------- Messaging & Gateway Settings (WhatsApp Cloud API & Texto.ma & Android SMS) ----------------
+
+export interface SmsGatewayConfig {
+  provider: 'whatsapp_cloud' | 'texto_ma' | 'android_sms' | 'textbee';
+  // Option 1: WhatsApp Cloud API (Meta Official - 1,000 Free monthly conversations)
+  whatsappCloudEnabled?: boolean;
+  whatsappPhoneNumberId?: string;
+  whatsappAccessToken?: string;
+  whatsappBusinessAccountId?: string;
+  whatsappTemplateName?: string;
+  // Option 2: Texto.ma (Cloud direct without phone, 0.49 DH/SMS)
+  textoEnabled: boolean;
+  textoToken: string;
+  textoUrl: string;
+  // Option 3: Local Android SMS Gateway / Legacy Phone
+  androidEnabled?: boolean;
+  androidUrl?: string;
+  androidToken?: string;
+  schoolPhone?: string;
+  // Option 4: Textbee.dev
+  textbeeApiKey?: string;
+  textbeeDeviceId?: string;
+  // General Channel
+  defaultChannel: 'whatsapp' | 'sms' | 'both' | 'whatsapp_cloud';
+}
+
 export interface AndroidSmsGatewayConfig {
   enabled: boolean;
   url: string;
@@ -1145,22 +1208,37 @@ export interface AndroidSmsGatewayConfig {
   defaultChannel: 'whatsapp' | 'android_sms' | 'both';
 }
 
-export function getAndroidSmsGatewayConfig(): AndroidSmsGatewayConfig {
-  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'android_sms_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
+export function getSmsGatewayConfig(): SmsGatewayConfig {
+  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'sms_%' OR key LIKE 'textbee_%' OR key LIKE 'android_sms_%' OR key LIKE 'texto_%' OR key LIKE 'whatsapp_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
   const map: Record<string, string> = {};
   for (const r of rows) {
     map[r.key] = r.value;
   }
   return {
-    enabled: map['android_sms_enabled'] === '1' || process.env.ANDROID_SMS_ENABLED === '1',
-    url: map['android_sms_url'] || process.env.ANDROID_SMS_URL || '',
-    token: map['android_sms_token'] || process.env.ANDROID_SMS_TOKEN || '',
-    schoolPhone: map['android_sms_phone'] || process.env.ANDROID_SMS_PHONE || '',
-    defaultChannel: ((map['verification_channel'] as any) || 'whatsapp')
+    provider: (map['sms_provider'] as any) || 'whatsapp_cloud',
+    // WhatsApp Cloud API
+    whatsappCloudEnabled: map['whatsapp_cloud_enabled'] !== '0',
+    whatsappPhoneNumberId: map['whatsapp_phone_number_id'] || process.env.WHATSAPP_PHONE_NUMBER_ID || '',
+    whatsappAccessToken: map['whatsapp_access_token'] || process.env.WHATSAPP_ACCESS_TOKEN || '',
+    whatsappBusinessAccountId: map['whatsapp_waba_id'] || process.env.WHATSAPP_WABA_ID || '',
+    whatsappTemplateName: map['whatsapp_template_name'] || process.env.WHATSAPP_TEMPLATE_NAME || '',
+    // Texto.ma
+    textoEnabled: map['texto_enabled'] !== '0',
+    textoToken: map['texto_token'] || process.env.TEXTO_MA_TOKEN || '$2y$10$Au3d./a/CEi3bpJ.MVgRauVLMj3YdrLN/P3UXbNmnlhDjEz/zQ2gq',
+    textoUrl: map['texto_url'] || 'https://texto.ma/manage/data/api/send_sms',
+    // Android Gateway
+    androidEnabled: map['android_sms_enabled'] === '1',
+    androidUrl: map['android_sms_url'] || '',
+    androidToken: map['android_sms_token'] || '',
+    schoolPhone: map['android_sms_school_phone'] || '',
+    // Textbee
+    textbeeApiKey: map['textbee_api_key'] || process.env.TEXTBEE_API_KEY || '',
+    textbeeDeviceId: map['textbee_device_id'] || process.env.TEXTBEE_DEVICE_ID || '',
+    defaultChannel: ((map['verification_channel'] as any) || 'whatsapp_cloud')
   };
 }
 
-export function saveAndroidSmsGatewayConfig(config: Partial<AndroidSmsGatewayConfig>): AndroidSmsGatewayConfig {
+export function saveSmsGatewayConfig(config: Partial<SmsGatewayConfig>): SmsGatewayConfig {
   const now = new Date().toISOString();
   const upsert = db.prepare(`
     INSERT INTO app_settings (key, value, updated_at)
@@ -1168,10 +1246,29 @@ export function saveAndroidSmsGatewayConfig(config: Partial<AndroidSmsGatewayCon
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `);
 
-  if (config.enabled !== undefined) upsert.run('android_sms_enabled', config.enabled ? '1' : '0', now);
-  if (config.url !== undefined) upsert.run('android_sms_url', config.url.trim(), now);
-  if (config.token !== undefined) upsert.run('android_sms_token', config.token.trim(), now);
-  if (config.schoolPhone !== undefined) upsert.run('android_sms_phone', config.schoolPhone.trim(), now);
+  if (config.provider !== undefined) upsert.run('sms_provider', config.provider, now);
+  // WhatsApp Cloud
+  if (config.whatsappCloudEnabled !== undefined) upsert.run('whatsapp_cloud_enabled', config.whatsappCloudEnabled ? '1' : '0', now);
+  if (config.whatsappPhoneNumberId !== undefined) upsert.run('whatsapp_phone_number_id', config.whatsappPhoneNumberId.trim(), now);
+  if (config.whatsappAccessToken !== undefined) upsert.run('whatsapp_access_token', config.whatsappAccessToken.trim(), now);
+  if (config.whatsappBusinessAccountId !== undefined) upsert.run('whatsapp_waba_id', config.whatsappBusinessAccountId.trim(), now);
+  if (config.whatsappTemplateName !== undefined) upsert.run('whatsapp_template_name', config.whatsappTemplateName.trim(), now);
+
+  // Texto.ma
+  if (config.textoEnabled !== undefined) upsert.run('texto_enabled', config.textoEnabled ? '1' : '0', now);
+  if (config.textoToken !== undefined) upsert.run('texto_token', config.textoToken.trim(), now);
+  if (config.textoUrl !== undefined) upsert.run('texto_url', config.textoUrl.trim(), now);
+
+  // Android Gateway
+  if (config.androidEnabled !== undefined) upsert.run('android_sms_enabled', config.androidEnabled ? '1' : '0', now);
+  if (config.androidUrl !== undefined) upsert.run('android_sms_url', config.androidUrl.trim(), now);
+  if (config.androidToken !== undefined) upsert.run('android_sms_token', config.androidToken.trim(), now);
+  if (config.schoolPhone !== undefined) upsert.run('android_sms_school_phone', config.schoolPhone.trim(), now);
+
+  // Textbee
+  if (config.textbeeApiKey !== undefined) upsert.run('textbee_api_key', config.textbeeApiKey.trim(), now);
+  if (config.textbeeDeviceId !== undefined) upsert.run('textbee_device_id', config.textbeeDeviceId.trim(), now);
+
   if (config.defaultChannel !== undefined) upsert.run('verification_channel', config.defaultChannel, now);
 
   db.prepare(`
@@ -1179,11 +1276,33 @@ export function saveAndroidSmsGatewayConfig(config: Partial<AndroidSmsGatewayCon
     VALUES (?, ?, ?, ?)
   `).run(
     'update_sms_gateway',
-    `تحديث إعدادات بوابة هاتف الإدارة (Android SMS Gateway): ${config.enabled ? 'مفعلة' : 'معطلة'}`,
+    `تحديث إعدادات بوابات الرسائل (WhatsApp Cloud API / Texto.ma / Android SMS): ${config.provider || 'whatsapp_cloud'}`,
     JSON.stringify(config),
     now
   );
 
+  return getSmsGatewayConfig();
+}
+
+export function getAndroidSmsGatewayConfig(): AndroidSmsGatewayConfig {
+  const full = getSmsGatewayConfig();
+  return {
+    enabled: Boolean(full.androidEnabled),
+    url: full.androidUrl || '',
+    token: full.androidToken || '',
+    schoolPhone: full.schoolPhone || '',
+    defaultChannel: full.defaultChannel === 'sms' ? 'android_sms' : (full.defaultChannel as any)
+  };
+}
+
+export function saveAndroidSmsGatewayConfig(config: Partial<AndroidSmsGatewayConfig>): AndroidSmsGatewayConfig {
+  saveSmsGatewayConfig({
+    androidEnabled: config.enabled,
+    androidUrl: config.url,
+    androidToken: config.token,
+    schoolPhone: config.schoolPhone,
+    defaultChannel: config.defaultChannel === 'android_sms' ? 'sms' : (config.defaultChannel as any)
+  });
   return getAndroidSmsGatewayConfig();
 }
 
@@ -2705,7 +2824,7 @@ export function addStudentViolation(
       teacherSubject,
       date: recordedDate,
       time: recordedTime,
-      academicYear: '2025/2026',
+      academicYear: '2026/2027',
       notes: cleanType,
       teacherId: data.teacherId || ''
     });
@@ -5081,7 +5200,7 @@ export function createUser(data: {
   const fullName = data.fullName.trim();
   // Centralized Academic Year: Prioritize the official year set by the Director
   const settings = getAppSettings();
-  const academicYear = (settings.year || data.academicYear || '2025/2026').trim();
+  const academicYear = (settings.year || data.academicYear || '2026/2027').trim();
   const subject = (data.subject || 'الرياضيات').trim();
   const status = data.status || 'pending'; // Default: accounts require director approval
 
@@ -5662,7 +5781,7 @@ export function batchCreateTeachers(
   }
 ) {
   const settings = getAppSettings();
-  const academicYear = (options?.academicYear || settings.year || '2025/2026').trim();
+  const academicYear = (options?.academicYear || settings.year || '2026/2027').trim();
   const defaultPassword = options?.defaultPassword || '123456';
   const updateExisting = options?.updateExistingSubject ?? true;
 
@@ -6701,6 +6820,9 @@ export function getDirectorAnalytics() {
       s.massar_number,
       s.attendance as current_attendance,
       s.status_color,
+      s.photo_url,
+      s.guardian_phone,
+      s.approval_status,
       sec.level as section_level,
       sec.class_number as section_class,
       u.full_name as teacher_name,
@@ -6860,7 +6982,10 @@ export function getDirectorAnalytics() {
       violationsCount: Number(r.violations_count || 0),
       absencesCount: Number(r.absences_count || 0),
       currentAttendance: r.current_attendance || null,
-      statusColor: r.status_color || 'default'
+      statusColor: r.status_color || 'default',
+      photoUrl: r.photo_url || '',
+      guardianPhone: r.guardian_phone || '',
+      approvalStatus: r.approval_status || (r.guardian_phone ? 'approved' : 'pending')
     })),
     allViolations,
     allAbsences,
@@ -10292,6 +10417,14 @@ export interface StudentAccountItem {
   sectionClass?: string;
   studentNumber: string;
   accessCode: string;
+  photoUrl?: string;
+  guardianPhone?: string;
+  guardianPhoneVerified?: boolean;
+  profileCompleted?: boolean;
+  approvalStatus?: 'approved' | 'pending' | 'rejected';
+  approvalNotes?: string;
+  approvedAt?: string;
+  approvedBy?: string;
   lastLogin: string | null;
   createdAt: string;
   updatedAt: string;
@@ -10435,6 +10568,10 @@ export function getStudentAccounts(sectionId?: string): StudentAccountItem[] {
     guardianPhone: r.guardian_phone || '',
     guardianPhoneVerified: Boolean(r.guardian_phone_verified),
     profileCompleted: Boolean(r.profile_completed),
+    approvalStatus: (r.approval_status as 'approved' | 'pending' | 'rejected') || (r.guardian_phone_verified ? 'approved' : (r.profile_completed ? 'pending' : 'pending')),
+    approvalNotes: r.approval_notes || '',
+    approvedAt: r.approved_at || '',
+    approvedBy: r.approved_by || '',
     lastLogin: r.last_login,
     createdAt: r.created_at,
     updatedAt: r.updated_at
@@ -10714,7 +10851,11 @@ export function getStudentFullData(massarNumber: string) {
       photoUrl: account.photo_url || '',
       guardianPhone: account.guardian_phone || '',
       guardianPhoneVerified: Boolean(account.guardian_phone_verified),
-      profileCompleted: Boolean(account.profile_completed)
+      profileCompleted: Boolean(account.profile_completed),
+      approvalStatus: (account.approval_status as 'approved' | 'pending' | 'rejected') || (account.guardian_phone_verified ? 'approved' : (account.profile_completed ? 'pending' : 'pending')),
+      approvalNotes: account.approval_notes || '',
+      approvedAt: account.approved_at || '',
+      approvedBy: account.approved_by || ''
     },
     metrics: {
       totalAbsences,
@@ -11030,15 +11171,16 @@ export async function generateGuardianVerificationCode(massarNumber: string, gua
   `).run(cleanPhone, code, now, account.id);
 
   const instName = institutionName || 'ثانوية ايكسان الإعدادية';
-  const androidConfig = getAndroidSmsGatewayConfig();
+  const smsConfig = getSmsGatewayConfig();
 
-  // Automatically dispatch SMS OTP in the name of the school administration
+  // Automatically dispatch SMS OTP in the name of the school administration via Texto.ma or fallback
   const smsResult = await sendSmsOtp({
     toPhone: cleanPhone,
     code,
     institutionName: instName,
     studentName: account.student_name,
-    androidConfig
+    smsConfig,
+    androidConfig: getAndroidSmsGatewayConfig()
   });
 
   return {
@@ -11117,25 +11259,30 @@ export function completeStudentProfile(massarNumber: string, data: {
   }
 
   const now = new Date().toISOString();
+  // Check if data is unchanged and already approved
+  const isUnchanged = (account.photo_url === photoUrl) && (account.guardian_phone === cleanPhone) && (account.approval_status === 'approved');
+  const approvalStatus = isUnchanged ? 'approved' : 'pending';
+  const phoneVerified = isUnchanged ? 1 : 0;
 
   db.prepare(`
     UPDATE student_accounts
     SET photo_url = ?, 
         guardian_phone = ?, 
-        guardian_phone_verified = 1, 
-        profile_completed = 1, 
+        guardian_phone_verified = ?, 
+        profile_completed = 1,
+        approval_status = ?,
         updated_at = ?
     WHERE id = ?
-  `).run(photoUrl, cleanPhone, now, account.id);
+  `).run(photoUrl, cleanPhone, phoneVerified, approvalStatus, now, account.id);
 
   // Sync with matching seat in seats table across sections
   try {
     db.prepare(`
       UPDATE seats
-      SET photo_url = ?, guardian_phone = ?
+      SET photo_url = ?, guardian_phone = ?, approval_status = ?
       WHERE LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
          OR LOWER(TRIM(student_name)) = LOWER(TRIM(?))
-    `).run(photoUrl, cleanPhone, cleanMassar, account.student_name);
+    `).run(photoUrl, cleanPhone, approvalStatus, cleanMassar, account.student_name);
   } catch (err) {
     console.error('Error syncing photo and phone to seats table:', err);
   }
@@ -11157,7 +11304,8 @@ export function completeStudentProfile(massarNumber: string, data: {
           ) {
             item.photoUrl = photoUrl;
             item.guardianPhone = cleanPhone;
-            item.guardianPhoneVerified = true;
+            item.guardianPhoneVerified = Boolean(phoneVerified);
+            item.approvalStatus = approvalStatus;
             changed = true;
           }
         }
@@ -11177,4 +11325,284 @@ export function completeStudentProfile(massarNumber: string, data: {
 
   return getStudentFullData(cleanMassar);
 }
+
+// ==========================================
+// Director Management: Approval & Editing of Student Photos and Guardian Phones
+// ==========================================
+
+/**
+ * Director directly edits a student's photo, guardian phone, or validation status.
+ */
+export function updateStudentProfileByDirector(
+  accountId: string,
+  data: {
+    photoUrl?: string;
+    guardianPhone?: string;
+    approvalStatus?: 'approved' | 'pending' | 'rejected';
+    guardianPhoneVerified?: boolean;
+    approvalNotes?: string;
+  },
+  directorName?: string
+) {
+  const account = db.prepare(`
+    SELECT sa.*, s.id as section_id
+    FROM student_accounts sa
+    LEFT JOIN sections s ON sa.section_id = s.id
+    WHERE sa.id = ?
+  `).get(accountId) as any;
+
+  if (!account) {
+    throw new Error('حساب التلميذ غير موجود');
+  }
+
+  const now = new Date().toISOString();
+  const photoUrl = data.photoUrl !== undefined ? data.photoUrl.trim() : (account.photo_url || '');
+  const guardianPhone = data.guardianPhone !== undefined ? data.guardianPhone.trim().replace(/\s+/g, '') : (account.guardian_phone || '');
+  const approvalStatus = data.approvalStatus || 'approved';
+  const isApproved = approvalStatus === 'approved';
+  const guardianPhoneVerified = data.guardianPhoneVerified !== undefined ? (data.guardianPhoneVerified ? 1 : 0) : (isApproved ? 1 : 0);
+  const approvalNotes = data.approvalNotes !== undefined ? data.approvalNotes : (account.approval_notes || '');
+  const approvedAt = isApproved ? (account.approved_at || now) : '';
+  const approvedBy = isApproved ? (directorName || account.approved_by || 'مدير المؤسسة') : '';
+
+  db.prepare(`
+    UPDATE student_accounts
+    SET photo_url = ?,
+        guardian_phone = ?,
+        guardian_phone_verified = ?,
+        profile_completed = 1,
+        approval_status = ?,
+        approval_notes = ?,
+        approved_at = ?,
+        approved_by = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(
+    photoUrl,
+    guardianPhone,
+    guardianPhoneVerified,
+    approvalStatus,
+    approvalNotes,
+    approvedAt,
+    approvedBy,
+    now,
+    accountId
+  );
+
+  // Sync to seats table
+  try {
+    db.prepare(`
+      UPDATE seats
+      SET photo_url = ?, guardian_phone = ?, approval_status = ?
+      WHERE LOWER(TRIM(massar_number)) = LOWER(TRIM(?))
+         OR LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+    `).run(photoUrl, guardianPhone, approvalStatus, account.massar_number, account.student_name);
+  } catch (err) {
+    console.error('Error syncing to seats:', err);
+  }
+
+  // Sync into section roster_json
+  try {
+    const allSecs = db.prepare('SELECT id, roster_json FROM sections').all() as any[];
+    for (const sec of allSecs) {
+      if (!sec.roster_json) continue;
+      try {
+        const roster = JSON.parse(sec.roster_json);
+        let changed = false;
+        for (const item of roster) {
+          const itemMassar = (item.massarNumber || '').trim().toLowerCase();
+          const itemName = (item.name || '').trim().toLowerCase();
+          if (
+            (account.massar_number && itemMassar === account.massar_number.trim().toLowerCase()) ||
+            (account.student_name && itemName === account.student_name.trim().toLowerCase())
+          ) {
+            item.photoUrl = photoUrl;
+            item.guardianPhone = guardianPhone;
+            item.guardianPhoneVerified = Boolean(guardianPhoneVerified);
+            item.approvalStatus = approvalStatus;
+            changed = true;
+          }
+        }
+        if (changed) {
+          db.prepare('UPDATE sections SET roster_json = ? WHERE id = ?').run(JSON.stringify(roster), sec.id);
+          try {
+            syncSectionToCloud(sec.id);
+          } catch {}
+        }
+      } catch {}
+    }
+  } catch (err) {
+    console.error('Error syncing to section roster:', err);
+  }
+
+  markDirty();
+
+  return getStudentAccounts().find(a => a.id === accountId);
+}
+
+/**
+ * Director validates and approves a student's photo and guardian phone number.
+ */
+export function approveStudentProfile(accountId: string, directorName?: string) {
+  return updateStudentProfileByDirector(accountId, {
+    approvalStatus: 'approved',
+    guardianPhoneVerified: true
+  }, directorName);
+}
+
+/**
+ * Director batch approves multiple or all pending student profiles.
+ */
+export function batchApproveStudentProfiles(accountIds?: string[], directorName?: string) {
+  let idsToApprove: string[] = [];
+
+  if (accountIds && Array.isArray(accountIds) && accountIds.length > 0) {
+    idsToApprove = accountIds;
+  } else {
+    // Find all accounts that have submitted photo or phone with pending approval
+    const pendingRows = db.prepare(`
+      SELECT id FROM student_accounts
+      WHERE (approval_status = 'pending' OR (profile_completed = 1 AND guardian_phone_verified = 0))
+        AND (LENGTH(photo_url) > 0 OR LENGTH(guardian_phone) > 0)
+    `).all() as any[];
+    idsToApprove = pendingRows.map(r => r.id);
+  }
+
+  const dir = directorName || 'مدير المؤسسة';
+  let approvedCount = 0;
+
+  for (const id of idsToApprove) {
+    try {
+      updateStudentProfileByDirector(id, {
+        approvalStatus: 'approved',
+        guardianPhoneVerified: true
+      }, dir);
+      approvedCount++;
+    } catch (e) {
+      console.error(`Failed to approve account ${id}:`, e);
+    }
+  }
+
+  markDirty();
+  return { success: true, count: approvedCount };
+}
+
+/**
+ * Director rejects a student's submitted photo/phone with optional feedback note.
+ */
+export function rejectStudentProfile(accountId: string, notes?: string, directorName?: string) {
+  return updateStudentProfileByDirector(accountId, {
+    approvalStatus: 'rejected',
+    guardianPhoneVerified: false,
+    approvalNotes: notes || 'يرجى مراجعة الصورة أو رقم الهاتف وتصحيحهما'
+  }, directorName);
+}
+
+/**
+ * Find student guardian phone number by massarNumber or studentName and sectionId
+ */
+export function findStudentGuardianPhone(identifier: {
+  massarNumber?: string;
+  studentName?: string;
+  sectionId?: string;
+}): {
+  guardianPhone: string;
+  photoUrl: string;
+  verified: boolean;
+  studentName: string;
+  massarNumber: string;
+  sectionLevel?: string;
+  sectionClass?: string;
+} | null {
+  const massar = (identifier.massarNumber || '').trim();
+  const name = (identifier.studentName || '').trim();
+
+  if (massar) {
+    const row = db.prepare(`
+      SELECT sa.massar_number, sa.student_name, sa.guardian_phone, sa.photo_url, sa.guardian_phone_verified,
+             s.level as section_level, s.class_number as section_class
+      FROM student_accounts sa
+      LEFT JOIN sections s ON sa.section_id = s.id
+      WHERE sa.massar_number = ?
+      LIMIT 1
+    `).get(massar) as any;
+
+    if (row && (row.guardian_phone || row.student_name)) {
+      return {
+        guardianPhone: row.guardian_phone || '',
+        photoUrl: row.photo_url || '',
+        verified: Boolean(row.guardian_phone_verified),
+        studentName: row.student_name || name,
+        massarNumber: row.massar_number || massar,
+        sectionLevel: row.section_level || '',
+        sectionClass: row.section_class || ''
+      };
+    }
+  }
+
+  if (name) {
+    let q = `
+      SELECT sa.massar_number, sa.student_name, sa.guardian_phone, sa.photo_url, sa.guardian_phone_verified,
+             s.level as section_level, s.class_number as section_class
+      FROM student_accounts sa
+      LEFT JOIN sections s ON sa.section_id = s.id
+      WHERE sa.student_name = ?
+    `;
+    const params: any[] = [name];
+    if (identifier.sectionId) {
+      q += ` AND sa.section_id = ?`;
+      params.push(identifier.sectionId);
+    }
+    q += ` LIMIT 1`;
+    const row = db.prepare(q).get(...params) as any;
+    if (row) {
+      return {
+        guardianPhone: row.guardian_phone || '',
+        photoUrl: row.photo_url || '',
+        verified: Boolean(row.guardian_phone_verified),
+        studentName: row.student_name || name,
+        massarNumber: row.massar_number || massar,
+        sectionLevel: row.section_level || '',
+        sectionClass: row.section_class || ''
+      };
+    }
+  }
+
+  // Fallback to seats table
+  if (massar) {
+    const seatRow = db.prepare(`SELECT student_name, guardian_phone, photo_url, massar_number FROM seats WHERE massar_number = ? LIMIT 1`).get(massar) as any;
+    if (seatRow && (seatRow.guardian_phone || seatRow.student_name)) {
+      return {
+        guardianPhone: seatRow.guardian_phone || '',
+        photoUrl: seatRow.photo_url || '',
+        verified: Boolean(seatRow.guardian_phone),
+        studentName: seatRow.student_name || name,
+        massarNumber: seatRow.massar_number || massar
+      };
+    }
+  }
+
+  if (name) {
+    let q = `SELECT student_name, guardian_phone, photo_url, massar_number FROM seats WHERE student_name = ?`;
+    const params: any[] = [name];
+    if (identifier.sectionId) {
+      q += ` AND section_id = ?`;
+      params.push(identifier.sectionId);
+    }
+    q += ` LIMIT 1`;
+    const seatRow = db.prepare(q).get(...params) as any;
+    if (seatRow && (seatRow.guardian_phone || seatRow.student_name)) {
+      return {
+        guardianPhone: seatRow.guardian_phone || '',
+        photoUrl: seatRow.photo_url || '',
+        verified: Boolean(seatRow.guardian_phone),
+        studentName: seatRow.student_name || name,
+        massarNumber: seatRow.massar_number || ''
+      };
+    }
+  }
+
+  return null;
+}
+
 

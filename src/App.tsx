@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
-import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, ShieldAlert, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award, ArrowUpDown, BookOpen, FileCheck2, Megaphone } from 'lucide-react';
-import { printNotesReport, printViolationsReport, printClassroomSeatingPlan } from './utils/printNotes';
+import { Shuffle, ListOrdered, ArrowLeftRight, GripVertical, FileSpreadsheet, Download, Sparkles, Upload, ShieldCheck, ShieldAlert, Lock, User as UserIcon, LogIn, UserPlus, KeyRound, CircleCheck as CheckCircle2, Clock, Send, CircleAlert as AlertCircle, Layers, ChevronRight, Palette, Check, X, ListFilter as Filter, Users, Printer, ArrowLeft, Calendar, Settings, Trash2, Award, ArrowUpDown, BookOpen, FileCheck2, Megaphone, LayoutGrid, List, Search, Eye, EyeOff, Phone, Star, AlertTriangle, UserCheck } from 'lucide-react';
+import { printNotesReport, printViolationsReport, printClassroomSeatingPlan, printDetailedSectionRosterReport } from './utils/printNotes';
 import {
   AppSettings,
   SectionItem,
@@ -120,7 +120,9 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>({
     institution: 'الثانوية الإعدادية ايكسان',
     year: '2026/2027',
-    teacher: ''
+    teacher: '',
+    academy: 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق',
+    directorate: 'المديرية الإقليمية بالناظور'
   });
   const [settingsSavedToast, setSettingsSavedToast] = useState(false);
 
@@ -138,6 +140,14 @@ export default function App() {
   const [swapSourceSeat, setSwapSourceSeat] = useState<number | null>(null);
   const [isShuffling, setIsShuffling] = useState(false);
   const [isOrdering, setIsOrdering] = useState(false);
+
+  // Classroom Dual-Mode & Dynamic Capacity state (خريطة المقاعد vs لائحة مسار السريعة)
+  const [classroomViewMode, setClassroomViewMode] = useState<'map' | 'roster'>('map');
+  const [hideEmptySeats, setHideEmptySeats] = useState<boolean>(false);
+  const [activeCapacity, setActiveCapacity] = useState<number>(40);
+  const [rosterSearchQuery, setRosterSearchQuery] = useState<string>('');
+  const [rosterSortBy, setRosterSortBy] = useState<'number' | 'name' | 'seat'>('number');
+  const [rosterFilter, setRosterFilter] = useState<'all' | 'present' | 'absent' | 'late' | 'violations' | 'positive' | 'unassigned'>('all');
 
   // Modals state
   const [showAddSectionModal, setShowAddSectionModal] = useState(false);
@@ -1693,6 +1703,205 @@ export default function App() {
 
   const activeSection = sections.find((s) => s.id === activeSectionId) || null;
 
+  // Unified Student Roster for Dual-Mode (خريطة المقاعد vs لائحة مسار السريعة)
+  const combinedStudents = useMemo(() => {
+    if (!activeSection) return [];
+
+    const mapByRosterId = new Map<string, SeatItem>();
+    const mapByName = new Map<string, SeatItem>();
+    const mapByNumber = new Map<string, SeatItem>();
+
+    activeSection.seats.forEach((s) => {
+      if (s.rosterId) mapByRosterId.set(s.rosterId, s);
+      if (s.name && s.name.trim()) mapByName.set(s.name.trim().toLowerCase(), s);
+      if (s.number && s.number.trim()) mapByNumber.set(s.number.trim(), s);
+    });
+
+    const list: Array<{
+      id: string;
+      name: string;
+      number: string;
+      massarNumber?: string;
+      seatNum: number | null;
+      seatItem?: SeatItem;
+      guardianPhone?: string;
+      guardianPhoneVerified?: boolean;
+      photoUrl?: string;
+      attendance?: SeatAttendance;
+      statusColor?: SeatStatusColor;
+      violationsCount: number;
+      positivePoints: number;
+      notesCount: number;
+    }> = [];
+
+    const processedSeatNums = new Set<number>();
+
+    // 1. Process imported Massar roster if present
+    if (activeSection.roster && activeSection.roster.length > 0) {
+      activeSection.roster.forEach((rItem) => {
+        const matchingSeat =
+          mapByRosterId.get(rItem.id) ||
+          activeSection.seats.find((s) => s.number === rItem.number && s.name.trim() === rItem.name.trim()) ||
+          mapByName.get(rItem.name.trim().toLowerCase()) ||
+          mapByNumber.get(rItem.number);
+
+        if (matchingSeat) {
+          processedSeatNums.add(matchingSeat.seat);
+        }
+
+        const positivePoints = matchingSeat?.positiveParticipationCount !== undefined
+          ? matchingSeat.positiveParticipationCount
+          : (matchingSeat?.positiveParticipations ? matchingSeat.positiveParticipations.reduce((sum, p) => sum + (p.points || 1), 0) : 0);
+
+        const violationsCount = (matchingSeat?.violations && matchingSeat.violations.length > 0)
+          ? matchingSeat.violations.length
+          : (matchingSeat?.notes ? matchingSeat.notes.length : 0);
+
+        list.push({
+          id: rItem.id,
+          name: rItem.name,
+          number: rItem.number || '',
+          massarNumber: rItem.massarNumber || matchingSeat?.massarNumber || '',
+          seatNum: matchingSeat ? matchingSeat.seat : null,
+          seatItem: matchingSeat,
+          guardianPhone: matchingSeat?.guardianPhone,
+          guardianPhoneVerified: matchingSeat?.guardianPhoneVerified,
+          photoUrl: matchingSeat?.photoUrl,
+          attendance: matchingSeat?.attendance,
+          statusColor: matchingSeat?.statusColor,
+          violationsCount,
+          positivePoints,
+          notesCount: matchingSeat?.notes?.length || 0
+        });
+      });
+    }
+
+    // 2. Include manually populated seats that had no roster record
+    activeSection.seats.forEach((s) => {
+      if (s.name && s.name.trim() && !processedSeatNums.has(s.seat)) {
+        const positivePoints = s.positiveParticipationCount !== undefined
+          ? s.positiveParticipationCount
+          : (s.positiveParticipations ? s.positiveParticipations.reduce((sum, p) => sum + (p.points || 1), 0) : 0);
+
+        const violationsCount = (s.violations && s.violations.length > 0)
+          ? s.violations.length
+          : (s.notes ? s.notes.length : 0);
+
+        list.push({
+          id: s.rosterId || `seat_${s.seat}`,
+          name: s.name,
+          number: s.number || String(s.seat),
+          massarNumber: s.massarNumber || '',
+          seatNum: s.seat,
+          seatItem: s,
+          guardianPhone: s.guardianPhone,
+          guardianPhoneVerified: s.guardianPhoneVerified,
+          photoUrl: s.photoUrl,
+          attendance: s.attendance,
+          statusColor: s.statusColor,
+          violationsCount,
+          positivePoints,
+          notesCount: s.notes?.length || 0
+        });
+      }
+    });
+
+    return list;
+  }, [activeSection]);
+
+  // Filtered and sorted roster for Roster View Mode
+  const filteredRosterStudents = useMemo(() => {
+    let result = [...combinedStudents];
+
+    // Text search
+    if (rosterSearchQuery.trim()) {
+      const q = rosterSearchQuery.trim().toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.number.toLowerCase().includes(q) ||
+          (s.massarNumber && s.massarNumber.toLowerCase().includes(q)) ||
+          (s.seatNum && String(s.seatNum).includes(q))
+      );
+    }
+
+    // Quick filter chips
+    if (rosterFilter === 'present') result = result.filter((s) => s.attendance === 'present');
+    else if (rosterFilter === 'absent') result = result.filter((s) => s.attendance === 'absent');
+    else if (rosterFilter === 'late') result = result.filter((s) => s.attendance === 'late');
+    else if (rosterFilter === 'violations') result = result.filter((s) => s.violationsCount > 0);
+    else if (rosterFilter === 'positive') result = result.filter((s) => s.positivePoints > 0);
+    else if (rosterFilter === 'unassigned') result = result.filter((s) => !s.seatNum);
+
+    // Sorting
+    result.sort((a, b) => {
+      if (rosterSortBy === 'number') {
+        const numA = parseInt(a.number || '0', 10);
+        const numB = parseInt(b.number || '0', 10);
+        if (!isNaN(numA) && !isNaN(numB) && numA > 0 && numB > 0) return numA - numB;
+        return (a.number || '').localeCompare(b.number || '', undefined, { numeric: true });
+      } else if (rosterSortBy === 'name') {
+        return (a.name || '').localeCompare(b.name || '', 'ar');
+      } else if (rosterSortBy === 'seat') {
+        const sA = a.seatNum || 999;
+        const sB = b.seatNum || 999;
+        return sA - sB;
+      }
+      return 0;
+    });
+
+    return result;
+  }, [combinedStudents, rosterSearchQuery, rosterFilter, rosterSortBy]);
+
+  // Quick attendance toggle in Roster View
+  const handleToggleStudentAttendance = (seatNum: number | null, studentName: string, studentNumber: string, status: 'present' | 'absent' | 'late') => {
+    if (!activeSection) return;
+    if (seatNum) {
+      const seatObj = activeSection.seats.find((s) => s.seat === seatNum);
+      const nextVal = seatObj?.attendance === status ? null : status;
+      handleSeatChange(activeSection.id, seatNum, 'attendance', nextVal);
+    } else {
+      // Find first empty seat to auto-assign for attendance recording
+      const emptySeat = activeSection.seats.find((s) => !s.name || !s.name.trim());
+      if (emptySeat) {
+        handleAssignStudent(activeSection.id, emptySeat.seat, {
+          rosterId: null,
+          name: studentName,
+          number: studentNumber,
+          massarNumber: ''
+        });
+        handleSeatChange(activeSection.id, emptySeat.seat, 'attendance', status);
+        showToast(`تم تعيين التلميذ تلقائياً في المقعد ${emptySeat.seat} لتسجيل حضوره`);
+      } else {
+        showToast('يرجى تحديد مقعد للتلميذ أولاً لتسجيل الحضور');
+      }
+    }
+  };
+
+  // Print Official Section Roster Report
+  const handlePrintRosterList = () => {
+    if (!activeSection) return;
+    printDetailedSectionRosterReport({
+      institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+      academicYear: currentUser?.academicYear || settings.year || '2026/2027',
+      level: activeSection.level,
+      classNumber: activeSection.classNumber,
+      teacherName: currentUser?.fullName || activeSection.teacher,
+      subject: currentUser?.subject,
+      students: filteredRosterStudents.map((s) => ({
+        number: s.number,
+        massarNumber: s.massarNumber,
+        name: s.name,
+        seatNum: s.seatNum,
+        attendance: s.attendance,
+        positivePoints: s.positivePoints,
+        violationsCount: s.violationsCount,
+        guardianPhone: s.guardianPhone,
+        statusColor: s.statusColor
+      }))
+    });
+  };
+
   const openStudentRecord = async (seat: SeatItem) => {
     if (!activeSectionId) return;
     setActiveSeatModal({
@@ -1729,7 +1938,7 @@ export default function App() {
 
       printNotesReport({
         institution: settings.institution || 'الثانوية الإعدادية ايكسان',
-        academicYear: currentUser?.academicYear || settings.year || '2025/2026',
+        academicYear: currentUser?.academicYear || settings.year || '2026/2027',
         level: activeSection.level,
         classNumber: activeSection.classNumber,
         teacherName,
@@ -1810,7 +2019,7 @@ export default function App() {
       <StudentPortalDashboard
         data={studentPortalData}
         institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
-        academicYear={settings.year || '2025/2026'}
+        academicYear={settings.year || '2026/2027'}
         onUpdateData={(newData) => {
           setStudentPortalData(newData);
           try {
@@ -1833,7 +2042,7 @@ export default function App() {
       <div className="min-h-screen bg-[#F7F3EB] py-6 px-4" dir="rtl">
         <LandingView
           institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
-          academicYear={settings.year || '2025/2026'}
+          academicYear={settings.year || '2026/2027'}
           onLoginSuccess={(user) => {
             handleLoginSuccess(user);
           }}
@@ -2203,7 +2412,7 @@ export default function App() {
                       </span>
                     )}
                     <span>
-                      الموسم الدراسي: <b>{currentUser.academicYear || settings.year || '2025/2026'}</b>
+                      الموسم الدراسي: <b>{currentUser.academicYear || settings.year || '2026/2027'}</b>
                     </span>
                     <span>
                       المسجلين في المقاعد:{' '}
@@ -2342,7 +2551,105 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Attendance & Color Legend Panel */}
+              {/* 1. Mode Switcher Tabs & Quick Settings */}
+              <div className="bg-[#172B24] border border-[#C98A3C]/40 rounded-2xl p-2.5 mb-4 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
+                {/* Mode Selector Tabs */}
+                <div className="flex items-center gap-1.5 p-1 bg-black/30 rounded-xl border border-white/10 w-fit flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setClassroomViewMode('map')}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                      classroomViewMode === 'map'
+                        ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md'
+                        : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3] hover:bg-white/5'
+                    }`}
+                    title="عرض توزيع المقاعد في القاعة بتقسيم الصفوف والطاولات المزدوجة"
+                  >
+                    <LayoutGrid className="w-4 h-4" />
+                    <span>خريطة المقاعد التفاعلية</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setClassroomViewMode('roster')}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                      classroomViewMode === 'roster'
+                        ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md'
+                        : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3] hover:bg-white/5'
+                    }`}
+                    title="عرض لائحة القسم السريعة بترتيب مسار أو الترتيب الأبجدي مع أزرار الحضور والملاحظات المباشرة"
+                  >
+                    <List className="w-4 h-4" />
+                    <span>لائحة مسار السريعة</span>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-mono font-bold ${
+                      classroomViewMode === 'roster' ? 'bg-[#1E362D] text-[#C98A3C]' : 'bg-white/10 text-emerald-300'
+                    }`}>
+                      {combinedStudents.length}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Sub-Controls for Active Mode */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {classroomViewMode === 'map' ? (
+                    <>
+                      {/* Toggle Hide Empty Desks */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHideEmptySeats(!hideEmptySeats);
+                          showToast(!hideEmptySeats ? 'تم تفعيل إخفاء المقاعد الشاغرة (المشغولة فقط)' : 'تم إظهار جميع مقاعد القاعة');
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                          hideEmptySeats
+                            ? 'bg-amber-900/60 text-amber-200 border-amber-400/80 shadow-xs ring-1 ring-amber-400/50'
+                            : 'bg-black/20 text-[rgba(242,239,227,0.7)] border-white/10 hover:bg-black/40 hover:text-white'
+                        }`}
+                        title="إخفاء الطاولات الفارغة تماماً لتناسب الأقسام الصغيرة بدون تشويش"
+                      >
+                        {hideEmptySeats ? <EyeOff className="w-3.5 h-3.5 text-amber-300" /> : <Eye className="w-3.5 h-3.5" />}
+                        <span>{hideEmptySeats ? 'إخفاء الشواغر: مفعّل ✓' : 'إخفاء المقاعد الشاغرة'}</span>
+                      </button>
+
+                      {/* Classroom Capacity Selector */}
+                      <div className="flex items-center gap-1.5 bg-black/30 px-2.5 py-1 rounded-xl border border-white/10 text-xs">
+                        <span className="text-[11px] text-[rgba(242,239,227,0.6)] font-medium">سعة القاعة:</span>
+                        <select
+                          value={activeCapacity}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setActiveCapacity(val);
+                            showToast(`تم ضبط سعة القاعة المعروضة على: ${val} مقعداً`);
+                          }}
+                          className="bg-transparent text-amber-300 font-bold outline-hidden cursor-pointer text-xs"
+                        >
+                          <option value={40} className="bg-[#172B24] text-white">40 مقعداً (الافتراضي)</option>
+                          <option value={36} className="bg-[#172B24] text-white">36 مقعداً (18 طاولة)</option>
+                          <option value={32} className="bg-[#172B24] text-white">32 مقعداً (16 طاولة)</option>
+                          <option value={28} className="bg-[#172B24] text-white">28 مقعداً (14 طاولة)</option>
+                          <option value={24} className="bg-[#172B24] text-white">24 مقعداً (12 طاولة)</option>
+                          <option value={20} className="bg-[#172B24] text-white">20 مقعداً (10 طاولات)</option>
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Print Roster List Button */}
+                      <button
+                        type="button"
+                        onClick={handlePrintRosterList}
+                        className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-sky-950/70 text-sky-200 border border-sky-400/50 hover:bg-sky-900/90 transition-colors cursor-pointer shadow-xs"
+                        title="طباعة لائحة تلاميذ القسم الرسمية (A4) متضمنة الحضور ونقط التميز والمخالفات"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-sky-300" />
+                        <span>طباعة اللائحة الرسمية (A4)</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* 2. Attendance & Color Legend Panel (Common to both modes) */}
               {(() => {
                 const filledList = activeSection.seats.filter((s) => s.name && s.name.trim() !== '');
                 const countPresent = filledList.filter((s) => s.attendance === 'present').length;
@@ -2424,179 +2731,534 @@ export default function App() {
                       </div>
 
                       <div className="text-[11px] text-[rgba(242,239,227,0.5)]">
-                        انقر على أيقونة 🎨 داخل بطاقة المقعد لاختيار حالته
+                        انقر على أيقونة 🎨 داخل بطاقة المقعد أو اللائحة لاختيار حالته
                       </div>
                     </div>
                   </div>
                 );
               })()}
 
-              {/* Interactive Drag & Drop Helper Bar */}
-              <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-2.5 mb-4 text-xs text-amber-950 flex items-center justify-between flex-wrap gap-2 shadow-sm">
-                <div className="flex items-center gap-2">
-                  <span className="text-base">💡</span>
-                  <span>
-                    <b>خاصية السحب والإفلات (Drag & Drop):</b> يمكنك سحب بطاقة أي تلميذ وإفلاتها فوق أي مقعد آخر لنقله أو تبديل الأماكن فوراً! كما يمكنك النقر على زر <b>«تبديل»</b> في أي مقعد للنقل السريع على الشاشات اللمسية.
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="text-amber-800 underline font-bold hover:text-amber-950"
-                  onClick={handleShuffleSeats}
-                  disabled={isShuffling}
-                >
-                  🎲 توزيع عشوائي جديد
-                </button>
-              </div>
+              {/* 3. DUAL-MODE VIEW RENDERING */}
+              {classroomViewMode === 'roster' ? (
+                /* =================== VIEW A: FAST MASSAR ROSTER VIEW =================== */
+                <div className="space-y-4">
+                  {/* Search, Filter & Sort Toolbar */}
+                  <div className="bg-[#172B24] border border-[rgba(242,239,227,0.14)] rounded-2xl p-4 shadow-sm space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Search Input */}
+                      <div className="relative flex-1 max-w-md">
+                        <Search className="w-4 h-4 text-[rgba(242,239,227,0.5)] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                        <input
+                          type="text"
+                          value={rosterSearchQuery}
+                          onChange={(e) => setRosterSearchQuery(e.target.value)}
+                          placeholder="ابحث بالاسم، برقم مسار، بالرقم الترتيبي، أو رقم المقعد..."
+                          className="w-full pr-9 pl-8 py-2 rounded-xl bg-black/30 border border-white/10 text-xs text-[#F2EFE3] placeholder:text-[rgba(242,239,227,0.4)] focus:outline-hidden focus:border-[#C98A3C]"
+                        />
+                        {rosterSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setRosterSearchQuery('')}
+                            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/50 hover:text-white text-xs cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
 
-              {/* Active Swap Source Indicator Banner */}
-              {swapSourceSeat !== null && (
-                <div className="swap-banner">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">🔄</span>
-                    <span>
-                      <b>وضع التبديل نشط:</b> تم تحديد المقعد رقم <b>{swapSourceSeat}</b> ({activeSection.seats.find((s) => s.seat === swapSourceSeat)?.name || 'مقعد شاغر'}). انقر الآن على أي مقعد آخر لنقل التلميذ إليه أو تبديل المكان معه!
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-ghost text-white border-white/40 hover:bg-white/10"
-                    onClick={() => setSwapSourceSeat(null)}
-                  >
-                    ✕ إلغاء التبديل
-                  </button>
-                </div>
-              )}
-
-              {/* Classroom Layout: 4 Rows of 5 Double Desks */}
-              <div className="rows-wrap">
-                {[1, 2, 3, 4].map((rowNum) => {
-                  const startSeat = (rowNum - 1) * 10 + 1;
-                  const desks = [0, 1, 2, 3, 4].map((deskIndex) => {
-                    const s1 = startSeat + deskIndex * 2;
-                    const s2 = s1 + 1;
-                    return [s1, s2];
-                  });
-
-                  return (
-                    <div key={rowNum} className="row-frame" id={`row-frame-${rowNum}`}>
-                      <div className="row-label">الصف {rowNum}</div>
-                      <div className="desks-grid">
-                        {desks.map(([seat1Num, seat2Num], dIndex) => {
-                          const seat1 = activeSection.seats.find((s) => s.seat === seat1Num) || {
-                            seat: seat1Num,
-                            name: '',
-                            number: '',
-                            notes: [],
-                            rosterId: null
-                          };
-                          const seat2 = activeSection.seats.find((s) => s.seat === seat2Num) || {
-                            seat: seat2Num,
-                            name: '',
-                            number: '',
-                            notes: [],
-                            rosterId: null
-                          };
-
-                          return (
-                            <div key={dIndex} className="desk" id={`desk-${rowNum}-${dIndex + 1}`}>
-                              {/* Seat 1 */}
-                              <SeatCard
-                                sectionId={activeSection.id}
-                                seat={seat1}
-                                roster={activeSection.roster}
-                                onSeatChange={handleSeatChange}
-                                onAssignStudent={handleAssignStudent}
-                                onOpenNotes={() => openStudentRecord(seat1)}
-                                onOpenPositiveParticipation={() => {
-                                  if (!seat1.name || !seat1.name.trim()) {
-                                    showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
-                                    return;
-                                  }
-                                  setActivePositiveParticipationModal({
-                                    seatNum: seat1.seat,
-                                    studentName: seat1.name.trim(),
-                                    studentNumber: seat1.number || '',
-                                    massarNumber: seat1.massarNumber || '',
-                                    rosterId: seat1.rosterId || null
-                                  });
-                                }}
-                                isDragging={draggingSeat === seat1.seat}
-                                isDropTarget={dropTargetSeat === seat1.seat}
-                                isSelectedForSwap={swapSourceSeat === seat1.seat}
-                                onDragStart={(sNum) => setDraggingSeat(sNum)}
-                                onDragOver={(sNum) => setDropTargetSeat(sNum)}
-                                onDragLeave={(sNum) => setDropTargetSeat((curr) => (curr === sNum ? null : curr))}
-                                onDrop={(src, tgt) => handleSwapSeats(src, tgt)}
-                                onDragEnd={() => {
-                                  setDraggingSeat(null);
-                                  setDropTargetSeat(null);
-                                }}
-                                onSelectForSwap={(sNum) => {
-                                  if (swapSourceSeat === null) {
-                                    setSwapSourceSeat(sNum);
-                                    const stName = activeSection.seats.find((s) => s.seat === sNum)?.name;
-                                    showToast(`تم تحديد المقعد ${sNum} ${stName ? `(${stName})` : ''}. انقر على أي مقعد آخر للتبديل.`);
-                                  } else if (swapSourceSeat === sNum) {
-                                    setSwapSourceSeat(null);
-                                  } else {
-                                    handleSwapSeats(swapSourceSeat, sNum);
-                                  }
-                                }}
-                              />
-
-                              {/* Seat 2 */}
-                              <SeatCard
-                                sectionId={activeSection.id}
-                                seat={seat2}
-                                roster={activeSection.roster}
-                                onSeatChange={handleSeatChange}
-                                onAssignStudent={handleAssignStudent}
-                                onOpenNotes={() => openStudentRecord(seat2)}
-                                onOpenPositiveParticipation={() => {
-                                  if (!seat2.name || !seat2.name.trim()) {
-                                    showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
-                                    return;
-                                  }
-                                  setActivePositiveParticipationModal({
-                                    seatNum: seat2.seat,
-                                    studentName: seat2.name.trim(),
-                                    studentNumber: seat2.number || '',
-                                    massarNumber: seat2.massarNumber || '',
-                                    rosterId: seat2.rosterId || null
-                                  });
-                                }}
-                                isDragging={draggingSeat === seat2.seat}
-                                isDropTarget={dropTargetSeat === seat2.seat}
-                                isSelectedForSwap={swapSourceSeat === seat2.seat}
-                                onDragStart={(sNum) => setDraggingSeat(sNum)}
-                                onDragOver={(sNum) => setDropTargetSeat(sNum)}
-                                onDragLeave={(sNum) => setDropTargetSeat((curr) => (curr === sNum ? null : curr))}
-                                onDrop={(src, tgt) => handleSwapSeats(src, tgt)}
-                                onDragEnd={() => {
-                                  setDraggingSeat(null);
-                                  setDropTargetSeat(null);
-                                }}
-                                onSelectForSwap={(sNum) => {
-                                  if (swapSourceSeat === null) {
-                                    setSwapSourceSeat(sNum);
-                                    const stName = activeSection.seats.find((s) => s.seat === sNum)?.name;
-                                    showToast(`تم تحديد المقعد ${sNum} ${stName ? `(${stName})` : ''}. انقر على أي مقعد آخر للتبديل.`);
-                                  } else if (swapSourceSeat === sNum) {
-                                    setSwapSourceSeat(null);
-                                  } else {
-                                    handleSwapSeats(swapSourceSeat, sNum);
-                                  }
-                                }}
-                              />
-                            </div>
-                          );
-                        })}
+                      {/* Sort Selector */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-[rgba(242,239,227,0.7)] font-medium">الترتيب:</span>
+                        <div className="flex items-center gap-1 bg-black/25 p-1 rounded-xl border border-white/10 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => setRosterSortBy('number')}
+                            className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                              rosterSortBy === 'number' ? 'bg-[#C98A3C] text-[#1E362D]' : 'text-[rgba(242,239,227,0.7)] hover:text-white'
+                            }`}
+                          >
+                            حسب الرقم (1..N)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRosterSortBy('name')}
+                            className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                              rosterSortBy === 'name' ? 'bg-[#C98A3C] text-[#1E362D]' : 'text-[rgba(242,239,227,0.7)] hover:text-white'
+                            }`}
+                          >
+                            أبجدياً (أ-ي)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRosterSortBy('seat')}
+                            className={`px-2.5 py-1 rounded-lg font-bold transition-colors cursor-pointer ${
+                              rosterSortBy === 'seat' ? 'bg-[#C98A3C] text-[#1E362D]' : 'text-[rgba(242,239,227,0.7)] hover:text-white'
+                            }`}
+                          >
+                            رقم المقعد
+                          </button>
+                        </div>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
+
+                    {/* Filter Chips */}
+                    <div className="flex items-center gap-1.5 flex-wrap pt-2 border-t border-white/10 text-xs">
+                      <span className="text-[11px] text-[rgba(242,239,227,0.6)] font-bold ml-1">تصفية:</span>
+                      {[
+                        { id: 'all', label: 'الكل', count: combinedStudents.length },
+                        { id: 'present', label: 'حاضر ✓', count: combinedStudents.filter(s => s.attendance === 'present').length },
+                        { id: 'absent', label: 'غائب ✕', count: combinedStudents.filter(s => s.attendance === 'absent').length },
+                        { id: 'late', label: 'متأخر ⏳', count: combinedStudents.filter(s => s.attendance === 'late').length },
+                        { id: 'positive', label: 'متميزون ⭐', count: combinedStudents.filter(s => s.positivePoints > 0).length },
+                        { id: 'violations', label: 'مخالفات ⚠️', count: combinedStudents.filter(s => s.violationsCount > 0).length },
+                        { id: 'unassigned', label: 'بدون مقعد 🪑', count: combinedStudents.filter(s => !s.seatNum).length },
+                      ].map((chip) => (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => setRosterFilter(chip.id as any)}
+                          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            rosterFilter === chip.id
+                              ? 'bg-amber-400 text-black shadow-xs font-black'
+                              : 'bg-black/30 text-[rgba(242,239,227,0.75)] hover:bg-black/50 hover:text-white'
+                          }`}
+                        >
+                          <span>{chip.label}</span>
+                          <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${
+                            rosterFilter === chip.id ? 'bg-black/20 text-black' : 'bg-white/10 text-amber-200'
+                          }`}>
+                            {chip.count}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Students Roster Cards / Table */}
+                  {filteredRosterStudents.length === 0 ? (
+                    <div className="bg-[#172B24] border border-[rgba(242,239,227,0.14)] rounded-2xl p-8 text-center text-amber-100/70 space-y-2">
+                      <p className="text-base font-bold text-white">لم يتم العثور على أي تلميذ يطابق خيارات البحث والتصفية</p>
+                      <p className="text-xs">جرب إلغاء كلمة البحث أو تغيير نوع التصفية أعلاه.</p>
+                      {combinedStudents.length === 0 && (
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="btn btn-secondary btn-sm mt-3 inline-flex items-center gap-1.5"
+                        >
+                          <FileSpreadsheet className="w-4 h-4 text-[#C98A3C]" />
+                          <span>استيراد لائحة مسار لهذا القسم (Excel)</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {filteredRosterStudents.map((st, idx) => {
+                        const seatObj = st.seatItem;
+                        const isPresent = st.attendance === 'present';
+                        const isAbsent = st.attendance === 'absent';
+                        const isLate = st.attendance === 'late';
+
+                        return (
+                          <div
+                            key={st.id || `st_${idx}`}
+                            className={`rounded-2xl border p-3 sm:p-3.5 transition-all shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 ${
+                              isAbsent
+                                ? 'bg-rose-950/40 border-rose-600/40'
+                                : isLate
+                                ? 'bg-amber-950/30 border-amber-500/40'
+                                : isPresent
+                                ? 'bg-emerald-950/30 border-emerald-500/40'
+                                : 'bg-[#1C362C] border-[rgba(242,239,227,0.12)] hover:border-[#C98A3C]/40'
+                            }`}
+                          >
+                            {/* Student Identity Section */}
+                            <div className="flex items-center gap-3 min-w-0">
+                              {/* Order Number Badge */}
+                              <div
+                                className="w-8 h-8 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/60 text-amber-200 font-mono font-bold flex items-center justify-center text-xs shrink-0 shadow-xs"
+                                title={`الرقم الترتيبي في اللائحة: ${st.number}`}
+                              >
+                                {st.number || idx + 1}
+                              </div>
+
+                              {/* Photo / Avatar */}
+                              {st.photoUrl ? (
+                                <img
+                                  src={st.photoUrl}
+                                  alt={st.name}
+                                  className="w-10 h-10 rounded-full object-cover border-2 border-[#C98A3C] shadow-xs shrink-0"
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-emerald-900/80 border border-emerald-500/40 text-emerald-200 flex items-center justify-center font-bold text-sm shrink-0">
+                                  {st.name.trim()[0] || 'ت'}
+                                </div>
+                              )}
+
+                              {/* Name, Massar Code, Phone & Seat Info */}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-sm sm:text-base font-bold text-[#F2EFE3] truncate">
+                                    {st.name}
+                                  </span>
+
+                                  {/* Massar Code Badge */}
+                                  {st.massarNumber && (
+                                    <span className="px-2 py-0.5 rounded-md bg-black/40 text-amber-300 font-mono text-[10px] border border-amber-500/30">
+                                      {st.massarNumber}
+                                    </span>
+                                  )}
+
+                                  {/* Seat Assigned Badge / Dropdown */}
+                                  {st.seatNum ? (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-stone-800 text-stone-200 text-[10px] font-bold border border-stone-600 shadow-2xs"
+                                      title={`مخصص للمقعد رقم ${st.seatNum}`}
+                                    >
+                                      🪑 مقعد {st.seatNum}
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-950/70 text-amber-300 text-[10px] border border-amber-600/40">
+                                      بدون مقعد محدد
+                                    </span>
+                                  )}
+
+                                  {/* Guardian Phone & WhatsApp Button */}
+                                  {st.guardianPhone && (
+                                    <a
+                                      href={`https://wa.me/${st.guardianPhone.replace(/\D/g, '').startsWith('0') ? '212' + st.guardianPhone.replace(/\D/g, '').slice(1) : st.guardianPhone.replace(/\D/g, '')}`}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-900/60 hover:bg-emerald-800 text-emerald-200 text-[10px] font-bold border border-emerald-500/50 transition-colors"
+                                      title={`مراسلة ولي الأمر (${st.guardianPhone}) عبر واتساب`}
+                                    >
+                                      <Phone className="w-2.5 h-2.5 text-emerald-300" />
+                                      <span className="font-mono">{st.guardianPhone}</span>
+                                      {st.guardianPhoneVerified && <span className="text-emerald-400">✓</span>}
+                                    </a>
+                                  )}
+                                </div>
+
+                                <div className="text-[11px] text-[rgba(242,239,227,0.6)] mt-0.5 flex items-center gap-2">
+                                  <span>ملاحظات: {st.notesCount}</span>
+                                  {st.statusColor && st.statusColor !== 'default' && (
+                                    <span className="text-amber-300">
+                                      • الحالة: {SEAT_STATUS_LIST.find(c => c.id === st.statusColor)?.label || st.statusColor}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons: Attendance + Rewards + Violations */}
+                            <div className="flex items-center gap-2 flex-wrap justify-end">
+                              {/* Quick Attendance Triple Buttons */}
+                              <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStudentAttendance(st.seatNum, st.name, st.number, 'present')}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    isPresent
+                                      ? 'bg-emerald-600 text-white shadow-xs font-black'
+                                      : 'text-emerald-300/70 hover:text-emerald-200 hover:bg-white/5'
+                                  }`}
+                                  title="تسجيل التلميذ: حاضر"
+                                >
+                                  <span>✓</span>
+                                  <span>حاضر</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStudentAttendance(st.seatNum, st.name, st.number, 'absent')}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    isAbsent
+                                      ? 'bg-rose-700 text-white shadow-xs font-black'
+                                      : 'text-rose-300/70 hover:text-rose-200 hover:bg-white/5'
+                                  }`}
+                                  title="تسجيل التلميذ: غائب"
+                                >
+                                  <span>✕</span>
+                                  <span>غائب</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleStudentAttendance(st.seatNum, st.name, st.number, 'late')}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
+                                    isLate
+                                      ? 'bg-amber-600 text-white shadow-xs font-black'
+                                      : 'text-amber-300/70 hover:text-amber-200 hover:bg-white/5'
+                                  }`}
+                                  title="تسجيل التلميذ: متأخر"
+                                >
+                                  <span>⏳</span>
+                                  <span>متأخر</span>
+                                </button>
+                              </div>
+
+                              {/* Positive Participation Button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActivePositiveParticipationModal({
+                                    seatNum: st.seatNum || 1,
+                                    studentName: st.name.trim(),
+                                    studentNumber: st.number || '',
+                                    massarNumber: st.massarNumber || '',
+                                    rosterId: st.id
+                                  });
+                                }}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
+                                  st.positivePoints > 0
+                                    ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 hover:bg-amber-500/30'
+                                    : 'bg-emerald-950/40 text-emerald-300/80 border-emerald-500/30 hover:bg-emerald-900/60 hover:text-white'
+                                }`}
+                                title="إضافة أو استعراض المشاركات الإيجابية ونقاط التميز"
+                              >
+                                <Star className={`w-3.5 h-3.5 ${st.positivePoints > 0 ? 'text-amber-400 fill-amber-400' : 'text-emerald-400'}`} />
+                                <span>مشاركة</span>
+                                {st.positivePoints > 0 && (
+                                  <span className="bg-amber-500 text-black font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                                    +{st.positivePoints}
+                                  </span>
+                                )}
+                              </button>
+
+                              {/* Violations / Notes Button */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (seatObj) {
+                                    openStudentRecord(seatObj);
+                                  } else {
+                                    openStudentRecord({
+                                      seat: 0,
+                                      name: st.name,
+                                      number: st.number,
+                                      notes: [],
+                                      violations: [],
+                                      rosterId: st.id
+                                    });
+                                  }
+                                }}
+                                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
+                                  st.violationsCount > 0
+                                    ? 'bg-rose-950/60 text-rose-200 border-rose-500/60 hover:bg-rose-900/80'
+                                    : 'bg-black/20 text-[rgba(242,239,227,0.7)] border-white/10 hover:bg-black/40 hover:text-white'
+                                }`}
+                                title="تسجيل وإدارة مخالفات وملاحظات التلميذ"
+                              >
+                                <AlertTriangle className={`w-3.5 h-3.5 ${st.violationsCount > 0 ? 'text-rose-400' : 'text-amber-400'}`} />
+                                <span>مخالفة</span>
+                                {st.violationsCount > 0 && (
+                                  <span className="bg-rose-600 text-white font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                                    {st.violationsCount}
+                                  </span>
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* =================== VIEW B: INTERACTIVE SEATING MAP VIEW =================== */
+                <>
+                  {/* Interactive Drag & Drop Helper Bar */}
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-2.5 mb-4 text-xs text-amber-950 flex items-center justify-between flex-wrap gap-2 shadow-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">💡</span>
+                      <span>
+                        <b>خاصية السحب والإفلات (Drag & Drop):</b> يمكنك سحب بطاقة أي تلميذ وإفلاتها فوق أي مقعد آخر لنقله أو تبديل الأماكن فوراً! كما يمكنك النقر على زر <b>«تبديل»</b> في أي مقعد للنقل السريع على الشاشات اللمسية.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-amber-800 underline font-bold hover:text-amber-950 cursor-pointer"
+                      onClick={handleShuffleSeats}
+                      disabled={isShuffling}
+                    >
+                      🎲 توزيع عشوائي جديد
+                    </button>
+                  </div>
+
+                  {/* Active Swap Source Indicator Banner */}
+                  {swapSourceSeat !== null && (
+                    <div className="swap-banner">
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg">🔄</span>
+                        <span>
+                          <b>وضع التبديل نشط:</b> تم تحديد المقعد رقم <b>{swapSourceSeat}</b> ({activeSection.seats.find((s) => s.seat === swapSourceSeat)?.name || 'مقعد شاغر'}). انقر الآن على أي مقعد آخر لنقل التلميذ إليه أو تبديل المكان معه!
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost text-white border-white/40 hover:bg-white/10"
+                        onClick={() => setSwapSourceSeat(null)}
+                      >
+                        ✕ إلغاء التبديل
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Classroom Layout: 4 Rows of 5 Double Desks with dynamic capacity & hiding */}
+                  <div className="rows-wrap space-y-6">
+                    {[1, 2, 3, 4].map((rowNum) => {
+                      const startSeat = (rowNum - 1) * 10 + 1;
+                      const rawDesks = [0, 1, 2, 3, 4].map((deskIndex) => {
+                        const s1 = startSeat + deskIndex * 2;
+                        const s2 = s1 + 1;
+                        return [s1, s2];
+                      });
+
+                      // Filter visible desks according to active capacity and hideEmptySeats toggle
+                      const visibleDesks = rawDesks.filter(([seat1Num, seat2Num]) => {
+                        const st1 = activeSection.seats.find((s) => s.seat === seat1Num);
+                        const st2 = activeSection.seats.find((s) => s.seat === seat2Num);
+                        const hasStudent = Boolean((st1?.name && st1.name.trim()) || (st2?.name && st2.name.trim()));
+
+                        // Capacity boundary: if desk is beyond active capacity and empty, hide it
+                        if (seat1Num > activeCapacity && !hasStudent) return false;
+
+                        // Hide empty seats toggle
+                        if (hideEmptySeats && !hasStudent) return false;
+
+                        return true;
+                      });
+
+                      // If all desks in this row are hidden, hide the entire row frame cleanly
+                      if (visibleDesks.length === 0) return null;
+
+                      return (
+                        <div key={rowNum} className="row-frame" id={`row-frame-${rowNum}`}>
+                          <div className="row-label flex items-center gap-2">
+                            <span>الصف {rowNum}</span>
+                            {hideEmptySeats && (
+                              <span className="text-[10px] opacity-75 font-normal">
+                                ({visibleDesks.length} طاولات مشغولة)
+                              </span>
+                            )}
+                          </div>
+                          <div className="desks-grid">
+                            {visibleDesks.map(([seat1Num, seat2Num], dIndex) => {
+                              const seat1 = activeSection.seats.find((s) => s.seat === seat1Num) || {
+                                seat: seat1Num,
+                                name: '',
+                                number: '',
+                                notes: [],
+                                rosterId: null
+                              };
+                              const seat2 = activeSection.seats.find((s) => s.seat === seat2Num) || {
+                                seat: seat2Num,
+                                name: '',
+                                number: '',
+                                notes: [],
+                                rosterId: null
+                              };
+
+                              return (
+                                <div key={dIndex} className="desk" id={`desk-${rowNum}-${dIndex + 1}`}>
+                                  {/* Seat 1 */}
+                                  <SeatCard
+                                    sectionId={activeSection.id}
+                                    seat={seat1}
+                                    roster={activeSection.roster}
+                                    onSeatChange={handleSeatChange}
+                                    onAssignStudent={handleAssignStudent}
+                                    onOpenNotes={() => openStudentRecord(seat1)}
+                                    onOpenPositiveParticipation={() => {
+                                      if (!seat1.name || !seat1.name.trim()) {
+                                        showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
+                                        return;
+                                      }
+                                      setActivePositiveParticipationModal({
+                                        seatNum: seat1.seat,
+                                        studentName: seat1.name.trim(),
+                                        studentNumber: seat1.number || '',
+                                        massarNumber: seat1.massarNumber || '',
+                                        rosterId: seat1.rosterId || null
+                                      });
+                                    }}
+                                    isDragging={draggingSeat === seat1.seat}
+                                    isDropTarget={dropTargetSeat === seat1.seat}
+                                    isSelectedForSwap={swapSourceSeat === seat1.seat}
+                                    onDragStart={(sNum) => setDraggingSeat(sNum)}
+                                    onDragOver={(sNum) => setDropTargetSeat(sNum)}
+                                    onDragLeave={(sNum) => setDropTargetSeat((curr) => (curr === sNum ? null : curr))}
+                                    onDrop={(src, tgt) => handleSwapSeats(src, tgt)}
+                                    onDragEnd={() => {
+                                      setDraggingSeat(null);
+                                      setDropTargetSeat(null);
+                                    }}
+                                    onSelectForSwap={(sNum) => {
+                                      if (swapSourceSeat === null) {
+                                        setSwapSourceSeat(sNum);
+                                        const stName = activeSection.seats.find((s) => s.seat === sNum)?.name;
+                                        showToast(`تم تحديد المقعد ${sNum} ${stName ? `(${stName})` : ''}. انقر على أي مقعد آخر للتبديل.`);
+                                      } else if (swapSourceSeat === sNum) {
+                                        setSwapSourceSeat(null);
+                                      } else {
+                                        handleSwapSeats(swapSourceSeat, sNum);
+                                      }
+                                    }}
+                                  />
+
+                                  {/* Seat 2 */}
+                                  <SeatCard
+                                    sectionId={activeSection.id}
+                                    seat={seat2}
+                                    roster={activeSection.roster}
+                                    onSeatChange={handleSeatChange}
+                                    onAssignStudent={handleAssignStudent}
+                                    onOpenNotes={() => openStudentRecord(seat2)}
+                                    onOpenPositiveParticipation={() => {
+                                      if (!seat2.name || !seat2.name.trim()) {
+                                        showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
+                                        return;
+                                      }
+                                      setActivePositiveParticipationModal({
+                                        seatNum: seat2.seat,
+                                        studentName: seat2.name.trim(),
+                                        studentNumber: seat2.number || '',
+                                        massarNumber: seat2.massarNumber || '',
+                                        rosterId: seat2.rosterId || null
+                                      });
+                                    }}
+                                    isDragging={draggingSeat === seat2.seat}
+                                    isDropTarget={dropTargetSeat === seat2.seat}
+                                    isSelectedForSwap={swapSourceSeat === seat2.seat}
+                                    onDragStart={(sNum) => setDraggingSeat(sNum)}
+                                    onDragOver={(sNum) => setDropTargetSeat(sNum)}
+                                    onDragLeave={(sNum) => setDropTargetSeat((curr) => (curr === sNum ? null : curr))}
+                                    onDrop={(src, tgt) => handleSwapSeats(src, tgt)}
+                                    onDragEnd={() => {
+                                      setDraggingSeat(null);
+                                      setDropTargetSeat(null);
+                                    }}
+                                    onSelectForSwap={(sNum) => {
+                                      if (swapSourceSeat === null) {
+                                        setSwapSourceSeat(sNum);
+                                        const stName = activeSection.seats.find((s) => s.seat === sNum)?.name;
+                                        showToast(`تم تحديد المقعد ${sNum} ${stName ? `(${stName})` : ''}. انقر على أي مقعد آخر للتبديل.`);
+                                      } else if (swapSourceSeat === sNum) {
+                                        setSwapSourceSeat(null);
+                                      } else {
+                                        handleSwapSeats(swapSourceSeat, sNum);
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </>
           )}
         </main>

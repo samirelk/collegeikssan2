@@ -111,7 +111,7 @@ export const Topbar: React.FC<TopbarProps> = ({
             <span>{settings.institution || 'الثانوية الإعدادية ايكسان'}</span>
             <span className="text-[#D5CDC0]">•</span>
             <span className="font-semibold text-[#1A4E47]">
-              {currentUser ? `الموسم: ${currentUser.academicYear || settings.year}` : `الموسم: ${settings.year || '2025/2026'}`}
+              {currentUser ? `الموسم: ${currentUser.academicYear || settings.year || '2026/2027'}` : `الموسم: ${settings.year || '2026/2027'}`}
             </span>
             <span className="text-[#D5CDC0]">•</span>
             

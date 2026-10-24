@@ -17,7 +17,12 @@ import {
   UserCheck,
   UserPlus,
   Building2,
-  Printer
+  Printer,
+  Phone,
+  Check,
+  Edit,
+  Camera,
+  Sparkles
 } from 'lucide-react';
 import { SectionAssignmentRequest, SectionItem, SentEmail, User as UserType } from '../types';
 import { AdminDirectorsManagement } from './AdminDirectorsManagement';
@@ -52,10 +57,11 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
   onRequestReviewedOrAssigned,
   currentUser
 }) => {
-  const [activeTab, setActiveTab] = useState<'requests' | 'direct' | 'teachers' | 'directors' | 'outbox'>('requests');
+  const [activeTab, setActiveTab] = useState<'requests' | 'student_profiles' | 'direct' | 'teachers' | 'directors' | 'outbox'>('requests');
   const [requests, setRequests] = useState<SectionAssignmentRequest[]>([]);
   const [teachers, setTeachers] = useState<TeacherItem[]>([]);
   const [outboxEmails, setOutboxEmails] = useState<SentEmail[]>([]);
+  const [studentAccounts, setStudentAccounts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -74,7 +80,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
   const [newTeacherEmail, setNewTeacherEmail] = useState('');
   const [newTeacherPassword, setNewTeacherPassword] = useState('123456');
   const [newTeacherSubject, setNewTeacherSubject] = useState('الرياضيات');
-  const [newTeacherYear, setNewTeacherYear] = useState('2025/2026');
+  const [newTeacherYear, setNewTeacherYear] = useState('2026/2027');
 
   // Confirmation states (replace window.confirm with robust React dialogs)
   const [deleteTeacherTarget, setDeleteTeacherTarget] = useState<{ id: string; name: string } | null>(null);
@@ -95,10 +101,11 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
         'x-user-id': currentUser.id,
         'x-user-role': currentUser.role
       } : {};
-      const [reqRes, teachRes, emailRes] = await Promise.all([
-        fetch('/api/assignment-requests').then((r) => r.json()),
-        fetch('/api/auth/teachers', { headers: authHeaders }).then((r) => r.json()),
-        fetch('/api/emails/outbox?limit=50').then((r) => r.json())
+      const [reqRes, teachRes, emailRes, accountsRes] = await Promise.all([
+        fetch('/api/assignment-requests').then((r) => r.json()).catch(() => ({ success: true, requests: [] })),
+        fetch('/api/auth/teachers', { headers: authHeaders }).then((r) => r.json()).catch(() => ({ success: true, teachers: [] })),
+        fetch('/api/emails/outbox?limit=50').then((r) => r.json()).catch(() => ({ success: true, emails: [] })),
+        fetch('/api/student/accounts').then((r) => r.json()).catch(() => ({ success: true, accounts: [] }))
       ]);
 
       if (reqRes.success && Array.isArray(reqRes.requests)) {
@@ -110,10 +117,111 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
       if (emailRes.success && Array.isArray(emailRes.emails)) {
         setOutboxEmails(emailRes.emails);
       }
+      if (accountsRes && accountsRes.success && Array.isArray(accountsRes.accounts)) {
+        setStudentAccounts(accountsRes.accounts);
+      }
     } catch (err: any) {
       setErrorMessage(err.message || 'خطأ أثناء تحميل بيانات الإدارة');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Student Profile Approval Handlers
+  const handleApproveStudent = async (accountId: string, studentName: string) => {
+    setActionLoadingId(accountId);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const res = await fetch(`/api/student/accounts/${accountId}/approve`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'director',
+          'x-user-name': currentUser?.fullName || 'مدير المؤسسة'
+        }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'فشلت المصادقة');
+
+      setStudentAccounts((prev) =>
+        prev.map((a) =>
+          a.id === accountId ? { ...a, approvalStatus: 'approved', guardianPhoneVerified: true } : a
+        )
+      );
+      setSuccessMessage(`تمت المصادقة على صورة ورقم هاتف التلميذ (${studentName}) بنجاح ✓`);
+      onRequestReviewedOrAssigned();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'خطأ أثناء المصادقة');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleBatchApproveStudents = async () => {
+    const pendingCount = studentAccounts.filter(
+      (a) => a.approvalStatus === 'pending' || (a.profileCompleted && !a.guardianPhoneVerified)
+    ).length;
+    if (pendingCount === 0) return;
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const res = await fetch('/api/student/accounts/batch-approve', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'director',
+          'x-user-name': currentUser?.fullName || 'مدير المؤسسة'
+        },
+        body: JSON.stringify({})
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'فشلت المصادقة الجماعية');
+
+      setStudentAccounts((prev) =>
+        prev.map((a) => ({ ...a, approvalStatus: 'approved', guardianPhoneVerified: true }))
+      );
+      setSuccessMessage(data.message || `تمت المصادقة على كافة الصور وأرقام الهواتف المعلقة بنجاح (${pendingCount} تلميذاً) ✓`);
+      onRequestReviewedOrAssigned();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'خطأ أثناء المصادقة الجماعية');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRejectStudent = async (accountId: string, studentName: string) => {
+    const reason = prompt(`أدخل سبب رفض صورة أو رقم هاتف التلميذ (${studentName}) أو الملاحظة المطلوبة:`, 'يرجى إعادة التقاط الصورة الشخصية بشكل واضح');
+    if (reason === null) return;
+
+    setActionLoadingId(accountId);
+    setErrorMessage(null);
+    setSuccessMessage(null);
+    try {
+      const res = await fetch(`/api/student/accounts/${accountId}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-role': 'director',
+          'x-user-name': currentUser?.fullName || 'مدير المؤسسة'
+        },
+        body: JSON.stringify({ notes: reason })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'فشلت عملية الرفض');
+
+      setStudentAccounts((prev) =>
+        prev.map((a) =>
+          a.id === accountId ? { ...a, approvalStatus: 'rejected', approvalNotes: reason } : a
+        )
+      );
+      setSuccessMessage(`تم رفض الملف وإشعار التلميذ (${studentName}) بالملاحظة: ${reason}`);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'خطأ أثناء معالجة الطلب');
+    } finally {
+      setActionLoadingId(null);
     }
   };
 
@@ -302,7 +410,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
           email: newTeacherEmail.trim(),
           password: newTeacherPassword,
           subject: newTeacherSubject,
-          academicYear: newTeacherYear.trim() || '2025/2026'
+          academicYear: newTeacherYear.trim() || '2026/2027'
         })
       });
 
@@ -329,6 +437,9 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
   if (!isOpen) return null;
 
   const pendingRequests = requests.filter((r) => r.status === 'pending');
+  const pendingStudentProfiles = studentAccounts.filter(
+    (a) => a.approvalStatus === 'pending' || (a.profileCompleted && !a.guardianPhoneVerified)
+  );
 
   return (
     <div
@@ -354,7 +465,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                 </span>
               </div>
               <p className="text-[11px] sm:text-xs text-[rgba(242,239,227,0.6)] mt-0.5 truncate">
-                الثانوية الإعدادية ايكسان • الموافقة على طلبات إسناد الأقسام، إدارة الأساتذة ومتابعة البريد
+                الثانوية الإعدادية ايكسان • الموافقة على طلبات إسناد الأقسام، مصادقة صور وهواتف التلاميذ ومتابعة البريد
               </p>
             </div>
           </div>
@@ -395,6 +506,25 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
             {pendingRequests.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black text-[10px] font-mono font-bold">
                 {pendingRequests.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            id="admin-tab-student-profiles"
+            onClick={() => setActiveTab('student_profiles')}
+            className={`pb-3 px-3 text-xs font-bold transition-all border-b-2 cursor-pointer flex items-center gap-2 ${
+              activeTab === 'student_profiles'
+                ? 'border-[#C98A3C] text-[#C98A3C]'
+                : 'border-transparent text-[rgba(242,239,227,0.6)] hover:text-[#F2EFE3]'
+            }`}
+          >
+            <UserCheck className="w-4 h-4" />
+            <span>مصادقة صور وهواتف التلاميذ</span>
+            {pendingStudentProfiles.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black text-[10px] font-mono font-bold animate-pulse">
+                {pendingStudentProfiles.length}
               </span>
             )}
           </button>
@@ -581,6 +711,139 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB: STUDENT PROFILES & PHOTOS APPROVAL */}
+          {activeTab === 'student_profiles' && (
+            <div className="space-y-4">
+              <div className="p-3.5 bg-[#172B24] rounded-2xl border border-[rgba(242,239,227,0.1)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[rgba(242,239,227,0.85)]">
+                <div>
+                  <span className="font-bold text-[#C98A3C] block sm:inline ml-1">
+                    مصادقة مدير المؤسسة (دون الحاجة لرسائل SMS):
+                  </span>
+                  <span>
+                    المدير هو المخول بالمصادقة الرسمية على الصور وأرقام هواتف أولياء الأمور لتثبيتها في سجلات الأقسام وسجل الغياب المدرسي.
+                  </span>
+                </div>
+                {pendingStudentProfiles.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleBatchApproveStudents}
+                    disabled={isLoading}
+                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-[#1A4E47] hover:brightness-110 text-white font-bold text-xs shadow-md transition-all cursor-pointer shrink-0 flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    <Check className="w-4 h-4 text-[#C98A3C]" />
+                    <span>المصادقة على الجميع ({pendingStudentProfiles.length}) ✓</span>
+                  </button>
+                )}
+              </div>
+
+              {studentAccounts.filter(a => a.photoUrl || a.guardianPhone).length === 0 ? (
+                <div className="py-12 text-center text-xs text-[rgba(242,239,227,0.5)] bg-[rgba(0,0,0,0.15)] rounded-2xl border border-[rgba(242,239,227,0.08)]">
+                  لم يقدم أي تلميذ صورته أو رقم هاتفه بعد للمصادقة.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {studentAccounts
+                    .filter(a => a.photoUrl || a.guardianPhone)
+                    .map((st) => {
+                      const isPending = st.approvalStatus === 'pending' || (st.profileCompleted && !st.guardianPhoneVerified);
+                      const isApproved = st.approvalStatus === 'approved' || st.guardianPhoneVerified;
+
+                      return (
+                        <div
+                          key={st.id}
+                          className={`p-3.5 rounded-2xl border transition-all flex items-start gap-3.5 ${
+                            isPending
+                              ? 'bg-[#172B24] border-amber-500/40 shadow-sm'
+                              : isApproved
+                              ? 'bg-[#172B24]/70 border-emerald-500/30'
+                              : 'bg-[#172B24]/40 border-rose-500/20'
+                          }`}
+                        >
+                          {/* Photo preview */}
+                          <div className="relative shrink-0">
+                            {st.photoUrl ? (
+                              <img
+                                src={st.photoUrl}
+                                alt={st.studentName}
+                                className="w-14 h-14 rounded-2xl object-cover border-2 border-[#C98A3C]/70 shadow-sm"
+                              />
+                            ) : (
+                              <div className="w-14 h-14 rounded-2xl bg-[#2A4F40] border border-[#C98A3C]/40 text-[#C98A3C] flex items-center justify-center font-bold text-lg">
+                                {st.studentName[0] || 'ت'}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Info & Actions */}
+                          <div className="flex-1 min-w-0 space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-sm text-[#F2EFE3] truncate">
+                                {st.studentName}
+                              </span>
+                              {isApproved ? (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold border border-emerald-500/40 shrink-0">
+                                  مصادق عليه ✓
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold border border-amber-500/40 shrink-0 animate-pulse">
+                                  في انتظار المصادقة ⏳
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-2 text-xs text-[rgba(242,239,227,0.7)] flex-wrap">
+                              <span className="font-mono text-[#C98A3C]">{st.massarNumber}</span>
+                              <span>•</span>
+                              <span>{st.sectionLevel} (ق {st.sectionClass})</span>
+                            </div>
+
+                            {st.guardianPhone && (
+                              <div className="pt-0.5">
+                                <a
+                                  href={`https://wa.me/${st.guardianPhone.replace(/\D/g, '').startsWith('0') ? '212' + st.guardianPhone.replace(/\D/g, '').slice(1) : st.guardianPhone.replace(/\D/g, '')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs text-emerald-400 font-mono font-bold hover:underline"
+                                  title="مراسلة عبر واتساب"
+                                >
+                                  <Phone className="w-3 h-3" />
+                                  <span>{st.guardianPhone}</span>
+                                </a>
+                              </div>
+                            )}
+
+                            {/* Buttons */}
+                            <div className="flex items-center gap-1.5 pt-1.5 flex-wrap">
+                              {isPending && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleApproveStudent(st.id, st.studentName)}
+                                  disabled={actionLoadingId === st.id}
+                                  className="px-3 py-1 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer shadow-xs disabled:opacity-50"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  <span>مصادقة ✓</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => handleRejectStudent(st.id, st.studentName)}
+                                disabled={actionLoadingId === st.id}
+                                className="px-2.5 py-1 rounded-xl bg-rose-900/60 hover:bg-rose-900 text-rose-200 font-bold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <span>طلب تعديل ✕</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -874,7 +1137,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                         type="text"
                         value={newTeacherYear}
                         onChange={(e) => setNewTeacherYear(e.target.value)}
-                        placeholder="2025/2026"
+                        placeholder="2026/2027"
                         required
                         className="w-full px-3 py-2 bg-[#1E362D] border border-[rgba(242,239,227,0.18)] rounded-xl text-xs text-[#F2EFE3] focus:outline-none focus:border-[#C98A3C]"
                       />
@@ -1031,7 +1294,7 @@ export const AdminApprovalsModal: React.FC<AdminApprovalsModalProps> = ({
                   email: 'mrsamiro69@gmail.com',
                   fullName: 'الأستاذ: سمير القراشي (المشرف العام)',
                   role: 'admin',
-                  academicYear: '2025/2026',
+                  academicYear: '2026/2027',
                   status: 'active',
                   createdAt: ''
                 }}

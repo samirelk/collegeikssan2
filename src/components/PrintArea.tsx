@@ -18,15 +18,23 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
 
   return (
     <div id="print-area">
-      <h1 className="print-sheet-title">
-        {settings.institution || 'تقرير ملاحظات التلميذ'}
-      </h1>
-
-      <div className="print-sheet-sub">
-        {settings.institution && 'تقرير متابعة وملاحظات التلميذ'}
-        {settings.year && ` · الموسم الدراسي: ${settings.year}`}
-        {` · طُبع بتاريخ ${printDate} — ${printTime} (GMT)`}
+      <div style={{ textAlign: 'center', marginBottom: '12px', borderBottom: '2px solid #854d0e', paddingBottom: '10px' }}>
+        <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#1E3B2C' }}>المملكة المغربية • ROYAUME DU MAROC</div>
+        <div style={{ fontSize: '12px', fontWeight: 'bold', color: '#854d0e' }}>وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
+        <div style={{ fontSize: '11px', color: '#4b5563' }}>
+          {settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق'} • {settings.directorate || 'المديرية الإقليمية بالناظور'}
+        </div>
+        <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#991b1b', marginTop: '2px' }}>
+          {settings.institution || 'الثانوية الإعدادية ايكسان'}
+        </div>
+        <div style={{ fontSize: '10.5px', color: '#6b7280', marginTop: '2px' }}>
+          الموسم الدراسي: <b>{settings.year || '2026/2027'}</b> • تاريخ الطباعة: <b>{printDate} — {printTime} (GMT)</b>
+        </div>
       </div>
+
+      <h1 className="print-sheet-title" style={{ marginTop: '8px' }}>
+        بطاقة ملاحظات وسلوك التلميذ(ة)
+      </h1>
 
       <div className="print-info-grid">
         <div>

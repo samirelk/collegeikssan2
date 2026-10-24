@@ -21,9 +21,12 @@ import {
   AlertCircle,
   Download,
   School,
-  ExternalLink
+  ExternalLink,
+  Smartphone,
+  MessageSquare
 } from 'lucide-react';
 import { SectionItem, AppSettings, User as UserType } from '../types';
+import { ParentNotificationModal, StudentNotificationItem } from './ParentNotificationModal';
 import {
   printAllViolationsReport,
   printSingleViolationNotice,
@@ -60,6 +63,8 @@ export interface ViolationRecordItem {
   recordedTime?: string;
   section_level?: string;
   section_class?: string;
+  guardian_phone?: string;
+  guardianPhone?: string;
 }
 
 interface ViolationsRegisterModalProps {
@@ -119,6 +124,11 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Parent Notification Modal State (SMS / WhatsApp)
+  const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
+  const [notifyTargetStudent, setNotifyTargetStudent] = useState<StudentNotificationItem | null>(null);
+  const [notifyBatchStudents, setNotifyBatchStudents] = useState<StudentNotificationItem[] | undefined>(undefined);
 
   // Filters
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>('all');
@@ -470,8 +480,8 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
     });
 
     const printed = printAllViolationsReport({
-      institution: settings.institution || 'المدرسة الإلكترونية',
-      academicYear: settings.year || '2025/2026',
+      institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+      academicYear: settings.year || '2026/2027',
       sectionTitle,
       dateFilterText:
         dateRangeFilter === 'today'
@@ -492,17 +502,40 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   // Print single violation notice
   const handlePrintSingleNotice = (v: ViolationRecordItem) => {
     const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
+    let sLevel = sec?.level || v.section_level || '';
+    let sClass = sec?.classNumber || v.section_class || '';
+    let sName = v.student_name || v.studentName || '';
+    let sNumber = v.student_number || v.studentNumber || '';
+    let sMassar = v.massar_number || v.massarNumber || '';
+
+    // Search in section seats if missing details
+    if (!sLevel || !sClass || !sMassar || !sNumber) {
+      for (const s of sections) {
+        const foundSeat = s.seats.find((st) =>
+          (st.name && sName && st.name.trim().toLowerCase() === sName.trim().toLowerCase()) ||
+          (st.massarNumber && sMassar && st.massarNumber.trim().toLowerCase() === sMassar.trim().toLowerCase())
+        );
+        if (foundSeat) {
+          if (!sLevel) sLevel = s.level;
+          if (!sClass) sClass = s.classNumber;
+          if (!sNumber) sNumber = foundSeat.studentNumber || String(foundSeat.seatNum || '');
+          if (!sMassar) sMassar = foundSeat.massarNumber || '';
+          break;
+        }
+      }
+    }
+
     printSingleViolationNotice({
       institution: settings.institution || 'المدرسة الإلكترونية',
-      academicYear: settings.year || '2025/2026',
-      level: sec?.level || v.section_level || 'الفصل',
-      classNumber: sec?.classNumber || v.section_class || '1',
+      academicYear: settings.year || '2026/2027',
+      level: sLevel || 'الفصل',
+      classNumber: sClass || '1',
       teacherName: v.teacher_name || v.teacherName || currentUser?.fullName || 'الأستاذ',
       subject: v.teacher_subject || v.teacherSubject || currentUser?.subject || '',
-      studentName: v.student_name || v.studentName || '',
-      studentNumber: v.student_number || v.studentNumber || '',
-      massarNumber: v.massar_number || v.massarNumber || '',
-      violationType: v.violation_type || v.violationType || '',
+      studentName: sName || 'التلميذ(ة)',
+      studentNumber: sNumber || '',
+      massarNumber: sMassar || '',
+      violationType: v.violation_type || v.violationType || 'مخالفة سلوكية',
       actionTaken: v.action_taken || v.actionTaken || 'تنبيه شفهي',
       date: v.recorded_date || v.recordedDate || '',
       time: v.recorded_time || v.recordedTime || '',
@@ -514,8 +547,8 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const handlePrintParentSummons = (v: ViolationRecordItem) => {
     const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
     printParentViolationNotice({
-      institution: settings.institution || 'المدرسة الإلكترونية',
-      academicYear: settings.year || '2025/2026',
+      institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+      academicYear: settings.year || '2026/2027',
       studentName: v.student_name || v.studentName || '',
       studentNumber: v.student_number || v.studentNumber || '',
       massarNumber: v.massar_number || v.massarNumber || '',
@@ -769,6 +802,40 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
               >
                 <Download className="w-4 h-4 text-slate-500" />
                 <span>تصدير Excel</span>
+              </button>
+
+              {/* Batch SMS / WhatsApp to Parents */}
+              <button
+                type="button"
+                onClick={() => {
+                  const batch: StudentNotificationItem[] = filteredViolations.map((v) => {
+                    const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
+                    return {
+                      studentName: v.student_name || v.studentName || 'التلميذ',
+                      massarNumber: v.massar_number || v.massarNumber,
+                      sectionId: v.section_id || v.sectionId,
+                      sectionLevel: v.section_level || (sec ? sec.level : undefined),
+                      sectionClass: v.section_class || (sec ? sec.classNumber : undefined),
+                      guardianPhone: v.guardian_phone || v.guardianPhone,
+                      type: 'violation',
+                      details: {
+                        date: v.recorded_date || v.recordedDate,
+                        time: v.recorded_time || v.recordedTime,
+                        reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
+                        subject: v.teacher_subject || v.teacherSubject
+                      }
+                    };
+                  });
+                  setNotifyBatchStudents(batch);
+                  setNotifyTargetStudent(null);
+                  setIsNotifyModalOpen(true);
+                }}
+                disabled={filteredViolations.length === 0}
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-800 to-emerald-900 hover:brightness-110 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                title="إشعار جماعي لأولياء أمور التلاميذ المخالفين المعروضين عبر واتساب"
+              >
+                <MessageSquare className="w-4 h-4 text-emerald-300" />
+                <span>إشعار أولياء المخالفين عبر واتساب ({filteredViolations.length}) 💬</span>
               </button>
             </div>
 
@@ -1042,24 +1109,40 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                                 <FileText className="w-3.5 h-3.5" />
                               </button>
 
-                              {/* WhatsApp Notice */}
+                              {/* WhatsApp Cloud Official Notification */}
                               <button
                                 type="button"
-                                onClick={() => handleSendWhatsApp(v)}
-                                className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer"
-                                title="إرسال إشعار فوري لولي الأمر عبر واتساب"
+                                onClick={() => {
+                                  setNotifyTargetStudent({
+                                    studentName: v.student_name || v.studentName || 'التلميذ',
+                                    massarNumber: v.massar_number || v.massarNumber,
+                                    sectionId: v.section_id || v.sectionId,
+                                    sectionLevel: v.section_level,
+                                    sectionClass: v.section_class,
+                                    type: 'violation',
+                                    details: {
+                                      date: v.recorded_date || v.recordedDate,
+                                      time: v.recorded_time || v.recordedTime,
+                                      reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
+                                      subject: v.teacher_subject || v.teacherSubject
+                                    }
+                                  });
+                                  setIsNotifyModalOpen(true);
+                                }}
+                                className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition-colors cursor-pointer"
+                                title="إرسال إشعار بالمخالفة لولي الأمر عبر WhatsApp Cloud API"
                               >
-                                <MessageCircle className="w-3.5 h-3.5" />
+                                <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
                               </button>
 
                               {/* Single Notice Slip */}
                               <button
                                 type="button"
                                 onClick={() => handlePrintSingleNotice(v)}
-                                className="p-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 transition-colors cursor-pointer"
-                                title="طباعة إشعار المخالفة الفردي"
+                                className="p-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 transition-colors cursor-pointer"
+                                title="طباعة إشعار المخالفة الرسمي لولي الأمر"
                               >
-                                <Printer className="w-3.5 h-3.5" />
+                                <Printer className="w-3.5 h-3.5 text-blue-700" />
                               </button>
 
                               {/* Delete */}
@@ -1134,11 +1217,11 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                       </div>
 
                       {/* Action buttons on card */}
-                      <div className="grid grid-cols-4 gap-1.5 pt-1">
+                      <div className="grid grid-cols-5 gap-1.5 pt-1">
                         <button
                           type="button"
                           onClick={() => setParentNoticeItem(v)}
-                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[11px] transition-colors cursor-pointer"
+                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-[10px] transition-colors cursor-pointer"
                         >
                           <FileText className="w-3.5 h-3.5 text-amber-700" />
                           <span>استدعاء</span>
@@ -1146,26 +1229,44 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
                         <button
                           type="button"
-                          onClick={() => handleSendWhatsApp(v)}
-                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[11px] transition-colors cursor-pointer"
+                          onClick={() => {
+                            setNotifyTargetStudent({
+                              studentName: v.student_name || v.studentName || 'التلميذ',
+                              massarNumber: v.massar_number || v.massarNumber,
+                              sectionId: v.section_id || v.sectionId,
+                              sectionLevel: v.section_level,
+                              sectionClass: v.section_class,
+                              type: 'violation',
+                              details: {
+                                date: v.recorded_date || v.recordedDate,
+                                time: v.recorded_time || v.recordedTime,
+                                reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
+                                subject: v.teacher_subject || v.teacherSubject
+                              }
+                            });
+                            setIsNotifyModalOpen(true);
+                          }}
+                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[10px] transition-colors cursor-pointer"
+                          title="إرسال إشعار عبر WhatsApp Cloud API"
                         >
-                          <MessageCircle className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>واتساب</span>
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>WhatsApp Cloud</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => handlePrintSingleNotice(v)}
-                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold text-[11px] transition-colors cursor-pointer"
+                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-300 font-bold text-[10px] transition-colors cursor-pointer shadow-2xs"
+                          title="طباعة إشعار المخالفة الرسمي لولي الأمر"
                         >
-                          <Printer className="w-3.5 h-3.5 text-slate-600" />
-                          <span>إشعار</span>
+                          <Printer className="w-3.5 h-3.5 text-blue-700" />
+                          <span>طباعة الإشعار</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => handleDeleteViolation(v.id)}
-                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 font-bold text-[11px] transition-colors cursor-pointer"
+                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-gray-50 hover:bg-rose-100 text-rose-800 border border-gray-200 font-bold text-[10px] transition-colors cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                           <span>حذف</span>
@@ -1471,6 +1572,22 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
           </div>
         </div>
       )}
+
+      {/* Parent Notification Modal (SMS / WhatsApp) */}
+      <ParentNotificationModal
+        isOpen={isNotifyModalOpen}
+        onClose={() => {
+          setIsNotifyModalOpen(false);
+          setNotifyTargetStudent(null);
+          setNotifyBatchStudents(undefined);
+        }}
+        student={notifyTargetStudent}
+        batchStudents={notifyBatchStudents}
+        institutionName={settings.institution || 'المدرسة الإلكترونية'}
+        onSuccess={() => {
+          fetchViolations();
+        }}
+      />
 
     </div>
   );

@@ -42,6 +42,7 @@ import {
 } from 'lucide-react';
 import { printReportHtml } from '../utils/printNotes';
 import { StudentProfileCompletionModal } from './StudentProfileCompletionModal';
+import { DailyMotivationSpark } from './DailyMotivationSpark';
 
 export interface StudentData {
   student: {
@@ -57,6 +58,10 @@ export interface StudentData {
     guardianPhone?: string;
     guardianPhoneVerified?: boolean;
     profileCompleted?: boolean;
+    approvalStatus?: 'approved' | 'pending' | 'rejected';
+    approvalNotes?: string;
+    approvedAt?: string;
+    approvedBy?: string;
   };
   metrics: {
     totalAbsences: number;
@@ -220,15 +225,14 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
   const [showProfileCompletionModal, setShowProfileCompletionModal] = useState<boolean>(() => {
     try {
       const storedCompleted = localStorage.getItem(`student_profile_completed_${student.massarNumber}`);
-      if (storedCompleted === 'true' && student.photoUrl && student.guardianPhone && student.guardianPhoneVerified) {
+      if (storedCompleted === 'true' && student.photoUrl && student.guardianPhone) {
         return false;
       }
     } catch {}
     const isComplete = Boolean(
-      student.profileCompleted &&
+      (student.profileCompleted || student.photoUrl || student.guardianPhone) &&
       student.photoUrl &&
-      student.guardianPhone &&
-      student.guardianPhoneVerified
+      student.guardianPhone
     );
     return !isComplete;
   });
@@ -383,8 +387,9 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
       <body>
         <div class="badge-card">
           <div class="header">
-            <h1>المملكة المغربية • وزارة التربية الوطنية والتعليم الأولي والرياضة</h1>
-            <h2>${institutionName}</h2>
+            <div style="font-size: 7.5pt; color: #1E3B2C; font-weight: bold;">المملكة المغربية • ROYAUME DU MAROC</div>
+            <div style="font-size: 6.8pt; color: #854d0e; font-weight: bold;">وزارة التربية الوطنية والتعليم الأولي والرياضة</div>
+            <div style="font-size: 8.5pt; font-weight: bold; color: #991b1b; margin-top: 1px;">${institutionName}</div>
           </div>
           <div class="content">
             <div class="info">
@@ -636,10 +641,15 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
                 <h1 className="text-base sm:text-lg font-bold font-serif tracking-wide text-white">
                   فضاء التلميذ • {student.name}
                 </h1>
-                {student.guardianPhone && student.guardianPhoneVerified ? (
+                {student.approvalStatus === 'approved' || student.guardianPhoneVerified ? (
                   <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-bold text-[10px] flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    <span>مفعل للواتساب ({student.guardianPhone})</span>
+                    <span>مصادق عليه من المدير ✓ ({student.guardianPhone})</span>
+                  </span>
+                ) : student.guardianPhone && student.photoUrl ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/50 text-amber-200 font-bold text-[10px] flex items-center gap-1 animate-pulse">
+                    <Clock className="w-3 h-3 text-amber-400" />
+                    <span>في انتظار مصادقة المدير ⏳</span>
                   </span>
                 ) : (
                   <button
@@ -648,7 +658,7 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
                     className="px-2.5 py-0.5 rounded-full bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 font-bold text-[10px] flex items-center gap-1 cursor-pointer animate-pulse"
                   >
                     <AlertCircle className="w-3 h-3 text-amber-400" />
-                    <span>استكمال الملف ورقم ولي الأمر ⚠️</span>
+                    <span>إدخال الصورة ورقم الولي ⚠️</span>
                   </button>
                 )}
               </div>
@@ -876,6 +886,12 @@ export const StudentPortalDashboard: React.FC<StudentPortalDashboardProps> = ({
             </div>
           </div>
         </div>
+
+        {/* Daily Motivation Spark • قبس اليوم والهمة للتلميذ */}
+        <DailyMotivationSpark
+          studentName={student.name}
+          massarNumber={student.massarNumber}
+        />
 
         {/* Metric Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">

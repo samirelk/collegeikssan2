@@ -10,13 +10,17 @@ interface SettingsPanelProps {
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, isSaving }) => {
   const [institution, setInstitution] = useState(settings.institution || '');
-  const [year, setYear] = useState(settings.year || '');
+  const [academy, setAcademy] = useState(settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق');
+  const [directorate, setDirectorate] = useState(settings.directorate || 'المديرية الإقليمية بالناظور');
+  const [year, setYear] = useState(settings.year || '2026/2027');
   const [teacher, setTeacher] = useState(settings.teacher || '');
   const [justSaved, setJustSaved] = useState(false);
 
   useEffect(() => {
-    setInstitution(settings.institution || '');
-    setYear(settings.year || '');
+    setInstitution(settings.institution || 'الثانوية الإعدادية ايكسان');
+    setAcademy(settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق');
+    setDirectorate(settings.directorate || 'المديرية الإقليمية بالناظور');
+    setYear(settings.year || '2026/2027');
     setTeacher(settings.teacher || '');
   }, [settings]);
 
@@ -24,6 +28,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
     e.preventDefault();
     await onSave({
       institution: institution.trim(),
+      academy: academy.trim(),
+      directorate: directorate.trim(),
       year: year.trim(),
       teacher: teacher.trim(),
     });
@@ -33,6 +39,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
 
   const isDirty =
     institution !== (settings.institution || '') ||
+    academy !== (settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق') ||
+    directorate !== (settings.directorate || 'المديرية الإقليمية بالناظور') ||
     year !== (settings.year || '') ||
     teacher !== (settings.teacher || '');
 
@@ -41,12 +49,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
       <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-[rgba(242,239,227,0.1)]">
         <div className="flex items-center gap-2 text-xs text-[rgba(242,239,227,0.75)] font-bold">
           <Database className="w-3.5 h-3.5 text-[#C98A3C]" />
-          <span>إعدادات المؤسسة والموسم الدراسي (محفوظة في قاعدة بيانات الخادم)</span>
+          <span>الهوية الإدارية الرسمية لوزارة التربية الوطنية والتعليم الأولي والرياضة 2026</span>
         </div>
         {justSaved && (
           <span className="flex items-center gap-1 text-xs text-emerald-300 font-semibold animate-pulse">
             <CheckCircle2 className="w-3.5 h-3.5" />
-            <span>تم الحفظ في SQLite!</span>
+            <span>تم حفظ الترويسة والإعدادات بنجاح!</span>
           </span>
         )}
       </div>
@@ -55,19 +63,49 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
         <div className="flex-1 min-w-[170px]">
           <label className="block text-[11.5px] font-bold text-[rgba(242,239,227,0.65)] mb-1.5 flex items-center gap-1">
             <Building className="w-3 h-3 text-[#C98A3C]" />
-            <span>اسم المؤسسة</span>
+            <span>اسم المؤسسة التعليمية</span>
           </label>
           <input
             type="text"
             id="input-institution"
             value={institution}
             onChange={(e) => setInstitution(e.target.value)}
-            placeholder="مثال: ثانوية القدس التأهيلية"
+            placeholder="مثال: الثانوية الإعدادية ايكسان"
             className="w-full bg-[rgba(0,0,0,0.22)] border border-[rgba(242,239,227,0.18)] rounded-xl px-3 py-2 text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.3)] focus:outline-hidden focus:border-[#C98A3C] transition-colors"
           />
         </div>
 
-        <div className="flex-1 min-w-[140px]">
+        <div className="flex-1 min-w-[170px]">
+          <label className="block text-[11.5px] font-bold text-[rgba(242,239,227,0.65)] mb-1.5 flex items-center gap-1">
+            <Building className="w-3 h-3 text-[#C98A3C]" />
+            <span>الأكاديمية الجهوية (AREF)</span>
+          </label>
+          <input
+            type="text"
+            id="input-academy"
+            value={academy}
+            onChange={(e) => setAcademy(e.target.value)}
+            placeholder="الأكاديمية الجهوية للتربية والتكوين - جهة الشرق"
+            className="w-full bg-[rgba(0,0,0,0.22)] border border-[rgba(242,239,227,0.18)] rounded-xl px-3 py-2 text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.3)] focus:outline-hidden focus:border-[#C98A3C] transition-colors"
+          />
+        </div>
+
+        <div className="flex-1 min-w-[150px]">
+          <label className="block text-[11.5px] font-bold text-[rgba(242,239,227,0.65)] mb-1.5 flex items-center gap-1">
+            <Building className="w-3 h-3 text-[#C98A3C]" />
+            <span>المديرية الإقليمية</span>
+          </label>
+          <input
+            type="text"
+            id="input-directorate"
+            value={directorate}
+            onChange={(e) => setDirectorate(e.target.value)}
+            placeholder="المديرية الإقليمية بالناظور"
+            className="w-full bg-[rgba(0,0,0,0.22)] border border-[rgba(242,239,227,0.18)] rounded-xl px-3 py-2 text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.3)] focus:outline-hidden focus:border-[#C98A3C] transition-colors"
+          />
+        </div>
+
+        <div className="flex-1 min-w-[120px]">
           <label className="block text-[11.5px] font-bold text-[rgba(242,239,227,0.65)] mb-1.5 flex items-center gap-1">
             <Calendar className="w-3 h-3 text-[#C98A3C]" />
             <span>الموسم الدراسي</span>
@@ -77,12 +115,12 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
             id="input-year"
             value={year}
             onChange={(e) => setYear(e.target.value)}
-            placeholder="مثال: 2025/2026"
+            placeholder="مثال: 2026/2027"
             className="w-full bg-[rgba(0,0,0,0.22)] border border-[rgba(242,239,227,0.18)] rounded-xl px-3 py-2 text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.3)] focus:outline-hidden focus:border-[#C98A3C] transition-colors"
           />
         </div>
 
-        <div className="flex-1 min-w-[160px]">
+        <div className="flex-1 min-w-[140px]">
           <label className="block text-[11.5px] font-bold text-[rgba(242,239,227,0.65)] mb-1.5 flex items-center gap-1">
             <User className="w-3 h-3 text-[#C98A3C]" />
             <span>اسم الأستاذ(ة)</span>
@@ -108,7 +146,7 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
           }`}
         >
           <Save className="w-4 h-4" />
-          <span>{isSaving ? 'جارِ الحفظ...' : 'حفظ الإعدادات'}</span>
+          <span>{isSaving ? 'جارِ الحفظ...' : 'حفظ الإعدادات والترويسة'}</span>
         </button>
       </form>
     </div>

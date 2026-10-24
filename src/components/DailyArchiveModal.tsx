@@ -25,10 +25,13 @@ import {
   Info,
   FileSpreadsheet,
   LogOut,
-  RotateCcw
+  RotateCcw,
+  Smartphone,
+  MessageSquare
 } from 'lucide-react';
 import { MassarAbsenceModal } from './MassarAbsenceModal';
 import { StudentAttendanceCardModal } from './StudentAttendanceCardModal';
+import { ParentNotificationModal, StudentNotificationItem } from './ParentNotificationModal';
 import {
   DailyAbsenceItem,
   DailyViolationItem,
@@ -121,6 +124,12 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
     seatNum?: number;
   } | null>(null);
   const [showStudentCardModal, setShowStudentCardModal] = useState(false);
+
+  // Parent Notification Modal State (SMS / WhatsApp)
+  const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
+  const [notifyTargetStudent, setNotifyTargetStudent] = useState<StudentNotificationItem | null>(null);
+  const [notifyBatchStudents, setNotifyBatchStudents] = useState<StudentNotificationItem[] | undefined>(undefined);
+
   const [stats, setStats] = useState<DailyArchiveStats>({
     totalAbsences: 0,
     totalLates: 0,
@@ -1044,6 +1053,35 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                     <span>تصدير مسار</span>
                   </button>
                 )}
+
+                {!isTeacher && filteredAbsences.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const batch: StudentNotificationItem[] = filteredAbsences.map(ab => ({
+                        studentName: ab.studentName,
+                        massarNumber: ab.massarNumber,
+                        sectionId: ab.sectionId,
+                        sectionLevel: ab.sectionLevel,
+                        sectionClass: String(ab.sectionClass),
+                        type: 'absence',
+                        details: {
+                          date: ab.recordedDate || selectedDate,
+                          time: ab.sessionPeriod || '',
+                          subject: ab.teacherSubject
+                        }
+                      }));
+                      setNotifyBatchStudents(batch);
+                      setNotifyTargetStudent(null);
+                      setIsNotifyModalOpen(true);
+                    }}
+                    className="mr-2 px-3 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
+                    title="إرسال إشعار غياب فوري لجميع أولياء أمور التلاميذ الغائبين اليوم عبر واتساب"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
+                    <span>إشعار أولياء الغائبين عبر واتساب ({filteredAbsences.length}) 💬</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1215,6 +1253,33 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                         >
                           <FileText className="w-3.5 h-3.5 text-blue-600" />
                           <span>كشف / إشعار</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotifyTargetStudent({
+                              studentName: ab.studentName,
+                              massarNumber: ab.massarNumber,
+                              sectionId: ab.sectionId,
+                              sectionLevel: ab.sectionLevel,
+                              sectionClass: String(ab.sectionClass),
+                              type: 'absence',
+                              details: {
+                                date: ab.recordedDate || selectedDate,
+                                time: ab.sessionPeriod || '',
+                                subject: ab.teacherSubject,
+                                reason: ab.notes || ab.justificationReason
+                              }
+                            });
+                            setNotifyBatchStudents(undefined);
+                            setIsNotifyModalOpen(true);
+                          }}
+                          className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs flex items-center justify-center gap-1 border border-emerald-300 cursor-pointer shadow-2xs"
+                          title="إشعار ولي الأمر فوراً عبر واتساب"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                          <span>إشعار واتساب 💬</span>
                         </button>
 
                         {!ab.removedAt && (
@@ -1411,6 +1476,33 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                               >
                                 <FileText className="w-3 h-3 text-blue-600" />
                                 <span>كشف / إشعار</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNotifyTargetStudent({
+                                    studentName: ab.studentName,
+                                    massarNumber: ab.massarNumber,
+                                    sectionId: ab.sectionId,
+                                    sectionLevel: ab.sectionLevel,
+                                    sectionClass: String(ab.sectionClass),
+                                    type: 'absence',
+                                    details: {
+                                      date: ab.recordedDate || selectedDate,
+                                      time: ab.sessionPeriod || '',
+                                      subject: ab.teacherSubject,
+                                      reason: ab.notes || ab.justificationReason
+                                    }
+                                  });
+                                  setNotifyBatchStudents(undefined);
+                                  setIsNotifyModalOpen(true);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-emerald-300 cursor-pointer shadow-2xs"
+                                title="إرسال إشعار غياب فوري لولي الأمر عبر واتساب"
+                              >
+                                <MessageSquare className="w-3 h-3 text-emerald-700" />
+                                <span>إشعار واتساب 💬</span>
                               </button>
                               {!ab.removedAt && (
                                 <button
@@ -1641,13 +1733,40 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                             {v.recordedTime}
                           </td>
                           <td className="py-3 px-3 text-center">
-                            <button
-                              onClick={() => handleDeleteViolation(v.id, v.studentName)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                              title="حذف هذه المخالفة"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setNotifyTargetStudent({
+                                    studentName: v.studentName,
+                                    massarNumber: v.massarNumber,
+                                    sectionId: v.sectionId,
+                                    sectionLevel: v.sectionLevel,
+                                    sectionClass: String(v.sectionClass),
+                                    type: 'violation',
+                                    details: {
+                                      date: selectedDate,
+                                      time: v.recordedTime,
+                                      reason: `${v.violationType} - ${v.description || ''}`
+                                    }
+                                  });
+                                  setNotifyBatchStudents(undefined);
+                                  setIsNotifyModalOpen(true);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-rose-200 cursor-pointer shadow-2xs"
+                                title="إرسال إشعار بالمخالفة لولي الأمر عبر واتساب"
+                              >
+                                <MessageSquare className="w-3 h-3 text-rose-700" />
+                                <span>إشعار واتساب 💬</span>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteViolation(v.id, v.studentName)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                                title="حذف هذه المخالفة"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -2435,6 +2554,22 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Parent Notification Modal (SMS / WhatsApp) */}
+      <ParentNotificationModal
+        isOpen={isNotifyModalOpen}
+        onClose={() => {
+          setIsNotifyModalOpen(false);
+          setNotifyTargetStudent(null);
+          setNotifyBatchStudents(undefined);
+        }}
+        student={notifyTargetStudent}
+        batchStudents={notifyBatchStudents}
+        institutionName={institutionName || 'المدرسة الإلكترونية'}
+        onSuccess={() => {
+          fetchArchiveData(selectedDate, selectedSectionFilter);
+        }}
+      />
     </div>
   );
 

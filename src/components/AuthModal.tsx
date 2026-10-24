@@ -43,7 +43,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [regFullName, setRegFullName] = useState('');
   const [regUsername, setRegUsername] = useState('');
   const [regEmail, setRegEmail] = useState('');
-  const [regAcademicYear, setRegAcademicYear] = useState('2025/2026');
+  const [regAcademicYear, setRegAcademicYear] = useState('2026/2027');
   const [regSubject, setRegSubject] = useState('الرياضيات');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirmPassword, setRegConfirmPassword] = useState('');
@@ -190,7 +190,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           fullName: regFullName.trim(),
           username: regUsername.trim(),
           email: regEmail.trim(),
-          academicYear: regAcademicYear.trim() || '2025/2026',
+          academicYear: regAcademicYear.trim() || '2026/2027',
           subject: regSubject,
           password: regPassword,
           confirmPassword: regConfirmPassword

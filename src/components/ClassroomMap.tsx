@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { 
   ArrowRight, 
   FileSpreadsheet, 
@@ -18,7 +18,12 @@ import {
   Award,
   Trophy,
   ArrowUpDown,
-  Phone
+  Phone,
+  LayoutGrid,
+  List,
+  Search,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SectionItem, SeatItem } from '../types';
@@ -63,6 +68,14 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
   const [dropTargetSeat, setDropTargetSeat] = useState<number | null>(null);
   const [swapSourceSeat, setSwapSourceSeat] = useState<number | null>(null);
   const [showReorderModal, setShowReorderModal] = useState<boolean>(false);
+
+  // Dual-Mode & Capacity state
+  const [viewMode, setViewMode] = useState<'map' | 'roster'>('map');
+  const [hideEmptySeats, setHideEmptySeats] = useState<boolean>(false);
+  const [capacity, setCapacity] = useState<number>(40);
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [filter, setFilter] = useState<'all' | 'positive' | 'violations'>('all');
+  const [sortBy, setSortBy] = useState<'number' | 'name' | 'seat'>('number');
 
   const sectionTitle = `${section.level || 'بدون مستوى'} - ${section.classNumber ? `القسم ${section.classNumber}` : 'بدون قسم'}`;
   const hasRoster = section.roster && section.roster.length > 0;
@@ -246,6 +259,54 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
+
+  const rosterStudents = useMemo(() => {
+    const list = section.seats.filter(s => s.name && s.name.trim()).map(s => {
+      const positivePoints = s.positiveParticipationCount !== undefined
+        ? s.positiveParticipationCount
+        : (s.positiveParticipations ? s.positiveParticipations.reduce((sum, p) => sum + (p.points || 1), 0) : 0);
+
+      const violationsCount = (s.violations && s.violations.length > 0)
+        ? s.violations.length
+        : (s.notes ? s.notes.length : 0);
+
+      return {
+        ...s,
+        positivePoints,
+        violationsCount
+      };
+    });
+
+    let filtered = list;
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter(s => 
+        s.name.toLowerCase().includes(q) ||
+        (s.number && s.number.toLowerCase().includes(q)) ||
+        (s.massarNumber && s.massarNumber.toLowerCase().includes(q)) ||
+        String(s.seat).includes(q)
+      );
+    }
+
+    if (filter === 'positive') filtered = filtered.filter(s => s.positivePoints > 0);
+    else if (filter === 'violations') filtered = filtered.filter(s => s.violationsCount > 0);
+
+    filtered.sort((a, b) => {
+      if (sortBy === 'number') {
+        const numA = parseInt(a.number || '0', 10);
+        const numB = parseInt(b.number || '0', 10);
+        if (!isNaN(numA) && !isNaN(numB) && numA > 0 && numB > 0) return numA - numB;
+        return (a.number || '').localeCompare(b.number || '', undefined, { numeric: true });
+      } else if (sortBy === 'name') {
+        return (a.name || '').localeCompare(b.name || '', 'ar');
+      } else if (sortBy === 'seat') {
+        return a.seat - b.seat;
+      }
+      return 0;
+    });
+
+    return filtered;
+  }, [section.seats, searchQuery, filter, sortBy]);
 
   // Seat renderer
   const renderSeat = (seat: SeatItem) => {
@@ -607,64 +668,267 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
         </div>
       </div>
 
-      {/* Drag & Drop Hint */}
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 mb-4 text-xs text-amber-100 flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <span>💡</span>
-          <span><b>خاصية السحب والإفلات (Drag & Drop):</b> يمكنك سحب بطاقة أي تلميذ وإفلاتها في مقعد آخر لتبديل المكان، أو النقر على «تبديل» للنقل السريع.</span>
+      {/* Dual-Mode Switcher Toolbar */}
+      <div className="bg-[#172B24] border border-[#C98A3C]/40 rounded-2xl p-2.5 mb-4 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 p-1 bg-black/30 rounded-xl border border-white/10 w-fit">
+          <button
+            type="button"
+            onClick={() => setViewMode('map')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'map' ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md' : 'text-[#F2EFE3]/70 hover:text-white'
+            }`}
+          >
+            <LayoutGrid className="w-4 h-4" />
+            <span>خريطة المقاعد التفاعلية</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('roster')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === 'roster' ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md' : 'text-[#F2EFE3]/70 hover:text-white'
+            }`}
+          >
+            <List className="w-4 h-4" />
+            <span>لائحة مسار السريعة</span>
+            <span className="bg-emerald-900 text-emerald-200 text-[10px] px-2 py-0.5 rounded-full font-mono">
+              {rosterStudents.length}
+            </span>
+          </button>
         </div>
-      </div>
 
-      {/* Classroom Desk Grid: 4 Row Frames */}
-      <div className="space-y-7">
-        {Array.from({ length: numRows }).map((_, r) => {
-          return (
-            <div
-              key={r}
-              className="relative border-2 border-[#7C5133] rounded-3xl p-5 sm:p-6 pt-7 sm:pt-8 bg-[rgba(124,81,51,0.08)] shadow-md"
+        {viewMode === 'map' && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => {
+                setHideEmptySeats(!hideEmptySeats);
+                onToast(!hideEmptySeats ? 'تم تفعيل إخفاء المقاعد الشاغرة' : 'تم إظهار جميع المقاعد');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                hideEmptySeats ? 'bg-amber-900/60 text-amber-200 border-amber-400/80 shadow-xs' : 'bg-black/20 text-[#F2EFE3]/70 border-white/10'
+              }`}
             >
-              {/* Row Label Ribbon */}
-              <div className="absolute -top-4 right-5 bg-[#7C5133] text-[#F2EFE3] font-serif font-bold text-sm sm:text-base px-4 py-1 rounded-full shadow-md shadow-[#5E3D26] border border-[#96693F]">
-                صف {r + 1}
-              </div>
+              {hideEmptySeats ? <EyeOff className="w-3.5 h-3.5 text-amber-300" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>{hideEmptySeats ? 'إخفاء الشواغر: مفعّل ✓' : 'إخفاء المقاعد الشاغرة'}</span>
+            </button>
 
-              {/* 5 Desks per row */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-                {Array.from({ length: desksPerRow }).map((_, d) => {
-                  const deskIndex = r * desksPerRow + d;
-                  const seat1Num = deskIndex * 2 + 1;
-                  const seat2Num = deskIndex * 2 + 2;
-
-                  const s1 = section.seats.find((s) => s.seat === seat1Num) || {
-                    seat: seat1Num,
-                    name: '',
-                    number: '',
-                    notes: [],
-                    rosterId: null,
-                  };
-                  const s2 = section.seats.find((s) => s.seat === seat2Num) || {
-                    seat: seat2Num,
-                    name: '',
-                    number: '',
-                    notes: [],
-                    rosterId: null,
-                  };
-
-                  return (
-                    <div
-                      key={deskIndex}
-                      className="bg-gradient-to-b from-[#96693F] to-[#7C5133] rounded-2xl p-2.5 flex gap-2.5 shadow-md shadow-[#5E3D26]/40 border border-[#96693F]"
-                    >
-                      {renderSeat(s1)}
-                      {renderSeat(s2)}
-                    </div>
-                  );
-                })}
-              </div>
+            <div className="flex items-center gap-1.5 bg-black/30 px-2.5 py-1 rounded-xl border border-white/10 text-xs">
+              <span className="text-[11px] text-[rgba(242,239,227,0.6)] font-medium">سعة القاعة:</span>
+              <select
+                value={capacity}
+                onChange={(e) => setCapacity(Number(e.target.value))}
+                className="bg-transparent text-amber-300 font-bold outline-hidden cursor-pointer text-xs"
+              >
+                <option value={40} className="bg-[#172B24] text-white">40 مقعداً</option>
+                <option value={36} className="bg-[#172B24] text-white">36 مقعداً</option>
+                <option value={32} className="bg-[#172B24] text-white">32 مقعداً</option>
+                <option value={28} className="bg-[#172B24] text-white">28 مقعداً</option>
+                <option value={24} className="bg-[#172B24] text-white">24 مقعداً</option>
+                <option value={20} className="bg-[#172B24] text-white">20 مقعداً</option>
+              </select>
             </div>
-          );
-        })}
+          </div>
+        )}
       </div>
+
+      {viewMode === 'roster' ? (
+        /* FAST MASSAR ROSTER VIEW */
+        <div className="space-y-4">
+          <div className="bg-[#2A4F40] border border-[rgba(242,239,227,0.16)] rounded-2xl p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-white/50 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="ابحث بالاسم، برقم مسار، بالرقم الترتيبي..."
+                className="w-full pr-9 pl-4 py-2 rounded-xl bg-black/25 border border-white/10 text-xs text-[#F2EFE3] placeholder:text-white/40 focus:outline-hidden"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-[rgba(242,239,227,0.7)]">الترتيب:</span>
+              <button
+                type="button"
+                onClick={() => setSortBy('number')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                  sortBy === 'number' ? 'bg-[#C98A3C] text-[#1E362D]' : 'bg-black/20 text-white/70'
+                }`}
+              >
+                الرقم (1..N)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSortBy('name')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                  sortBy === 'name' ? 'bg-[#C98A3C] text-[#1E362D]' : 'bg-black/20 text-white/70'
+                }`}
+              >
+                أبجدياً (أ-ي)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSortBy('seat')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                  sortBy === 'seat' ? 'bg-[#C98A3C] text-[#1E362D]' : 'bg-black/20 text-white/70'
+                }`}
+              >
+                رقم المقعد
+              </button>
+            </div>
+          </div>
+
+          {rosterStudents.length === 0 ? (
+            <div className="bg-[#2A4F40] border border-[rgba(242,239,227,0.16)] rounded-2xl p-8 text-center text-amber-100/70">
+              <p className="font-bold text-white text-base">لا توجد أسماء مطابقة</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {rosterStudents.map((st, idx) => (
+                <div
+                  key={st.seat}
+                  className="rounded-2xl border border-[rgba(242,239,227,0.12)] bg-[#1F3E32] p-3 sm:p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-[#2A4F40] border border-[#C98A3C]/60 text-amber-200 font-mono font-bold flex items-center justify-center text-xs">
+                      {st.number || idx + 1}
+                    </div>
+
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-[#F2EFE3]">{st.name}</span>
+                        {st.massarNumber && (
+                          <span className="px-2 py-0.5 rounded-md bg-black/40 text-amber-300 font-mono text-[10px] border border-amber-500/30">
+                            {st.massarNumber}
+                          </span>
+                        )}
+                        <span className="px-2 py-0.5 rounded-md bg-stone-800 text-stone-200 text-[10px] font-bold border border-stone-600">
+                          🪑 مقعد {st.seat}
+                        </span>
+                        {st.guardianPhone && (
+                          <a
+                            href={`https://wa.me/${st.guardianPhone.replace(/\D/g, '').startsWith('0') ? '212' + st.guardianPhone.replace(/\D/g, '').slice(1) : st.guardianPhone.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-900/60 text-emerald-200 text-[10px] font-bold border border-emerald-500/50"
+                          >
+                            <Phone className="w-2.5 h-2.5" />
+                            <span className="font-mono">{st.guardianPhone}</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenPositiveParticipation ? onOpenPositiveParticipation(st.seat) : onOpenNotes(st.seat)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-200 border border-amber-400/60 hover:bg-amber-500/30 cursor-pointer"
+                    >
+                      <Star className={`w-3.5 h-3.5 ${st.positivePoints > 0 ? 'text-amber-400 fill-amber-400' : 'text-emerald-400'}`} />
+                      <span>مشاركة</span>
+                      {st.positivePoints > 0 && (
+                        <span className="bg-amber-500 text-black font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                          +{st.positivePoints}
+                        </span>
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => onOpenNotes(st.seat)}
+                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-950/60 text-rose-200 border border-rose-500/60 hover:bg-rose-900/80 cursor-pointer"
+                    >
+                      <AlertTriangle className={`w-3.5 h-3.5 ${st.violationsCount > 0 ? 'text-rose-400' : 'text-amber-400'}`} />
+                      <span>مخالفة</span>
+                      {st.violationsCount > 0 && (
+                        <span className="bg-rose-600 text-white font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                          {st.violationsCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        /* INTERACTIVE SEATING MAP VIEW */
+        <>
+          {/* Drag & Drop Hint */}
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 mb-4 text-xs text-amber-100 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span>💡</span>
+              <span><b>خاصية السحب والإفلات (Drag & Drop):</b> يمكنك سحب بطاقة أي تلميذ وإفلاتها في مقعد آخر لتبديل المكان، أو النقر على «تبديل» للنقل السريع.</span>
+            </div>
+          </div>
+
+          {/* Classroom Desk Grid: 4 Row Frames with dynamic capacity & hiding */}
+          <div className="space-y-7">
+            {Array.from({ length: numRows }).map((_, r) => {
+              const visibleDesks = Array.from({ length: desksPerRow }).map((_, d) => {
+                const deskIndex = r * desksPerRow + d;
+                const seat1Num = deskIndex * 2 + 1;
+                const seat2Num = deskIndex * 2 + 2;
+
+                const s1 = section.seats.find((s) => s.seat === seat1Num) || {
+                  seat: seat1Num,
+                  name: '',
+                  number: '',
+                  notes: [],
+                  rosterId: null,
+                };
+                const s2 = section.seats.find((s) => s.seat === seat2Num) || {
+                  seat: seat2Num,
+                  name: '',
+                  number: '',
+                  notes: [],
+                  rosterId: null,
+                };
+
+                const hasStudent = Boolean((s1.name && s1.name.trim()) || (s2.name && s2.name.trim()));
+
+                if (seat1Num > capacity && !hasStudent) return null;
+                if (hideEmptySeats && !hasStudent) return null;
+
+                return { deskIndex, s1, s2 };
+              }).filter(Boolean);
+
+              if (visibleDesks.length === 0) return null;
+
+              return (
+                <div
+                  key={r}
+                  className="relative border-2 border-[#7C5133] rounded-3xl p-5 sm:p-6 pt-7 sm:pt-8 bg-[rgba(124,81,51,0.08)] shadow-md"
+                >
+                  {/* Row Label Ribbon */}
+                  <div className="absolute -top-4 right-5 bg-[#7C5133] text-[#F2EFE3] font-serif font-bold text-sm sm:text-base px-4 py-1 rounded-full shadow-md shadow-[#5E3D26] border border-[#96693F]">
+                    صف {r + 1}
+                  </div>
+
+                  {/* Desks per row */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                    {visibleDesks.map((item) => {
+                      if (!item) return null;
+                      return (
+                        <div
+                          key={item.deskIndex}
+                          className="bg-gradient-to-b from-[#96693F] to-[#7C5133] rounded-2xl p-2.5 flex gap-2.5 shadow-md shadow-[#5E3D26]/40 border border-[#96693F]"
+                        >
+                          {renderSeat(item.s1)}
+                          {renderSeat(item.s2)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
       
       {/* Roster Reorder & Renumber Modal */}
       {showReorderModal && (

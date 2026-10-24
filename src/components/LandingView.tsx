@@ -183,7 +183,7 @@ export const LandingView: React.FC<LandingViewProps> = ({
               المدرسة الإلكترونية
             </h1>
             <p className="text-xs text-[#6C6356] m-0">
-              {institutionName || 'الثانوية الإعدادية ايكسان'} • الموسم الدراسي {academicYear || '2025/2026'}
+              {institutionName || 'الثانوية الإعدادية ايكسان'} • الموسم الدراسي {academicYear || '2026/2027'}
             </p>
           </div>
         </div>

@@ -128,9 +128,22 @@ import {
   deleteTeacherLeaveNotice,
   getAndroidSmsGatewayConfig,
   saveAndroidSmsGatewayConfig,
+  getSmsGatewayConfig,
+  saveSmsGatewayConfig,
+  updateStudentProfileByDirector,
+  approveStudentProfile,
+  batchApproveStudentProfiles,
+  rejectStudentProfile,
+  findStudentGuardianPhone,
   db
 } from './server/db.ts';
-import { testAndroidGateway, getSmsDispatchLogs } from './server/smsService.ts';
+import {
+  testAndroidGateway,
+  testTextoMaConnection,
+  testWhatsAppCloudConnection,
+  sendGuardianNotification,
+  getSmsDispatchLogs
+} from './server/smsService.ts';
 import { flushPendingCloudWrites, syncDatabaseWithFirestore } from './server/firestoreSync.ts';
 import {
   configureCloudBackup,
@@ -2119,11 +2132,11 @@ async function startServer() {
   });
 
   // ==========================================
-  // Android SMS Gateway Endpoints (إدارة بوابة هاتف الإدارة لإرسال SMS)
+  // SMS Gateway Endpoints (Texto.ma & Android SMS Gateway)
   // ==========================================
   app.get('/api/admin/sms-gateway/config', (req, res) => {
     try {
-      const config = getAndroidSmsGatewayConfig();
+      const config = getSmsGatewayConfig();
       res.json({ success: true, config });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -2136,9 +2149,9 @@ async function startServer() {
       if (role !== 'admin' && role !== 'director') {
         return res.status(403).json({ success: false, error: 'غير مصرح: تعديل إعدادات بوابة SMS متاح للإدارة فقط' });
       }
-      const updated = saveAndroidSmsGatewayConfig(req.body);
+      const updated = saveSmsGatewayConfig(req.body);
       markDirty();
-      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات بوابة هاتف الإدارة (Android SMS Gateway) بنجاح ✓' });
+      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات بوابة الرسائل (Texto.ma / Android SMS) بنجاح ✓' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }
@@ -2148,17 +2161,87 @@ async function startServer() {
     try {
       const role = (req.headers['x-user-role'] as string) || '';
       if (role !== 'admin' && role !== 'director') {
-        return res.status(403).json({ success: false, error: 'غير مصرح: اختبار بوابة SMS متاح للإدارة فقط' });
+        return res.status(403).json({ success: false, error: 'غير مصرح: اختبار بوابات الرسائل متاح للإدارة فقط' });
       }
-      const { url, token, testPhone } = req.body;
-      const targetUrl = url || getAndroidSmsGatewayConfig().url;
-      if (!targetUrl) {
-        return res.status(400).json({ success: false, error: 'يرجى إدخال رابط خادم هاتف الإدارة أولاً (URL)' });
-      }
+      const { provider = 'whatsapp_cloud', url, token, testPhone, phoneNumberId, accessToken, templateName } = req.body;
+      const currentConfig = getSmsGatewayConfig();
+
       if (!testPhone) {
         return res.status(400).json({ success: false, error: 'يرجى إدخال رقم هاتف لإرسال رسالة الاختبار إليه' });
       }
-      const testResult = await testAndroidGateway(targetUrl, token, testPhone);
+
+      if (provider === 'whatsapp_cloud') {
+        const targetPhoneId = phoneNumberId || currentConfig.whatsappPhoneNumberId;
+        const targetToken = accessToken || token || currentConfig.whatsappAccessToken;
+        const targetTemplate = templateName || currentConfig.whatsappTemplateName;
+
+        if (!targetPhoneId || !targetToken) {
+          return res.status(400).json({
+            success: false,
+            error: 'يرجى إدخال Phone Number ID و Access Token لمنصة WhatsApp Cloud API'
+          });
+        }
+
+        const testResult = await testWhatsAppCloudConnection({
+          phoneNumberId: targetPhoneId,
+          accessToken: targetToken,
+          testPhone,
+          templateName: targetTemplate
+        });
+        return res.json(testResult);
+      } else if (provider === 'texto_ma' || (!provider && (token?.startsWith('$2y$') || currentConfig.provider === 'texto_ma'))) {
+        const targetToken = token || currentConfig.textoToken;
+        const targetUrl = url || currentConfig.textoUrl;
+        if (!targetToken) {
+          return res.status(400).json({ success: false, error: 'يرجى إدخال رمز الأمان (Token) لمنصة Texto.ma' });
+        }
+        const testResult = await testTextoMaConnection(targetToken, testPhone, targetUrl);
+        return res.json(testResult);
+      } else {
+        const targetUrl = url || currentConfig.androidUrl;
+        if (!targetUrl) {
+          return res.status(400).json({ success: false, error: 'يرجى إدخال رابط خادم هاتف الإدارة أولاً (URL)' });
+        }
+        const testResult = await testAndroidGateway(targetUrl, token, testPhone);
+        return res.json(testResult);
+      }
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Dedicated WhatsApp Cloud API test endpoint
+  app.post('/api/admin/whatsapp-cloud/test', async (req, res) => {
+    try {
+      const role = (req.headers['x-user-role'] as string) || '';
+      if (role !== 'admin' && role !== 'director') {
+        return res.status(403).json({ success: false, error: 'غير مصرح: اختبار WhatsApp Cloud API متاح للإدارة فقط' });
+      }
+      const { phoneNumberId, accessToken, testPhone, templateName } = req.body;
+      const currentConfig = getSmsGatewayConfig();
+
+      const targetPhoneId = phoneNumberId || currentConfig.whatsappPhoneNumberId;
+      const targetToken = accessToken || currentConfig.whatsappAccessToken;
+      const targetTemplate = templateName || currentConfig.whatsappTemplateName;
+
+      if (!targetPhoneId || !targetToken) {
+        return res.status(400).json({
+          success: false,
+          error: 'يرجى إدخال Phone Number ID و Access Token الخاصين بحساب Meta Developers'
+        });
+      }
+
+      if (!testPhone) {
+        return res.status(400).json({ success: false, error: 'يرجى إدخال رقم هاتف لاختبار وصول رسالة واتساب' });
+      }
+
+      const testResult = await testWhatsAppCloudConnection({
+        phoneNumberId: targetPhoneId,
+        accessToken: targetToken,
+        testPhone,
+        templateName: targetTemplate
+      });
+
       res.json(testResult);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
@@ -2169,6 +2252,229 @@ async function startServer() {
     try {
       const logs = getSmsDispatchLogs();
       res.json({ success: true, logs });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Lookup student guardian info (phone & photo)
+  app.get('/api/admin/student-guardian-info', (req, res) => {
+    try {
+      const { massarNumber, studentName, sectionId } = req.query as any;
+      const info = findStudentGuardianPhone({ massarNumber, studentName, sectionId });
+      res.json({ success: true, info });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Send notification to student guardian (SMS or WhatsApp) for absence, violation, or summons
+  app.post('/api/admin/notify-guardian', async (req, res) => {
+    try {
+      const {
+        massarNumber,
+        studentName,
+        sectionId,
+        sectionName,
+        guardianPhone: explicitPhone,
+        notificationType = 'absence', // 'absence' | 'violation' | 'summons' | 'custom'
+        channel: requestedChannel,
+        customMessage,
+        details // { date, time, subject, reason, count }
+      } = req.body;
+
+      const settings = getAppSettings();
+      const institutionName = settings.institution || 'المدرسة الإلكترونية';
+      const smsConfig = getSmsGatewayConfig();
+
+      const channel = requestedChannel || 'whatsapp_cloud';
+
+      let phone = (explicitPhone || '').trim();
+      let targetStudentName = studentName || '';
+
+      // Lookup guardian phone from database if not provided
+      if (!phone) {
+        const studentInfo = findStudentGuardianPhone({ massarNumber, studentName, sectionId });
+        if (studentInfo && studentInfo.guardianPhone) {
+          phone = studentInfo.guardianPhone;
+          if (!targetStudentName) targetStudentName = studentInfo.studentName;
+        }
+      }
+
+      if (!phone) {
+        return res.status(400).json({
+          success: false,
+          error: 'رقم هاتف ولي الأمر غير متوفر لهذا التلميذ. يرجى إدخال رقم هاتف ولي الأمر أولاً لتتمكن من إرسال الإشعار.'
+        });
+      }
+
+      // Persist the entered guardian phone if explicitly provided
+      if (explicitPhone && (massarNumber || targetStudentName)) {
+        try {
+          if (massarNumber) {
+            db.prepare(`UPDATE student_accounts SET guardian_phone = ?, guardian_phone_verified = 1 WHERE massar_number = ?`).run(phone, massarNumber);
+            db.prepare(`UPDATE seats SET guardian_phone = ? WHERE massar_number = ?`).run(phone, massarNumber);
+          } else if (targetStudentName) {
+            db.prepare(`UPDATE student_accounts SET guardian_phone = ?, guardian_phone_verified = 1 WHERE student_name = ?`).run(phone, targetStudentName);
+            db.prepare(`UPDATE seats SET guardian_phone = ? WHERE student_name = ?`).run(phone, targetStudentName);
+          }
+          markDirty();
+        } catch (savePhoneErr) {
+          console.error('Error saving updated guardian phone:', savePhoneErr);
+        }
+      }
+
+      // Build message text if not custom
+      let messageText = (customMessage || '').trim();
+      if (!messageText) {
+        const d = details?.date || new Date().toLocaleDateString('ar-MA');
+        const sName = targetStudentName ? `ابنكم/ابنتكم (${targetStudentName})` : 'ابنكم/ابنتكم';
+        const sec = sectionName ? ` - ${sectionName}` : '';
+        const subj = details?.subject ? ` في مادة (${details.subject})` : '';
+
+        if (notificationType === 'absence') {
+          const countText = details?.count ? ` (مجموع الغيابات المسجلة: ${details.count})` : '';
+          messageText = `المملكة المغربية • ${institutionName}\nنحيطكم علماً بأن ${sName}${sec} قد سجل(ت) غياباً عن الدراسة${subj} بتاريخ ${d}.${countText}\nيرجى موافاة الإدارة بمبرر الغياب القانوني.`;
+        } else if (notificationType === 'violation') {
+          const vReason = details?.reason || 'مخالفة انضباطية داخل الحصة';
+          messageText = `المملكة المغربية • ${institutionName}\nنحيطكم علماً بأن ${sName}${sec} قد ارتكب(ت) مخالفة انضباطية: (${vReason}) بتاريخ ${d}.\nيرجى التواصل مع إدارة المؤسسة أو الحضور للحراسة العامة لتسوية الأمر.`;
+        } else if (notificationType === 'summons') {
+          const appTime = details?.time ? ` على الساعة ${details.time}` : '';
+          messageText = `المملكة المغربية • ${institutionName}\nاستدعاء رسمي لولي أمر التلميذ(ة) ${sName}${sec}.\nنرجو حضوركم لمقر الإدارة بتاريخ ${d}${appTime} لأمر يهم التمدرس والانضباط.`;
+        } else {
+          messageText = `المملكة المغربية • ${institutionName}\nإشعار إداري يخص التلميذ(ة) ${sName}${sec}.\nنرجو منكم متابعة الحالة المدرسية.`;
+        }
+      }
+
+      const result = await sendGuardianNotification({
+        toPhone: phone,
+        studentName: targetStudentName,
+        massarNumber,
+        sectionName,
+        notificationType,
+        messageText,
+        channel,
+        institutionName,
+        smsConfig
+      });
+
+      // Log in change history
+      try {
+        db.prepare(`
+          INSERT INTO change_history (action, summary, details_json, created_at)
+          VALUES (?, ?, ?, ?)
+        `).run(
+          `notify_guardian_${notificationType}`,
+          `إرسال إشعار ${notificationType === 'absence' ? 'غياب' : notificationType === 'violation' ? 'مخالفة' : 'إشعار'} إلى ولي أمر (${targetStudentName}) عبر ${channel}`,
+          JSON.stringify({ toPhone: phone, channel, notificationType, result }),
+          new Date().toISOString()
+        );
+      } catch (logErr) {
+        console.error('Failed to log notification change:', logErr);
+      }
+
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Batch notify guardians (e.g. for today's absences or multiple violations)
+  app.post('/api/admin/notify-guardians-batch', async (req, res) => {
+    try {
+      const { items, channel: requestedChannel, notificationType = 'absence' } = req.body;
+      if (!Array.isArray(items) || items.length === 0) {
+        return res.status(400).json({ success: false, error: 'قائمة التلاميذ فارغة' });
+      }
+
+      const settings = getAppSettings();
+      const institutionName = settings.institution || 'المدرسة الإلكترونية';
+      const smsConfig = getSmsGatewayConfig();
+      const channel = requestedChannel || 'whatsapp_cloud';
+
+      let successCount = 0;
+      let failedCount = 0;
+      const results: any[] = [];
+
+      for (const item of items) {
+        let phone = (item.guardianPhone || '').trim();
+        if (!phone) {
+          const info = findStudentGuardianPhone({ massarNumber: item.massarNumber, studentName: item.studentName, sectionId: item.sectionId });
+          if (info && info.guardianPhone) {
+            phone = info.guardianPhone;
+          }
+        }
+
+        if (!phone) {
+          failedCount++;
+          results.push({
+            studentName: item.studentName,
+            massarNumber: item.massarNumber,
+            success: false,
+            error: 'لا يوجد رقم هاتف مسجل لولي الأمر'
+          });
+          continue;
+        }
+
+        const d = item.date || new Date().toLocaleDateString('ar-MA');
+        const sName = item.studentName ? `ابنكم/ابنتكم (${item.studentName})` : 'ابنكم/ابنتكم';
+        const sec = item.sectionName ? ` - ${item.sectionName}` : '';
+        const subj = item.subject ? ` في مادة (${item.subject})` : '';
+
+        let messageText = item.customMessage || '';
+        if (!messageText) {
+          if (notificationType === 'absence') {
+            messageText = `المملكة المغربية • ${institutionName}\nنحيطكم علماً بأن ${sName}${sec} قد سجل(ت) غياباً${subj} بتاريخ ${d}.\nيرجى موافاة الإدارة بمبرر الغياب لتسوية الوضعية.`;
+          } else {
+            messageText = `المملكة المغربية • ${institutionName}\nنحيطكم علماً بأن ${sName}${sec} قد سجلت بحقه(ا) مخالفة انضباطية بتاريخ ${d}.\nيرجى مراجعة إدارة المؤسسة.`;
+          }
+        }
+
+        try {
+          const resNotif = await sendGuardianNotification({
+            toPhone: phone,
+            studentName: item.studentName,
+            massarNumber: item.massarNumber,
+            sectionName: item.sectionName,
+            notificationType,
+            messageText,
+            channel,
+            institutionName,
+            smsConfig
+          });
+
+          if (resNotif.success) {
+            successCount++;
+          } else {
+            failedCount++;
+          }
+
+          results.push({
+            studentName: item.studentName,
+            massarNumber: item.massarNumber,
+            phone,
+            ...resNotif
+          });
+        } catch (subErr: any) {
+          failedCount++;
+          results.push({
+            studentName: item.studentName,
+            massarNumber: item.massarNumber,
+            phone,
+            success: false,
+            error: subErr.message
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        total: items.length,
+        successCount,
+        failedCount,
+        results,
+        message: `تم إتمام عملية الإرسال: تم إشعار ${successCount} ولي أمر بنجاح (فشل أو بدون رقم: ${failedCount})`
+      });
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -2200,6 +2506,52 @@ async function startServer() {
       const result = regenerateSectionStudentAccessCodes(req.params.sectionId);
       markDirty();
       res.json({ ...result, message: `تم توليد أكواد جديدة لـ ${result.count} تلميذاً في القسم بنجاح` });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Director update student profile (photo, guardian phone, validation status)
+  app.put('/api/student/accounts/:id', (req, res) => {
+    try {
+      const directorName = (req.headers['x-user-name'] as string) || (req.headers['x-user-fullname'] as string) || 'مدير المؤسسة';
+      const updated = updateStudentProfileByDirector(req.params.id, req.body, directorName);
+      res.json({ success: true, account: updated, message: 'تم تحديث صورة ورقم هاتف التلميذ بنجاح وحفظها في النظام ✓' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Director approve student profile (photo & guardian phone)
+  app.post('/api/student/accounts/:id/approve', (req, res) => {
+    try {
+      const directorName = (req.headers['x-user-name'] as string) || (req.headers['x-user-fullname'] as string) || 'مدير المؤسسة';
+      const updated = approveStudentProfile(req.params.id, directorName);
+      res.json({ success: true, account: updated, message: 'تمت المصادقة على صورة ورقم هاتف التلميذ بنجاح ✓' });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Director batch approve student profiles
+  app.post('/api/student/accounts/batch-approve', (req, res) => {
+    try {
+      const directorName = (req.headers['x-user-name'] as string) || (req.headers['x-user-fullname'] as string) || 'مدير المؤسسة';
+      const { accountIds } = req.body || {};
+      const result = batchApproveStudentProfiles(accountIds, directorName);
+      res.json({ success: true, count: result.count, message: `تمت المصادقة بنجاح على ${result.count} من ملفات وصور وهواتف التلاميذ ✓` });
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Director reject student profile
+  app.post('/api/student/accounts/:id/reject', (req, res) => {
+    try {
+      const directorName = (req.headers['x-user-name'] as string) || (req.headers['x-user-fullname'] as string) || 'مدير المؤسسة';
+      const { notes } = req.body || {};
+      const updated = rejectStudentProfile(req.params.id, notes, directorName);
+      res.json({ success: true, account: updated, message: 'تم رفض الملف وإشعار التلميذ بضرورة تصحيح الصورة أو الرقم' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }

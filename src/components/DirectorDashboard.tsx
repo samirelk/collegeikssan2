@@ -39,7 +39,9 @@ import {
   Settings2,
   BarChart3,
   Globe,
-  Smartphone
+  Smartphone,
+  UserCheck,
+  MessageSquare
 } from 'lucide-react';
 import {
   SectionItem,
@@ -65,6 +67,7 @@ import { StudentAccountsManagementModal } from './StudentAccountsManagementModal
 import { ViolationsRegisterModal } from './ViolationsRegisterModal';
 import { CustomDomainModal } from './CustomDomainModal';
 import { AndroidSmsGatewayManagement } from './AndroidSmsGatewayManagement';
+import { ParentNotificationModal, StudentNotificationItem } from './ParentNotificationModal';
 
 interface DirectorDashboardProps {
   currentUser: User;
@@ -105,6 +108,13 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
   const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
   const [isPrintCredentialsOpen, setIsPrintCredentialsOpen] = useState(false);
   const [showStudentAccountsModal, setShowStudentAccountsModal] = useState(false);
+  const [pendingStudentApprovalsCount, setPendingStudentApprovalsCount] = useState(0);
+
+  // Parent SMS / WhatsApp Notification Modal State
+  const [isNotifyParentModalOpen, setIsNotifyParentModalOpen] = useState(false);
+  const [notifyTargetStudent, setNotifyTargetStudent] = useState<StudentNotificationItem | null>(null);
+  const [notifyBatchStudents, setNotifyBatchStudents] = useState<StudentNotificationItem[] | undefined>(undefined);
+
   const [selectedTeacherIdForPrint, setSelectedTeacherIdForPrint] = useState<string | undefined>(undefined);
   const [newFullName, setNewFullName] = useState('');
   const [newUsername, setNewUsername] = useState('');
@@ -228,9 +238,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         'x-user-id': currentUser.id,
         'x-user-role': currentUser.role
       };
-      const [analyticsRes, teachersRes] = await Promise.all([
+      const [analyticsRes, teachersRes, accountsRes] = await Promise.all([
         safeApiFetch('/api/director/analytics', { headers: authHeaderOnly }).catch(() => ({ success: true })),
-        safeApiFetch('/api/auth/teachers', { headers: authHeaderOnly }).catch(() => ({ success: true, teachers: [] }))
+        safeApiFetch('/api/auth/teachers', { headers: authHeaderOnly }).catch(() => ({ success: true, teachers: [] })),
+        safeApiFetch('/api/student/accounts').catch(() => ({ success: true, accounts: [] }))
       ]);
 
       if (analyticsRes && analyticsRes.success) {
@@ -252,6 +263,13 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
 
       if (teachersRes && teachersRes.success && Array.isArray(teachersRes.teachers)) {
         setTeachers(teachersRes.teachers);
+      }
+
+      if (accountsRes && accountsRes.success && Array.isArray(accountsRes.accounts)) {
+        const pending = accountsRes.accounts.filter(
+          (a: any) => a.approvalStatus === 'pending' || (a.profileCompleted && !a.guardianPhoneVerified)
+        ).length;
+        setPendingStudentApprovalsCount(pending);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'خطأ أثناء تحميل بيانات الإدارة');
@@ -365,7 +383,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           email: newEmail.trim(),
           password: newPassword,
           subject: newSubject,
-          academicYear: settings.year || '2025/2026'
+          academicYear: settings.year || '2026/2027'
         })
       });
 
@@ -1374,21 +1392,26 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           type="button"
           onClick={() => setShowStudentAccountsModal(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] bg-[#FAF8F5] hover:bg-[#F2EFE9] text-[#1A4E47] border border-[#D5CDC0] transition-all cursor-pointer shadow-2xs mr-auto"
-          title="عرض وتوليد الأكواد السرية لولوج فضاء التلميذ وطباعة بطاقات الولوج"
+          title="عرض وتعديل صور وهواتف التلاميذ، والمصادقة المباشرة عليها وتوليد الأكواد"
         >
           <GraduationCap className="w-3.5 h-3.5 text-[#C98A3C]" />
-          <span>أكواد فضاء التلميذ (مسار)</span>
+          <span>أكواد ومصادقة بيانات التلاميذ</span>
+          {pendingStudentApprovalsCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-white text-[10px] font-bold animate-pulse">
+              {pendingStudentApprovalsCount} مصادقة معلقة
+            </span>
+          )}
         </button>
 
-        {/* Android SMS Gateway Settings Button */}
+        {/* WhatsApp Cloud Gateway Settings Button */}
         <button
           type="button"
           onClick={() => setShowSmsGatewayModal(true)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] bg-[#E8F2F0] hover:bg-[#D5EAE6] text-[#1A4E47] border border-[#1A4E47]/20 transition-all cursor-pointer shadow-2xs"
-          title="إعدادات واختبار بوابة هاتف الإدارة لإرسال رسائل SMS وفورفي WhatsApp"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition-all cursor-pointer shadow-2xs"
+          title="إعدادات واختبار بوابة WhatsApp Cloud API الرسمية (مجاني 1,000 محادثة شهرياً)"
         >
-          <Smartphone className="w-3.5 h-3.5 text-[#C98A3C]" />
-          <span>بوابة هاتف الإدارة (SMS)</span>
+          <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+          <span>بوابة إشعارات واتساب (WhatsApp Cloud)</span>
         </button>
       </div>
 
@@ -1682,14 +1705,46 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               </div>
 
               {violationsSubTab === 'top10' && (
-                <button
-                  type="button"
-                  onClick={() => handlePrint('violations')}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-900 font-bold text-xs border border-red-200 transition-colors cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5 text-red-700" />
-                  <span>طباعة لائحة وسجل المخالفات</span>
-                </button>
+                <>
+                  {analytics?.topViolations && analytics.topViolations.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const batch: StudentNotificationItem[] = analytics.topViolations.map((v) => ({
+                          studentName: v.studentName,
+                          massarNumber: v.massarNumber,
+                          sectionId: v.sectionId,
+                          sectionLevel: v.sectionLevel,
+                          sectionClass: v.sectionClass,
+                          guardianPhone: v.guardianPhone,
+                          type: 'violation',
+                          details: {
+                            date: v.lastViolationDate || new Date().toLocaleDateString('ar-MA'),
+                            subject: v.teacherSubject,
+                            reason: v.lastViolationText,
+                            count: v.violationsCount
+                          }
+                        }));
+                        setNotifyBatchStudents(batch);
+                        setNotifyTargetStudent(null);
+                        setIsNotifyParentModalOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-800 to-rose-900 hover:brightness-110 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                      title="إشعار جماعي لجميع أولياء أمور التلاميذ المسجلين بالمخالفات عبر رسائل SMS أو واتساب"
+                    >
+                      <Smartphone className="w-3.5 h-3.5 text-amber-300" />
+                      <span>إشعار أولياء المخالفين ({analytics.topViolations.length}) 📢</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handlePrint('violations')}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-50 hover:bg-red-100 text-red-900 font-bold text-xs border border-red-200 transition-colors cursor-pointer"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-red-700" />
+                    <span>طباعة لائحة وسجل المخالفات</span>
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1712,6 +1767,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                     <th className="p-3 font-bold">الأستاذ المسؤول / المادة</th>
                     <th className="p-3 font-bold text-center">عدد المخالفات</th>
                     <th className="p-3 font-bold">آخر مخالفة مسجلة</th>
+                    <th className="p-3 font-bold text-center">إشعار ولي الأمر</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E4DBC0]">
@@ -1763,6 +1819,35 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                           </div>
                         )}
                       </td>
+                      <td className="p-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNotifyTargetStudent({
+                              studentName: v.studentName,
+                              massarNumber: v.massarNumber,
+                              sectionId: v.sectionId,
+                              sectionLevel: v.sectionLevel,
+                              sectionClass: v.sectionClass,
+                              guardianPhone: v.guardianPhone,
+                              type: 'violation',
+                              details: {
+                                date: v.lastViolationDate || new Date().toLocaleDateString('ar-MA'),
+                                subject: v.teacherSubject,
+                                reason: v.lastViolationText,
+                                count: v.violationsCount
+                              }
+                            });
+                            setNotifyBatchStudents(undefined);
+                            setIsNotifyParentModalOpen(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                          title="إرسال إشعار بالمخالفة السلوكية لولي الأمر عبر SMS أو واتساب"
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
+                          <span>إشعار بالمخالفة ⚠️📱</span>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1798,6 +1883,34 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             </div>
 
             <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+              <button
+                type="button"
+                onClick={() => {
+                  const batch: StudentNotificationItem[] = displayedAbsencesList.map(ab => ({
+                    studentName: ab.studentName,
+                    massarNumber: ab.massarNumber,
+                    sectionId: ab.sectionId,
+                    sectionLevel: ab.sectionLevel,
+                    sectionClass: ab.sectionClass,
+                    guardianPhone: ab.guardianPhone,
+                    type: 'absence',
+                    details: {
+                      date: new Date().toLocaleDateString('ar-MA'),
+                      subject: ab.teacherSubject,
+                      count: ab.absencesCount
+                    }
+                  }));
+                  setNotifyBatchStudents(batch);
+                  setNotifyTargetStudent(null);
+                  setIsNotifyParentModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#1A4E47] to-[#143E38] hover:brightness-110 text-white font-bold text-xs shadow-2xs transition-colors cursor-pointer"
+                title="إشعار جماعي لجميع أولياء أمور التلاميذ الغائبين عبر رسائل SMS أو واتساب"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-[#C98A3C]" />
+                <span>إشعار أولياء الغائبين ({displayedAbsencesList.length}) 📢</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => navigateToTab('daily-archive')}
@@ -1933,6 +2046,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                     <th className="p-3 font-bold text-center">مجموع الغيابات</th>
                     <th className="p-3 font-bold text-center">تنبيه المواظبة</th>
                     <th className="p-3 font-bold">الحالة اللحظية</th>
+                    <th className="p-3 font-bold text-center">إشعار ولي الأمر</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E4DBC0]">
@@ -2007,6 +2121,34 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                             </span>
                           )}
                         </td>
+                        <td className="p-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotifyTargetStudent({
+                                studentName: ab.studentName,
+                                massarNumber: ab.massarNumber,
+                                sectionId: ab.sectionId,
+                                sectionLevel: ab.sectionLevel,
+                                sectionClass: ab.sectionClass,
+                                guardianPhone: ab.guardianPhone,
+                                type: 'absence',
+                                details: {
+                                  date: new Date().toLocaleDateString('ar-MA'),
+                                  subject: ab.teacherSubject,
+                                  count: ab.absencesCount
+                                }
+                              });
+                              setNotifyBatchStudents(undefined);
+                              setIsNotifyParentModalOpen(true);
+                            }}
+                            className="px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="إرسال إشعار غياب لولي الأمر عبر SMS أو واتساب"
+                          >
+                            <Smartphone className="w-3.5 h-3.5 text-amber-800" />
+                            <span>إشعار ولي الأمر 📱</span>
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -2031,6 +2173,16 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowStudentAccountsModal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#1A4E47] to-[#143E38] hover:brightness-110 text-white font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                title="تعديل صور التلاميذ وأرقام هواتف أوليائهم والمصادقة المباشرة عليها"
+              >
+                <UserCheck className="w-3.5 h-3.5 text-[#C98A3C]" />
+                <span>المصادقة وتعديل صور وهواتف التلاميذ ✎</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handlePrintStudentsRoster}
@@ -2105,14 +2257,17 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               <table className="w-full text-right text-xs border-collapse">
                 <thead>
                   <tr className="bg-[#EFE9D5] text-[#2A2118] border-b border-[#D9CEB0]">
-                    <th className="p-3 font-bold w-16 text-center">الرقم</th>
+                    <th className="p-3 font-bold w-12 text-center">الرقم</th>
+                    <th className="p-3 font-bold w-12 text-center">الصورة</th>
                     <th className="p-3 font-bold">اسم التلميذ(ة) الكامل</th>
                     <th className="p-3 font-bold">رقم مسار / البطاقة</th>
                     <th className="p-3 font-bold">القسم والمستوى</th>
+                    <th className="p-3 font-bold">هاتف ولي الأمر</th>
                     <th className="p-3 font-bold text-center">المقعد</th>
                     <th className="p-3 font-bold text-center">المخالفات</th>
                     <th className="p-3 font-bold text-center">الغيابات</th>
                     <th className="p-3 font-bold text-center">الحالة</th>
+                    <th className="p-3 font-bold text-center">تعديل/مصادقة</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#E4DBC0]">
@@ -2127,6 +2282,19 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                           <span className="text-[#7A6B58]">
                             #{st.seatNum}
                           </span>
+                        )}
+                      </td>
+                      <td className="p-2 text-center">
+                        {st.photoUrl ? (
+                          <img
+                            src={st.photoUrl}
+                            alt={st.studentName}
+                            className="w-8 h-8 rounded-full object-cover border border-[#C98A3C]/70 mx-auto"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-amber-100 border border-amber-300 text-amber-900 flex items-center justify-center text-[10px] font-bold mx-auto">
+                            {st.studentName[0] || 'ت'}
+                          </div>
                         )}
                       </td>
                       <td className="p-3 font-bold text-sm text-[#2A2118]">
@@ -2144,6 +2312,32 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                       <td className="p-3">
                         <span className="font-bold text-[#2A2118]">{st.sectionLevel}</span>
                         <span className="text-[#7A6B58] text-[11px] block">({st.sectionClass})</span>
+                      </td>
+                      <td className="p-3">
+                        {st.guardianPhone ? (
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <a
+                              href={`https://wa.me/${st.guardianPhone.replace(/\D/g, '').startsWith('0') ? '212' + st.guardianPhone.replace(/\D/g, '').slice(1) : st.guardianPhone.replace(/\D/g, '')}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-mono text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-1.5 py-0.5 rounded-md border border-emerald-300 font-bold"
+                              title="انقر للمراسلة الفورية عبر واتساب"
+                            >
+                              <span>{st.guardianPhone}</span>
+                            </a>
+                            {st.approvalStatus === 'approved' ? (
+                              <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.2 rounded-xs">
+                                مصادق عليه ✓
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1 py-0.2 rounded-xs animate-pulse">
+                                معلق ⏳
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[#7A6B58] text-[11px]">—</span>
+                        )}
                       </td>
                       <td className="p-3 text-center text-[#5B5040] font-mono font-bold">
                         #{st.seatNum}
@@ -2176,6 +2370,42 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                         ) : (
                           <span className="text-[#7A6B58] text-[11px]">مسجل</span>
                         )}
+                      </td>
+                      <td className="p-3 text-center">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotifyTargetStudent({
+                                studentName: st.studentName,
+                                massarNumber: st.massarNumber,
+                                sectionId: st.sectionId,
+                                sectionLevel: st.sectionLevel,
+                                sectionClass: st.sectionClass,
+                                guardianPhone: st.guardianPhone,
+                                type: st.violationsCount > 0 ? 'violation' : 'absence',
+                                details: {
+                                  date: new Date().toLocaleDateString('ar-MA'),
+                                  count: st.absencesCount || st.violationsCount || 0
+                                }
+                              });
+                              setNotifyBatchStudents(undefined);
+                              setIsNotifyParentModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-colors cursor-pointer shadow-2xs"
+                            title="إرسال إشعار فوري لولي الأمر عبر SMS أو واتساب (غياب أو مخالفة)"
+                          >
+                            <Smartphone className="w-3.5 h-3.5 text-amber-800" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowStudentAccountsModal(true)}
+                            className="px-2 py-1 rounded-lg bg-[#FAF8F5] hover:bg-[#EFE9D5] text-[#1A4E47] border border-[#D9CEB0] text-[11px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1 shadow-2xs"
+                            title="تعديل صورة ورقم هاتف التلميذ والمصادقة المباشرة"
+                          >
+                            <span>تعديل/مصادقة ✎</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -2912,7 +3142,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               </div>
 
               <div className="p-3 bg-[#EFE9D5] rounded-xl text-[11px] text-[#5B5040] space-y-1">
-                <div>الموسم الدراسي: <strong>{settings.year || '2025/2026'}</strong> (معمم من طرف المدير)</div>
+                <div>الموسم الدراسي: <strong>{settings.year || '2026/2027'}</strong> (معمم من طرف المدير)</div>
                 <div>حالة الحساب: <strong className="text-[#03543F]">مفعل ونشط فوراً</strong></div>
               </div>
 
@@ -2946,7 +3176,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           setSuccessMessage('تم استيراد وحفظ بيانات الأساتذة بنجاح من ملف Excel.');
         }}
         existingTeachers={teachers}
-        academicYear={settings.year || '2025/2026'}
+        academicYear={settings.year || '2026/2027'}
       />
 
       {/* MODAL: RESET TEACHER PASSWORD */}
@@ -3983,7 +4213,11 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
       {/* Student Accounts & Massar PIN Management Modal */}
       <StudentAccountsManagementModal
         isOpen={showStudentAccountsModal}
-        onClose={() => setShowStudentAccountsModal(false)}
+        onClose={() => {
+          setShowStudentAccountsModal(false);
+          fetchDirectorData();
+          onRefreshSections();
+        }}
         sections={sections}
         settings={settings}
       />
@@ -4011,9 +4245,9 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           >
             <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
               <div className="flex items-center gap-2">
-                <Smartphone className="w-5 h-5 text-[#1A4E47]" />
+                <MessageSquare className="w-5 h-5 text-emerald-700" />
                 <h3 className="font-bold text-base text-[#1F2926]">
-                  إعدادات بوابة هاتف الإدارة للرسائل القصيرة (Android SMS Gateway)
+                  إعدادات بوابة إشعارات واتساب الرسمية (WhatsApp Cloud API - Meta)
                 </h3>
               </div>
               <button
@@ -4028,6 +4262,22 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* Parent Notification Modal (SMS / WhatsApp for Absences & Violations) */}
+      <ParentNotificationModal
+        isOpen={isNotifyParentModalOpen}
+        onClose={() => {
+          setIsNotifyParentModalOpen(false);
+          setNotifyTargetStudent(null);
+          setNotifyBatchStudents(undefined);
+        }}
+        student={notifyTargetStudent}
+        batchStudents={notifyBatchStudents}
+        institutionName={settings.institution || 'المدرسة الإلكترونية'}
+        onSuccess={() => {
+          fetchDirectorData();
+        }}
+      />
 
     </div>
   );

@@ -14,12 +14,14 @@ import {
   Building,
   ShieldAlert,
   Loader2,
-  ExternalLink
+  ExternalLink,
+  Smartphone
 } from 'lucide-react';
 import {
   printStudentAttendanceCard,
   printParentAbsenceNotice
 } from '../utils/printNotes';
+import { ParentNotificationModal, StudentNotificationItem } from './ParentNotificationModal';
 
 interface StudentAttendanceCardModalProps {
   isOpen: boolean;
@@ -57,6 +59,8 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
   } | null>(null);
 
   const [copiedNotice, setCopiedNotice] = useState(false);
+  const [isNotifyModalOpen, setIsNotifyModalOpen] = useState(false);
+  const [notifyTargetStudent, setNotifyTargetStudent] = useState<StudentNotificationItem | null>(null);
 
   useEffect(() => {
     if (!isOpen || !studentName || !sectionId) return;
@@ -427,7 +431,41 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
                   </div>
 
                   {/* Action buttons for parent notification */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotifyTargetStudent({
+                          studentName,
+                          massarNumber,
+                          sectionId,
+                          sectionLevel: sectionName,
+                          type: 'absence',
+                          details: {
+                            date: latestDate,
+                            subject: latestSubject,
+                            reason: latestPeriod,
+                            count: totalAbsences
+                          }
+                        });
+                        setIsNotifyModalOpen(true);
+                      }}
+                      className="px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-gradient-to-r from-[#1A4E47] to-[#143E38] hover:brightness-110 text-white shadow-sm transition-all cursor-pointer"
+                      title="إرسال إشعار غياب رسمي عبر SMS أو واتساب"
+                    >
+                      <Smartphone className="w-4 h-4 text-[#C98A3C]" />
+                      <span>إشعار SMS / واتساب 📱</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleWhatsAppNotice}
+                      className="px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>إرسال عبر واتساب</span>
+                    </button>
+
                     <button
                       type="button"
                       onClick={handleCopyNotice}
@@ -443,20 +481,11 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
 
                     <button
                       type="button"
-                      onClick={handleWhatsAppNotice}
-                      className="px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-all cursor-pointer"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      <span>إرسال عبر واتساب (WhatsApp)</span>
-                    </button>
-
-                    <button
-                      type="button"
                       onClick={handlePrintNotice}
-                      className="px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-[#1A4E47] hover:bg-[#133E38] text-white shadow-sm transition-all cursor-pointer"
+                      className="px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 bg-[#FAF8F5] hover:bg-[#EFE9D5] text-[#2A2118] border border-[#D9CEB0] shadow-2xs transition-all cursor-pointer"
                     >
-                      <Printer className="w-4 h-4" />
-                      <span>طباعة استدعاء ورقي رسمي</span>
+                      <Printer className="w-4 h-4 text-[#8A5A18]" />
+                      <span>طباعة استدعاء ورقي</span>
                     </button>
                   </div>
                 </div>
@@ -479,6 +508,17 @@ export const StudentAttendanceCardModal: React.FC<StudentAttendanceCardModalProp
           </button>
         </div>
       </div>
+
+      {/* Parent Notification Modal (SMS / WhatsApp) */}
+      <ParentNotificationModal
+        isOpen={isNotifyModalOpen}
+        onClose={() => {
+          setIsNotifyModalOpen(false);
+          setNotifyTargetStudent(null);
+        }}
+        student={notifyTargetStudent}
+        institutionName={institutionName || 'المدرسة الإلكترونية'}
+      />
     </div>
   );
 };

@@ -562,7 +562,8 @@ export const DirectorAnalyticsDashboard: React.FC<DirectorAnalyticsDashboardProp
       <body>
         <div class="header">
           <h2>المملكة المغربية • وزارة التربية الوطنية والتعليم الأولي والرياضة</h2>
-          <h3>${settings.institution || 'الثانوية الإعدادية إيكسان'} • الموسم الدراسي: ${settings.year || '2025/2026'}</h3>
+          <div style="font-size: 13px; color: #44403c; margin: 3px 0;">${settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق'} • ${settings.directorate || 'المديرية الإقليمية بالناظور'}</div>
+          <h3>${settings.institution || 'الثانوية الإعدادية ايكسان'} • الموسم الدراسي: ${settings.year || '2026/2027'}</h3>
         </div>
 
         <div class="title">تقرير تحليلي شامل لمؤشرات الانضباط والمواظبة التربوية</div>
