@@ -132,8 +132,6 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
           ...config,
           provider: 'whatsapp_cloud',
           whatsappCloudEnabled: true,
-          textoEnabled: false,
-          androidEnabled: false,
           defaultChannel: 'whatsapp_cloud'
         })
       });

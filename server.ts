@@ -138,8 +138,6 @@ import {
   db
 } from './server/db.ts';
 import {
-  testAndroidGateway,
-  testTextoMaConnection,
   testWhatsAppCloudConnection,
   sendGuardianNotification,
   getSmsDispatchLogs
@@ -197,7 +195,7 @@ async function startServer() {
   process.on('SIGINT', () => void gracefulExit('SIGINT'));
 
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '15mb' }));
 
@@ -2151,7 +2149,7 @@ async function startServer() {
       }
       const updated = saveSmsGatewayConfig(req.body);
       markDirty();
-      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات بوابة الرسائل (Texto.ma / Android SMS) بنجاح ✓' });
+      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات بوابة واتساب (WhatsApp Cloud API) بنجاح ✓' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
     }
@@ -2163,48 +2161,31 @@ async function startServer() {
       if (role !== 'admin' && role !== 'director') {
         return res.status(403).json({ success: false, error: 'غير مصرح: اختبار بوابات الرسائل متاح للإدارة فقط' });
       }
-      const { provider = 'whatsapp_cloud', url, token, testPhone, phoneNumberId, accessToken, templateName } = req.body;
+      const { testPhone, phoneNumberId, accessToken, token, templateName } = req.body;
       const currentConfig = getSmsGatewayConfig();
 
       if (!testPhone) {
         return res.status(400).json({ success: false, error: 'يرجى إدخال رقم هاتف لإرسال رسالة الاختبار إليه' });
       }
 
-      if (provider === 'whatsapp_cloud') {
-        const targetPhoneId = phoneNumberId || currentConfig.whatsappPhoneNumberId;
-        const targetToken = accessToken || token || currentConfig.whatsappAccessToken;
-        const targetTemplate = templateName || currentConfig.whatsappTemplateName;
+      const targetPhoneId = phoneNumberId || currentConfig.whatsappPhoneNumberId;
+      const targetToken = accessToken || token || currentConfig.whatsappAccessToken;
+      const targetTemplate = templateName || currentConfig.whatsappTemplateName;
 
-        if (!targetPhoneId || !targetToken) {
-          return res.status(400).json({
-            success: false,
-            error: 'يرجى إدخال Phone Number ID و Access Token لمنصة WhatsApp Cloud API'
-          });
-        }
-
-        const testResult = await testWhatsAppCloudConnection({
-          phoneNumberId: targetPhoneId,
-          accessToken: targetToken,
-          testPhone,
-          templateName: targetTemplate
+      if (!targetPhoneId || !targetToken) {
+        return res.status(400).json({
+          success: false,
+          error: 'يرجى إدخال Phone Number ID و Access Token لمنصة WhatsApp Cloud API'
         });
-        return res.json(testResult);
-      } else if (provider === 'texto_ma' || (!provider && (token?.startsWith('$2y$') || currentConfig.provider === 'texto_ma'))) {
-        const targetToken = token || currentConfig.textoToken;
-        const targetUrl = url || currentConfig.textoUrl;
-        if (!targetToken) {
-          return res.status(400).json({ success: false, error: 'يرجى إدخال رمز الأمان (Token) لمنصة Texto.ma' });
-        }
-        const testResult = await testTextoMaConnection(targetToken, testPhone, targetUrl);
-        return res.json(testResult);
-      } else {
-        const targetUrl = url || currentConfig.androidUrl;
-        if (!targetUrl) {
-          return res.status(400).json({ success: false, error: 'يرجى إدخال رابط خادم هاتف الإدارة أولاً (URL)' });
-        }
-        const testResult = await testAndroidGateway(targetUrl, token, testPhone);
-        return res.json(testResult);
       }
+
+      const testResult = await testWhatsAppCloudConnection({
+        phoneNumberId: targetPhoneId,
+        accessToken: targetToken,
+        testPhone,
+        templateName: targetTemplate
+      });
+      return res.json(testResult);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
     }

@@ -27,7 +27,7 @@ import {
 } from './firestoreSync.ts';
 import { commitBatchDocs } from './firestoreService.ts';
 import { markDirty, purgeAllSnapshots } from './cloudBackup.ts';
-import { sendSmsOtp } from './smsService.ts';
+import { sendSmsOtp, sendGuardianNotification } from './smsService.ts';
 
 // Ensure data directory exists for durable SQLite file persistence
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -1172,32 +1172,19 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
   return getAppSettings();
 }
 
-// ---------------- Android SMS Gateway Settings ----------------
-
-// ---------------- Messaging & Gateway Settings (WhatsApp Cloud API & Texto.ma & Android SMS) ----------------
+// ---------------- Messaging & Gateway Settings (WhatsApp Cloud API & WhatsApp) ----------------
 
 export interface SmsGatewayConfig {
-  provider: 'whatsapp_cloud' | 'texto_ma' | 'android_sms' | 'textbee';
-  // Option 1: WhatsApp Cloud API (Meta Official - 1,000 Free monthly conversations)
+  provider: 'whatsapp_cloud' | 'whatsapp';
+  // WhatsApp Cloud API (Meta Official)
   whatsappCloudEnabled?: boolean;
   whatsappPhoneNumberId?: string;
   whatsappAccessToken?: string;
   whatsappBusinessAccountId?: string;
   whatsappTemplateName?: string;
-  // Option 2: Texto.ma (Cloud direct without phone, 0.49 DH/SMS)
-  textoEnabled: boolean;
-  textoToken: string;
-  textoUrl: string;
-  // Option 3: Local Android SMS Gateway / Legacy Phone
-  androidEnabled?: boolean;
-  androidUrl?: string;
-  androidToken?: string;
   schoolPhone?: string;
-  // Option 4: Textbee.dev
-  textbeeApiKey?: string;
-  textbeeDeviceId?: string;
   // General Channel
-  defaultChannel: 'whatsapp' | 'sms' | 'both' | 'whatsapp_cloud';
+  defaultChannel: 'whatsapp_cloud' | 'whatsapp';
 }
 
 export interface AndroidSmsGatewayConfig {
@@ -1205,36 +1192,25 @@ export interface AndroidSmsGatewayConfig {
   url: string;
   token?: string;
   schoolPhone?: string;
-  defaultChannel: 'whatsapp' | 'android_sms' | 'both';
+  defaultChannel: 'whatsapp_cloud' | 'whatsapp';
 }
 
 export function getSmsGatewayConfig(): SmsGatewayConfig {
-  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'sms_%' OR key LIKE 'textbee_%' OR key LIKE 'android_sms_%' OR key LIKE 'texto_%' OR key LIKE 'whatsapp_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
+  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'whatsapp_%' OR key LIKE 'sms_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
   const map: Record<string, string> = {};
   for (const r of rows) {
     map[r.key] = r.value;
   }
   return {
-    provider: (map['sms_provider'] as any) || 'whatsapp_cloud',
+    provider: 'whatsapp_cloud',
     // WhatsApp Cloud API
     whatsappCloudEnabled: map['whatsapp_cloud_enabled'] !== '0',
     whatsappPhoneNumberId: map['whatsapp_phone_number_id'] || process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     whatsappAccessToken: map['whatsapp_access_token'] || process.env.WHATSAPP_ACCESS_TOKEN || '',
     whatsappBusinessAccountId: map['whatsapp_waba_id'] || process.env.WHATSAPP_WABA_ID || '',
     whatsappTemplateName: map['whatsapp_template_name'] || process.env.WHATSAPP_TEMPLATE_NAME || '',
-    // Texto.ma
-    textoEnabled: map['texto_enabled'] !== '0',
-    textoToken: map['texto_token'] || process.env.TEXTO_MA_TOKEN || '$2y$10$Au3d./a/CEi3bpJ.MVgRauVLMj3YdrLN/P3UXbNmnlhDjEz/zQ2gq',
-    textoUrl: map['texto_url'] || 'https://texto.ma/manage/data/api/send_sms',
-    // Android Gateway
-    androidEnabled: map['android_sms_enabled'] === '1',
-    androidUrl: map['android_sms_url'] || '',
-    androidToken: map['android_sms_token'] || '',
-    schoolPhone: map['android_sms_school_phone'] || '',
-    // Textbee
-    textbeeApiKey: map['textbee_api_key'] || process.env.TEXTBEE_API_KEY || '',
-    textbeeDeviceId: map['textbee_device_id'] || process.env.TEXTBEE_DEVICE_ID || '',
-    defaultChannel: ((map['verification_channel'] as any) || 'whatsapp_cloud')
+    schoolPhone: map['school_phone'] || '',
+    defaultChannel: 'whatsapp_cloud'
   };
 }
 
@@ -1246,37 +1222,22 @@ export function saveSmsGatewayConfig(config: Partial<SmsGatewayConfig>): SmsGate
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `);
 
-  if (config.provider !== undefined) upsert.run('sms_provider', config.provider, now);
+  upsert.run('sms_provider', 'whatsapp_cloud', now);
   // WhatsApp Cloud
   if (config.whatsappCloudEnabled !== undefined) upsert.run('whatsapp_cloud_enabled', config.whatsappCloudEnabled ? '1' : '0', now);
   if (config.whatsappPhoneNumberId !== undefined) upsert.run('whatsapp_phone_number_id', config.whatsappPhoneNumberId.trim(), now);
   if (config.whatsappAccessToken !== undefined) upsert.run('whatsapp_access_token', config.whatsappAccessToken.trim(), now);
   if (config.whatsappBusinessAccountId !== undefined) upsert.run('whatsapp_waba_id', config.whatsappBusinessAccountId.trim(), now);
   if (config.whatsappTemplateName !== undefined) upsert.run('whatsapp_template_name', config.whatsappTemplateName.trim(), now);
-
-  // Texto.ma
-  if (config.textoEnabled !== undefined) upsert.run('texto_enabled', config.textoEnabled ? '1' : '0', now);
-  if (config.textoToken !== undefined) upsert.run('texto_token', config.textoToken.trim(), now);
-  if (config.textoUrl !== undefined) upsert.run('texto_url', config.textoUrl.trim(), now);
-
-  // Android Gateway
-  if (config.androidEnabled !== undefined) upsert.run('android_sms_enabled', config.androidEnabled ? '1' : '0', now);
-  if (config.androidUrl !== undefined) upsert.run('android_sms_url', config.androidUrl.trim(), now);
-  if (config.androidToken !== undefined) upsert.run('android_sms_token', config.androidToken.trim(), now);
-  if (config.schoolPhone !== undefined) upsert.run('android_sms_school_phone', config.schoolPhone.trim(), now);
-
-  // Textbee
-  if (config.textbeeApiKey !== undefined) upsert.run('textbee_api_key', config.textbeeApiKey.trim(), now);
-  if (config.textbeeDeviceId !== undefined) upsert.run('textbee_device_id', config.textbeeDeviceId.trim(), now);
-
-  if (config.defaultChannel !== undefined) upsert.run('verification_channel', config.defaultChannel, now);
+  if (config.schoolPhone !== undefined) upsert.run('school_phone', config.schoolPhone.trim(), now);
+  upsert.run('verification_channel', 'whatsapp_cloud', now);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
     VALUES (?, ?, ?, ?)
   `).run(
     'update_sms_gateway',
-    `تحديث إعدادات بوابات الرسائل (WhatsApp Cloud API / Texto.ma / Android SMS): ${config.provider || 'whatsapp_cloud'}`,
+    `تحديث إعدادات بوابة واتساب الرسمية (WhatsApp Cloud API - Meta)`,
     JSON.stringify(config),
     now
   );
@@ -1285,24 +1246,16 @@ export function saveSmsGatewayConfig(config: Partial<SmsGatewayConfig>): SmsGate
 }
 
 export function getAndroidSmsGatewayConfig(): AndroidSmsGatewayConfig {
-  const full = getSmsGatewayConfig();
   return {
-    enabled: Boolean(full.androidEnabled),
-    url: full.androidUrl || '',
-    token: full.androidToken || '',
-    schoolPhone: full.schoolPhone || '',
-    defaultChannel: full.defaultChannel === 'sms' ? 'android_sms' : (full.defaultChannel as any)
+    enabled: false,
+    url: '',
+    token: '',
+    schoolPhone: '',
+    defaultChannel: 'whatsapp_cloud'
   };
 }
 
 export function saveAndroidSmsGatewayConfig(config: Partial<AndroidSmsGatewayConfig>): AndroidSmsGatewayConfig {
-  saveSmsGatewayConfig({
-    androidEnabled: config.enabled,
-    androidUrl: config.url,
-    androidToken: config.token,
-    schoolPhone: config.schoolPhone,
-    defaultChannel: config.defaultChannel === 'android_sms' ? 'sms' : (config.defaultChannel as any)
-  });
   return getAndroidSmsGatewayConfig();
 }
 
@@ -1411,6 +1364,41 @@ export function formatAbsenceDuration(hours: number, isOngoing: boolean = false)
       hours: hours
     };
   }
+}
+
+export function formatTimeRangeArabic(startIso?: string, endIso?: string): {
+  fromTime: string;
+  toTime: string;
+  durationText: string;
+  hours: number;
+} {
+  const start = startIso ? new Date(startIso) : new Date();
+  const end = endIso ? new Date(endIso) : new Date();
+
+  const pad = (n: number) => (n < 10 ? '0' + n : '' + n);
+
+  const startDateStr = `${pad(start.getDate())}/${pad(start.getMonth() + 1)}/${start.getFullYear()}`;
+  const endDateStr = `${pad(end.getDate())}/${pad(end.getMonth() + 1)}/${end.getFullYear()}`;
+
+  const startTimeStr = `${pad(start.getHours())}:${pad(start.getMinutes())}`;
+  const endTimeStr = `${pad(end.getHours())}:${pad(end.getMinutes())}`;
+
+  const fromTime = `${startTimeStr} (${startDateStr})`;
+  const toTime = startDateStr === endDateStr ? `${endTimeStr} (${startDateStr})` : `${endTimeStr} (${endDateStr})`;
+
+  const diffMs = Math.max(0, end.getTime() - start.getTime());
+  const diffMinutes = Math.round(diffMs / (60 * 1000));
+
+  let durationText = '';
+  if (diffMinutes < 50) {
+    durationText = diffMinutes <= 1 ? '1 دقيقة' : `${diffMinutes} دقيقة`;
+  } else {
+    const hours = Math.max(1, Math.round(diffMinutes / 60));
+    durationText = formatHoursInArabic(hours);
+  }
+
+  const hours = Math.max(1, Math.round(diffMinutes / 60));
+  return { fromTime, toTime, durationText, hours };
 }
 
 export function getAllSections(teacherFilterId?: string, viewerId?: string, viewerRole?: string): SectionItem[] {
@@ -2381,66 +2369,95 @@ export function updateSeat(
       `).get(sectionId, targetSeatNum, seatNum, name.trim()) as any;
 
       if (absenceRow) {
-        const sameTeacher = actorId && absenceRow.created_by && actorId === absenceRow.created_by;
-        const diffMs = !!absenceRow.created_at ? (Date.parse(now) - Date.parse(absenceRow.created_at)) : 0;
-        // If the SAME teacher toggles back within the same session/period (within 60 minutes), it's an accidental misclick:
-        // Do NOT keep in archive - delete completely!
-        const isQuickUndo = sameTeacher && diffMs <= 60 * 60 * 1000;
-
-        if (isQuickUndo) {
-          db.prepare('DELETE FROM attendance_history WHERE id = ?').run(absenceRow.id);
-          if (!data.skipCloudSync) {
-            try {
-              cloudDeleteAttendance(String(absenceRow.id));
-            } catch {}
-          }
-        } else {
-          // Legitimate removal by director / supervisor or after session:
-          // Keep in archive as a resolved absence with remover info and duration
-          let removerName = '';
-          let removerSubject = '';
-          if (actorId) {
-            const removerUser = db.prepare('SELECT full_name, subject FROM users WHERE id = ?').get(actorId) as any;
-            if (removerUser) {
-              removerName = removerUser.full_name || '';
-              removerSubject = removerUser.subject || '';
-            }
-          }
-
-          const hours = calculateHoursDifference(absenceRow.created_at, now);
-          const dur = formatAbsenceDuration(hours, false);
-          const durationLabel = dur.label;
-          const durationDays = dur.isDays ? dur.days : 0;
-          const durationHours = hours;
-
-          db.prepare(`
-            UPDATE attendance_history SET
-              removed_by = ?,
-              removed_at = ?,
-              remover_name = ?,
-              remover_subject = ?,
-              duration_hours = ?,
-              duration_days = ?,
-              duration_label = ?,
-              count_in_stats = 1
-            WHERE id = ?
-          `).run(actorId || '', now, removerName, removerSubject, durationHours, durationDays, durationLabel, absenceRow.id);
-
-          if (!data.skipCloudSync) {
-            try {
-              cloudSaveAttendance({
-                ...absenceRow,
-                removedBy: actorId || '',
-                removedAt: now,
-                removerName,
-                removerSubject,
-                durationHours: hours,
-                durationLabel,
-                countInStats: 1
-              });
-            } catch {}
+        let removerName = '';
+        let removerSubject = '';
+        if (actorId) {
+          const removerUser = db.prepare('SELECT full_name, subject FROM users WHERE id = ?').get(actorId) as any;
+          if (removerUser) {
+            removerName = removerUser.full_name || '';
+            removerSubject = removerUser.subject || '';
           }
         }
+        if (!removerName) {
+          const sec = db.prepare('SELECT u.full_name, u.subject FROM sections s LEFT JOIN users u ON s.assigned_teacher_id = u.id WHERE s.id = ?').get(sectionId) as any;
+          removerName = sec?.full_name || 'الأستاذ';
+          removerSubject = sec?.subject || 'المادة';
+        }
+
+        const timeRange = formatTimeRangeArabic(absenceRow.created_at || now, now);
+        const hours = timeRange.hours;
+        const dur = formatAbsenceDuration(hours, false);
+        const durationLabel = timeRange.durationText || dur.label;
+        const durationDays = dur.isDays ? dur.days : 0;
+        const durationHours = hours;
+
+        db.prepare(`
+          UPDATE attendance_history SET
+            removed_by = ?,
+            removed_at = ?,
+            remover_name = ?,
+            remover_subject = ?,
+            duration_hours = ?,
+            duration_days = ?,
+            duration_label = ?,
+            count_in_stats = 1
+          WHERE id = ?
+        `).run(actorId || '', now, removerName, removerSubject, durationHours, durationDays, durationLabel, absenceRow.id);
+
+        if (!data.skipCloudSync) {
+          try {
+            cloudSaveAttendance({
+              ...absenceRow,
+              removedBy: actorId || '',
+              removedAt: now,
+              removerName,
+              removerSubject,
+              durationHours: hours,
+              durationLabel,
+              countInStats: 1
+            });
+          } catch {}
+        }
+
+        // Automatic dispatch of removal notification to parent!
+        const studentInfo = findStudentGuardianPhone({
+          massarNumber: absenceRow.massar_number || massarNumber,
+          studentName: name.trim(),
+          sectionId
+        });
+
+        if (studentInfo && studentInfo.guardianPhone) {
+          const settings = getAppSettings();
+          const instName = settings.institution || 'الثانوية الإعدادية ايكسان';
+          const smsConfig = getSmsGatewayConfig();
+
+          const removalMsg = `المملكة المغربية • ${instName}\nإشعار تسوية ورفع غياب:\nنحيطكم علماً أنه تم رفع وإلغاء تسجيل غياب ابنكم/ابنتكم (${name.trim()}) في مادة (${removerSubject || absenceRow.teacher_subject || 'المادة'}) بواسطة الأستاذ (${removerName}).\nالفترة التي سُجل فيها الغياب: من ${timeRange.fromTime} إلى ${timeRange.toTime} (المدة: ${durationLabel}).\nتم تحيين وضعية المواظبة بنجاح.`;
+
+          sendGuardianNotification({
+            toPhone: studentInfo.guardianPhone,
+            studentName: name.trim(),
+            massarNumber: absenceRow.massar_number || massarNumber,
+            sectionName: studentInfo.sectionLevel ? `${studentInfo.sectionLevel} ${studentInfo.sectionClass || ''}` : '',
+            notificationType: 'absence',
+            messageText: removalMsg,
+            channel: 'whatsapp_cloud',
+            institutionName: instName,
+            smsConfig
+          }).catch((err) => console.error('[updateSeat] Auto removal notification error:', err));
+        }
+
+        return {
+          success: true,
+          removalNotice: {
+            studentName: name.trim(),
+            fromTime: timeRange.fromTime,
+            toTime: timeRange.toTime,
+            durationText: durationLabel,
+            removerName,
+            removerSubject,
+            notificationDispatched: Boolean(studentInfo?.guardianPhone)
+          }
+        };
       }
     } catch {
       // Non-critical
@@ -2472,15 +2489,19 @@ export function batchUpdateSeats(
   }
 
   // 1. Execute all updates inside a single SQLite transaction
+  const removalNotices: any[] = [];
   db.exec('BEGIN TRANSACTION;');
   try {
     for (const item of updates) {
-      updateSeat(sectionId, item.seatNum, {
+      const res = updateSeat(sectionId, item.seatNum, {
         ...item,
         actorId,
         actorRole,
         skipCloudSync: false
       });
+      if (res && (res as any).removalNotice) {
+        removalNotices.push((res as any).removalNotice);
+      }
     }
     db.exec('COMMIT;');
   } catch (txErr) {
@@ -2552,7 +2573,7 @@ export function batchUpdateSeats(
     console.warn('[batchUpdateSeats] Cloud sync error:', err?.message || err);
   }
 
-  return { success: true, count: updates.length };
+  return { success: true, count: updates.length, removalNotices };
 }
 
 export function addSeatNote(sectionId: string, seatNum: number, note: { id?: string; text: string; date: string; time: string; violationType?: string; actionTaken?: string; teacherId?: string; studentName?: string; studentNumber?: string; massarNumber?: string }) {
@@ -8202,9 +8223,10 @@ export function resolveDailyAbsence(id: number, actor: { id?: string; name?: str
   const removerName = actor.name || (actor.role === 'admin' ? 'المشرف العام' : (actor.role === 'director' ? 'إدارة المؤسسة' : 'الأستاذ'));
   const removerSubject = actor.subject || '';
 
-  const hours = calculateHoursDifference(existing.created_at || now, now);
+  const timeRange = formatTimeRangeArabic(existing.created_at || now, now);
+  const hours = timeRange.hours;
   const dur = formatAbsenceDuration(hours, false);
-  const durationLabel = dur.label;
+  const durationLabel = timeRange.durationText || dur.label;
   const durationDays = dur.isDays ? dur.days : 0;
 
   db.prepare(`
@@ -8245,7 +8267,52 @@ export function resolveDailyAbsence(id: number, actor: { id?: string; name?: str
     });
   } catch {}
 
-  return { success: true, message: 'تم إنهاء حالة الغياب الحالي وتوثيقها في الأرشيف كسجل مسوّى بنجاح' };
+  // Dispatch removal notification to parent
+  let notifSent = false;
+  try {
+    const studentInfo = findStudentGuardianPhone({
+      massarNumber: existing.massar_number,
+      studentName: existing.student_name,
+      sectionId: existing.section_id
+    });
+
+    if (studentInfo && studentInfo.guardianPhone) {
+      const settings = getAppSettings();
+      const instName = settings.institution || 'الثانوية الإعدادية ايكسان';
+      const smsConfig = getSmsGatewayConfig();
+
+      const removalMsg = `المملكة المغربية • ${instName}\nإشعار تسوية ورفع غياب:\nنحيطكم علماً أنه تم رفع وإلغاء تسجيل غياب ابنكم/ابنتكم (${existing.student_name}) في مادة (${removerSubject || existing.teacher_subject || 'المادة'}) بواسطة (${removerName}).\nالفترة التي سُجل فيها الغياب: من ${timeRange.fromTime} إلى ${timeRange.toTime} (المدة: ${durationLabel}).\nتم تحيين وضعية المواظبة بنجاح.`;
+
+      sendGuardianNotification({
+        toPhone: studentInfo.guardianPhone,
+        studentName: existing.student_name,
+        massarNumber: existing.massar_number,
+        sectionName: studentInfo.sectionLevel ? `${studentInfo.sectionLevel} ${studentInfo.sectionClass || ''}` : '',
+        notificationType: 'absence',
+        messageText: removalMsg,
+        channel: 'whatsapp_cloud',
+        institutionName: instName,
+        smsConfig
+      }).catch((err) => console.error('[resolveDailyAbsence] Auto removal notification error:', err));
+      notifSent = true;
+    }
+  } catch (notifErr) {
+    console.error('Error in resolveDailyAbsence notification dispatch:', notifErr);
+  }
+
+  return {
+    success: true,
+    message: `تم رفع الغياب وتوثيق المدة (من ${timeRange.fromTime} إلى ${timeRange.toTime} - المدة: ${durationLabel}) مع إشعار ولي الأمر بنجاح`,
+    removalNotice: {
+      studentName: existing.student_name,
+      fromTime: timeRange.fromTime,
+      toTime: timeRange.toTime,
+      durationText: durationLabel,
+      removerName,
+      removerSubject,
+      notificationDispatched: notifSent
+    }
+  };
 }
 
 export function deleteDailyAbsence(id: number) {
@@ -11173,14 +11240,13 @@ export async function generateGuardianVerificationCode(massarNumber: string, gua
   const instName = institutionName || 'ثانوية ايكسان الإعدادية';
   const smsConfig = getSmsGatewayConfig();
 
-  // Automatically dispatch SMS OTP in the name of the school administration via Texto.ma or fallback
+  // Automatically dispatch WhatsApp OTP in the name of the school administration via WhatsApp Cloud API or direct WhatsApp link
   const smsResult = await sendSmsOtp({
     toPhone: cleanPhone,
     code,
     institutionName: instName,
     studentName: account.student_name,
-    smsConfig,
-    androidConfig: getAndroidSmsGatewayConfig()
+    smsConfig
   });
 
   return {
@@ -11212,7 +11278,7 @@ export function verifyGuardianPhoneCode(massarNumber: string, code: string) {
   const isValid = storedCode && storedCode === cleanCode;
 
   if (!isValid) {
-    throw new Error('رمز التحقق غير صحيح. يرجى التأكد من كود التفعيل (OTP) الذي تم إرساله تلقائياً عبر SMS إلى هاتف ولي أمرك.');
+    throw new Error('رمز التحقق غير صحيح. يرجى التأكد من كود التفعيل (OTP) الذي تم إرساله إلى هاتف ولي أمرك عبر واتساب (WhatsApp).');
   }
 
   const now = new Date().toISOString();
@@ -11224,7 +11290,7 @@ export function verifyGuardianPhoneCode(massarNumber: string, code: string) {
 
   return {
     success: true,
-    message: 'تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح عبر خدمة الرسائل القصيرة SMS ✓'
+    message: 'تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح عبر خدمة واتساب (WhatsApp) ✓'
   };
 }
 

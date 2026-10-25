@@ -41,6 +41,7 @@ import { RosterReorderModal } from './components/RosterReorderModal';
 import { StudentPortalDashboard, StudentData } from './components/StudentPortalDashboard';
 import { StudentLoginModal } from './components/StudentLoginModal';
 import { CustomDomainModal } from './components/CustomDomainModal';
+import { AbsenceConfirmationModal } from './components/AbsenceConfirmationModal';
 
 function normalizeArabicText(str?: string): string {
   if (!str) return '';
@@ -175,6 +176,17 @@ export default function App() {
     }
   });
   const [isStudentLoginOpen, setIsStudentLoginOpen] = useState(false);
+
+  // Absence Confirmation & Immediate Guardian Notification Modal state
+  const [pendingAbsenceStudent, setPendingAbsenceStudent] = useState<{
+    seatNum: number;
+    studentName: string;
+    studentNumber?: string;
+    massarNumber?: string;
+    guardianPhone?: string;
+    guardianPhoneVerified?: boolean;
+    sectionId: string;
+  } | null>(null);
 
   // Violations & Notes Modal state
   const [activeSeatModal, setActiveSeatModal] = useState<{
@@ -678,14 +690,52 @@ export default function App() {
     if (field === 'attendance') {
       const currentSeat = sections.find((sec) => sec.id === sectionId)?.seats.find((st) => st.seat === seatNum);
       const studentName = currentSeat?.name?.trim() || `المقعد ${seatNum}`;
+      const prevAttendance = currentSeat?.attendance;
+
       if (value === 'absent') {
         showToast(`تم تسجيل غياب: ${studentName}`);
       } else if (value === 'present') {
-        showToast(`تم تسجيل حضور: ${studentName}`);
+        if (prevAttendance === 'absent') {
+          showToast(`جاري رفع الغياب وتسجيل حضور: ${studentName}...`);
+        } else {
+          showToast(`تم تسجيل حضور: ${studentName}`);
+        }
       } else if (value === 'late') {
         showToast(`تم تسجيل تأخر: ${studentName}`);
       } else if (value === null) {
-        showToast(`تم إلغاء تحديد الحالة لـ ${studentName}`);
+        if (prevAttendance === 'absent') {
+          showToast(`جاري إلغاء الغياب لـ ${studentName}...`);
+        } else {
+          showToast(`تم إلغاء تحديد الحالة لـ ${studentName}`);
+        }
+      }
+
+      // If an absence is being removed/revoked by the teacher, call the server endpoint directly
+      // so the exact duration is calculated, removal notification is dispatched to guardian, and notice returned!
+      if (prevAttendance === 'absent' && (value === 'present' || value === null)) {
+        fetch(`/api/sections/${sectionId}/seats/${seatNum}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {})
+          },
+          body: JSON.stringify({
+            attendance: value,
+            actorId: currentUser?.id || '',
+            actorRole: currentUser?.role || 'teacher'
+          })
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data?.removalNotice) {
+              const rn = data.removalNotice;
+              const notifStatus = rn.notificationDispatched ? 'وإشعار ولي الأمر تلقائياً' : '';
+              showToast(
+                `تم رفع الغياب عن (${rn.studentName}) ${notifStatus} • فترة الغياب: من ${rn.fromTime} إلى ${rn.toTime} (المدة: ${rn.durationText}) ✓`
+              );
+            }
+          })
+          .catch((err) => console.error('Error updating seat attendance removal:', err));
       }
     }
 
@@ -1034,7 +1084,14 @@ export default function App() {
           actorId: currentUser?.id || '',
           actorRole: currentUser?.role || 'teacher'
         })
-      }).catch((err) => console.error('Batch clear attendance error:', err));
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.removalNotices && data.removalNotices.length > 0) {
+            showToast(`تمت إعادة التعيين ورفع الغياب عن ${data.removalNotices.length} تلميذ وإشعار أولياء أمورهم بالمدة تلقائياً ✓`);
+          }
+        })
+        .catch((err) => console.error('Batch clear attendance error:', err));
     }
 
     showToast('تمت إعادة تعيين تسجيل الحضور لهذا القسم');
@@ -1853,12 +1910,133 @@ export default function App() {
     return result;
   }, [combinedStudents, rosterSearchQuery, rosterFilter, rosterSortBy]);
 
+  // Handler for opening absence confirmation & parent notification dialog
+  const handleRequestAbsenceConfirm = (seat: {
+    seat: number;
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    guardianPhone?: string;
+    guardianPhoneVerified?: boolean;
+  }) => {
+    if (!activeSectionId || !seat.name || !seat.name.trim()) return;
+    setPendingAbsenceStudent({
+      seatNum: seat.seat,
+      studentName: seat.name.trim(),
+      studentNumber: seat.number || '',
+      massarNumber: seat.massarNumber || '',
+      guardianPhone: seat.guardianPhone || '',
+      guardianPhoneVerified: seat.guardianPhoneVerified,
+      sectionId: activeSectionId
+    });
+  };
+
+  const handleConfirmAbsenceWithNotice = async ({
+    sendNotification,
+    guardianPhone,
+    customNote
+  }: {
+    sendNotification: boolean;
+    guardianPhone: string;
+    customNote?: string;
+  }) => {
+    if (!pendingAbsenceStudent || !activeSectionId) return;
+    const target = pendingAbsenceStudent;
+
+    // 1. If student didn't have a seat assigned yet (seatNum <= 0), find an empty seat
+    let targetSeatNum = target.seatNum;
+    if (targetSeatNum <= 0) {
+      const curSec = sections.find((s) => s.id === target.sectionId);
+      const emptySeat = curSec?.seats.find((s) => !s.name || !s.name.trim());
+      if (emptySeat) {
+        targetSeatNum = emptySeat.seat;
+        handleAssignStudent(target.sectionId, targetSeatNum, {
+          rosterId: null,
+          name: target.studentName,
+          number: target.studentNumber || '',
+          massarNumber: target.massarNumber || ''
+        });
+      }
+    }
+
+    // 2. Mark student absent
+    handleSeatChange(target.sectionId, targetSeatNum, 'attendance', 'absent');
+
+    // 3. Dispatch absence notification to parent if selected
+    if (sendNotification) {
+      try {
+        const sec = sections.find((s) => s.id === target.sectionId);
+        const sectionName = sec ? `${sec.level} - القسم ${sec.classNumber}` : '';
+        const teacherName = currentUser?.fullName || sec?.teacher || settings.teacher || 'أستاذ المادة';
+        const teacherSubject = currentUser?.subject || 'المادة';
+
+        const res = await fetch('/api/admin/notify-guardian', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {})
+          },
+          body: JSON.stringify({
+            studentName: target.studentName,
+            massarNumber: target.massarNumber || '',
+            sectionId: target.sectionId,
+            sectionName,
+            guardianPhone: guardianPhone || undefined,
+            notificationType: 'absence',
+            details: {
+              date: new Date().toLocaleDateString('ar-MA'),
+              time: new Date().toLocaleTimeString('ar-MA', { hour: '2-digit', minute: '2-digit' }),
+              subject: teacherSubject,
+              reason: customNote || `غياب عن حصة مادة ${teacherSubject} (الأستاذ: ${teacherName})`
+            },
+            channel: 'both'
+          })
+        });
+        const nData = await res.json();
+        if (nData.success) {
+          showToast(`تم تسجيل غياب (${target.studentName}) وإرسال إشعار فوري لولي الأمر بنجاح ✓`);
+        } else {
+          showToast(`تم تسجيل غياب (${target.studentName}) في الحصة بنجاح`);
+        }
+      } catch (err) {
+        showToast(`تم تسجيل الغياب، وتعذر إرسال الإشعار التلقائي`);
+      }
+    } else {
+      showToast(`تم تسجيل غياب (${target.studentName}) في الحصة بنجاح`);
+    }
+
+    setPendingAbsenceStudent(null);
+  };
+
   // Quick attendance toggle in Roster View
-  const handleToggleStudentAttendance = (seatNum: number | null, studentName: string, studentNumber: string, status: 'present' | 'absent' | 'late') => {
+  const handleToggleStudentAttendance = (
+    seatNum: number | null,
+    studentName: string,
+    studentNumber: string,
+    status: 'present' | 'absent' | 'late',
+    massarNumber?: string,
+    guardianPhone?: string,
+    guardianPhoneVerified?: boolean
+  ) => {
     if (!activeSection) return;
+    const seatObj = seatNum ? activeSection.seats.find((s) => s.seat === seatNum) : null;
+    const currentAttendance = seatObj?.attendance;
+
+    // When marking absent for a student who is not currently absent: open confirmation modal!
+    if (status === 'absent' && currentAttendance !== 'absent') {
+      handleRequestAbsenceConfirm({
+        seat: seatNum || 0,
+        name: studentName,
+        number: studentNumber,
+        massarNumber: massarNumber || seatObj?.massarNumber || '',
+        guardianPhone: guardianPhone || seatObj?.guardianPhone || '',
+        guardianPhoneVerified: guardianPhoneVerified || seatObj?.guardianPhoneVerified
+      });
+      return;
+    }
+
     if (seatNum) {
-      const seatObj = activeSection.seats.find((s) => s.seat === seatNum);
-      const nextVal = seatObj?.attendance === status ? null : status;
+      const nextVal = currentAttendance === status ? null : status;
       handleSeatChange(activeSection.id, seatNum, 'attendance', nextVal);
     } else {
       // Find first empty seat to auto-assign for attendance recording
@@ -1868,7 +2046,7 @@ export default function App() {
           rosterId: null,
           name: studentName,
           number: studentNumber,
-          massarNumber: ''
+          massarNumber: massarNumber || ''
         });
         handleSeatChange(activeSection.id, emptySeat.seat, 'attendance', status);
         showToast(`تم تعيين التلميذ تلقائياً في المقعد ${emptySeat.seat} لتسجيل حضوره`);
@@ -2969,7 +3147,7 @@ export default function App() {
 
                                 <button
                                   type="button"
-                                  onClick={() => handleToggleStudentAttendance(st.seatNum, st.name, st.number, 'absent')}
+                                  onClick={() => handleToggleStudentAttendance(st.seatNum, st.name, st.number, 'absent', st.massarNumber, st.guardianPhone, st.guardianPhoneVerified)}
                                   className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
                                     isAbsent
                                       ? 'bg-rose-700 text-white shadow-xs font-black'
@@ -3168,6 +3346,7 @@ export default function App() {
                                     onSeatChange={handleSeatChange}
                                     onAssignStudent={handleAssignStudent}
                                     onOpenNotes={() => openStudentRecord(seat1)}
+                                    onRequestAbsenceConfirm={handleRequestAbsenceConfirm}
                                     onOpenPositiveParticipation={() => {
                                       if (!seat1.name || !seat1.name.trim()) {
                                         showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
@@ -3213,6 +3392,7 @@ export default function App() {
                                     onSeatChange={handleSeatChange}
                                     onAssignStudent={handleAssignStudent}
                                     onOpenNotes={() => openStudentRecord(seat2)}
+                                    onRequestAbsenceConfirm={handleRequestAbsenceConfirm}
                                     onOpenPositiveParticipation={() => {
                                       if (!seat2.name || !seat2.name.trim()) {
                                         showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
@@ -4062,6 +4242,28 @@ export default function App() {
         />
       )}
 
+      {/* Absence Confirmation & Automatic Guardian Notification Modal */}
+      {pendingAbsenceStudent && activeSection && (
+        <AbsenceConfirmationModal
+          isOpen={Boolean(pendingAbsenceStudent)}
+          onClose={() => setPendingAbsenceStudent(null)}
+          studentName={pendingAbsenceStudent.studentName}
+          studentNumber={pendingAbsenceStudent.studentNumber}
+          seatNum={pendingAbsenceStudent.seatNum}
+          massarNumber={pendingAbsenceStudent.massarNumber}
+          sectionId={pendingAbsenceStudent.sectionId}
+          sectionName={`${activeSection.level} - القسم ${activeSection.classNumber}`}
+          sectionLevel={activeSection.level}
+          sectionClass={activeSection.classNumber}
+          teacherName={currentUser?.fullName || activeSection.teacher || settings.teacher || 'أستاذ المادة'}
+          teacherSubject={currentUser?.subject || 'المادة'}
+          guardianPhone={pendingAbsenceStudent.guardianPhone}
+          guardianPhoneVerified={pendingAbsenceStudent.guardianPhoneVerified}
+          institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
+          onConfirm={handleConfirmAbsenceWithNotice}
+        />
+      )}
+
       {/* Print Sheet Area (Only rendered when printing) */}
       {activeSeatModal && activeSection && (
         <div id="print-area" style={{ display: 'none' }}>
@@ -4139,6 +4341,7 @@ interface SeatCardProps {
   ) => void;
   onOpenNotes: () => void;
   onOpenPositiveParticipation?: () => void;
+  onRequestAbsenceConfirm?: (seat: SeatItem) => void;
   isDragging?: boolean;
   isDropTarget?: boolean;
   isSelectedForSwap?: boolean;
@@ -4166,6 +4369,7 @@ function SeatCard({
   onAssignStudent,
   onOpenNotes,
   onOpenPositiveParticipation,
+  onRequestAbsenceConfirm,
   isDragging = false,
   isDropTarget = false,
   isSelectedForSwap = false,
@@ -4234,6 +4438,11 @@ function SeatCard({
   };
 
   const handleToggleAttendance = (status: 'present' | 'absent' | 'late') => {
+    // When marking absent on a student who is not currently absent: open confirmation modal!
+    if (status === 'absent' && seat.attendance !== 'absent' && onRequestAbsenceConfirm) {
+      onRequestAbsenceConfirm(seat);
+      return;
+    }
     const nextVal = seat.attendance === status ? null : status;
     onSeatChange(sectionId, seat.seat, 'attendance', nextVal);
   };

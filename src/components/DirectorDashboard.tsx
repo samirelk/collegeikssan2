@@ -1730,7 +1730,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                         setIsNotifyParentModalOpen(true);
                       }}
                       className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-rose-800 to-rose-900 hover:brightness-110 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
-                      title="إشعار جماعي لجميع أولياء أمور التلاميذ المسجلين بالمخالفات عبر رسائل SMS أو واتساب"
+                      title="إشعار جماعي لجميع أولياء أمور التلاميذ المسجلين بالمخالفات عبر واتساب (WhatsApp Cloud / رابط مباشر)"
                     >
                       <Smartphone className="w-3.5 h-3.5 text-amber-300" />
                       <span>إشعار أولياء المخالفين ({analytics.topViolations.length}) 📢</span>
@@ -1842,7 +1842,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                             setIsNotifyParentModalOpen(true);
                           }}
                           className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-900 border border-rose-300 text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                          title="إرسال إشعار بالمخالفة السلوكية لولي الأمر عبر SMS أو واتساب"
+                          title="إرسال إشعار بالمخالفة السلوكية لولي الأمر عبر واتساب (WhatsApp Cloud / رابط مباشر)"
                         >
                           <AlertTriangle className="w-3.5 h-3.5 text-rose-700" />
                           <span>إشعار بالمخالفة ⚠️📱</span>
@@ -1905,7 +1905,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                   setIsNotifyParentModalOpen(true);
                 }}
                 className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-[#1A4E47] to-[#143E38] hover:brightness-110 text-white font-bold text-xs shadow-2xs transition-colors cursor-pointer"
-                title="إشعار جماعي لجميع أولياء أمور التلاميذ الغائبين عبر رسائل SMS أو واتساب"
+                title="إشعار جماعي لجميع أولياء أمور التلاميذ الغائبين عبر واتساب (WhatsApp Cloud / رابط مباشر)"
               >
                 <Smartphone className="w-3.5 h-3.5 text-[#C98A3C]" />
                 <span>إشعار أولياء الغائبين ({displayedAbsencesList.length}) 📢</span>
@@ -2143,7 +2143,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                               setIsNotifyParentModalOpen(true);
                             }}
                             className="px-2.5 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 text-xs font-bold transition-all inline-flex items-center gap-1 cursor-pointer shadow-2xs"
-                            title="إرسال إشعار غياب لولي الأمر عبر SMS أو واتساب"
+                            title="إرسال إشعار غياب لولي الأمر عبر واتساب (WhatsApp Cloud / رابط مباشر)"
                           >
                             <Smartphone className="w-3.5 h-3.5 text-amber-800" />
                             <span>إشعار ولي الأمر 📱</span>
@@ -2393,7 +2393,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                               setIsNotifyParentModalOpen(true);
                             }}
                             className="p-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 transition-colors cursor-pointer shadow-2xs"
-                            title="إرسال إشعار فوري لولي الأمر عبر SMS أو واتساب (غياب أو مخالفة)"
+                            title="إرسال إشعار فوري لولي الأمر عبر واتساب (غياب أو مخالفة)"
                           >
                             <Smartphone className="w-3.5 h-3.5 text-amber-800" />
                           </button>

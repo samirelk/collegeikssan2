@@ -1,6 +1,7 @@
 /**
- * Automated SMS OTP Dispatch Service
- * Handles automatic delivery of SMS verification codes on behalf of the school administration.
+ * WhatsApp & WhatsApp Cloud API Notification & OTP Service
+ * Exclusively uses WhatsApp Cloud API (Meta Official) and Direct WhatsApp links (wa.me)
+ * All legacy SMS / Texto.ma services have been permanently removed.
  */
 
 export interface SmsDispatchRecord {
@@ -15,11 +16,11 @@ export interface SmsDispatchRecord {
   sentAt: string;
 }
 
-// In-memory log of recent SMS dispatches (for verification and troubleshooting)
+// In-memory log of recent WhatsApp dispatches
 const dispatchHistory: SmsDispatchRecord[] = [];
 
 /**
- * Format phone to Moroccan / International E.164 format
+ * Format phone to Moroccan / International E.164 format (e.g. 212612345678)
  */
 export function formatToInternationalPhone(rawPhone: string): string {
   const clean = rawPhone.trim().replace(/[\s\-\.\(\)]/g, '');
@@ -53,427 +54,6 @@ export function formatToMoroccanLocalPhone(rawPhone: string): string {
     return '0' + clean;
   }
   return clean;
-}
-
-export interface AndroidGatewayConfig {
-  enabled: boolean;
-  url: string;
-  token?: string;
-  schoolPhone?: string;
-}
-
-/**
- * Send SMS using Texto.ma (Moroccan SMS Gateway)
- */
-export async function sendViaTextoMa(options: {
-  token: string;
-  toPhone: string;
-  messageText: string;
-  url?: string;
-}): Promise<{ success: boolean; message: string; data?: any; error?: string }> {
-  const { token, toPhone, messageText, url = 'https://texto.ma/manage/data/api/send_sms' } = options;
-  const localPhone = formatToMoroccanLocalPhone(toPhone);
-
-  const params = new URLSearchParams();
-  params.append('token', token);
-  params.append('to', localPhone);
-  params.append('text', messageText);
-  params.append('special_char', '1');
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      },
-      body: params.toString(),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    const data = await res.json().catch(() => null);
-
-    if (data && (data.status === 200 || data.success === true || (data.status && Number(data.status) < 300 && !data.error))) {
-      return {
-        success: true,
-        message: `تم إرسال الرسالة القصيرة بنجاح عبر بوابة Texto.ma إلى الرقم (${localPhone}) ✓`,
-        data
-      };
-    }
-
-    if (data && data.error) {
-      let friendlyError = data.error;
-      if (typeof data.error === 'string' && data.error.toLowerCase().includes('insufficient balance')) {
-        friendlyError = 'رصيد الرسائل في حسابك على منصة Texto.ma غير كافٍ (Insufficient balance). يرجى شحن الرصيد في موقع texto.ma لتصل الرسائل إلى هواتف أولياء الأمور فوراً.';
-      } else if (typeof data.error === 'string' && data.error.toLowerCase().includes('token')) {
-        friendlyError = 'رمز الأمان (API Token) الخاص بمنصة Texto.ma غير صحيح أو انتهت صلاحيته.';
-      }
-      return {
-        success: false,
-        message: `ردت منصة Texto.ma: ${friendlyError}`,
-        error: data.error,
-        data
-      };
-    }
-
-    if (!res.ok) {
-      return {
-        success: false,
-        message: `تعذر إرسال SMS عبر Texto.ma (كود الخطأ ${res.status})`,
-        error: `HTTP ${res.status}`
-      };
-    }
-
-    return {
-      success: true,
-      message: `تم إرسال الرسالة عبر Texto.ma إلى (${localPhone}) ✓`,
-      data
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      message: `تعذر الاتصال ببوابة Texto.ma: ${err?.message || 'خطأ في الاتصال بالشبكة'}`,
-      error: err?.message
-    };
-  }
-}
-
-/**
- * Send an automated OTP SMS directly in the name of the school administration.
- */
-export async function sendSmsOtp(options: {
-  toPhone: string;
-  code: string;
-  institutionName?: string;
-  studentName?: string;
-  smsConfig?: any;
-  androidConfig?: AndroidGatewayConfig;
-}): Promise<{
-  success: boolean;
-  message: string;
-  senderName: string;
-  intlPhone: string;
-  code: string;
-  dispatchId: string;
-  gatewayUsed?: string;
-  whatsappUrl?: string;
-}> {
-  const { toPhone, code, institutionName = 'ثانوية ايكسان الإعدادية', studentName, smsConfig, androidConfig } = options;
-
-  const intlPhone = formatToInternationalPhone(toPhone);
-  const localPhone = formatToMoroccanLocalPhone(toPhone);
-  const senderName = institutionName.trim() || 'إدارة المؤسسة';
-  const dispatchId = 'sms_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const now = new Date().toISOString();
-
-  // Official school SMS message text
-  const studentPrefix = studentName ? ` لولي أمر التلميذ(ة) ${studentName}` : '';
-  const messageText = `المملكة المغربية • ${senderName}\nرمز التحقق (OTP)${studentPrefix} هو: ${code}\nيرجى إدخاله في التطبيق لتأكيد وتفعيل رقمكم لدى الإدارة. صالح لمدة 10 دقائق.`;
-
-  // Check if Twilio is configured
-  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-  const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
-  const twilioFrom = process.env.TWILIO_PHONE_NUMBER || process.env.TWILIO_MESSAGING_SERVICE_SID;
-
-  // Check if an external SMS Gateway API is configured in environment
-  const gatewayUrl = process.env.SMS_GATEWAY_URL;
-  const apiKey = process.env.SMS_API_KEY;
-
-  let gatewayUsed = 'Virtual Official SMS Gateway (بوابة الرسائل الافتراضية للمؤسسة)';
-  let isDelivered = true;
-  let deliveryDetails = '';
-
-  // 1. Priority 1: Texto.ma (المزود المغربي المعتمد)
-  const isTextoActive = smsConfig ? (smsConfig.provider === 'texto_ma' || smsConfig.textoEnabled !== false) : true;
-  const textoToken = smsConfig?.textoToken || process.env.TEXTO_MA_TOKEN || '$2y$10$Au3d./a/CEi3bpJ.MVgRauVLMj3YdrLN/P3UXbNmnlhDjEz/zQ2gq';
-  const textoUrl = smsConfig?.textoUrl || 'https://texto.ma/manage/data/api/send_sms';
-
-  if (isTextoActive && textoToken) {
-    gatewayUsed = 'Texto.ma (بوابة SMS المغربية)';
-    const textoRes = await sendViaTextoMa({
-      token: textoToken,
-      toPhone: localPhone,
-      messageText,
-      url: textoUrl
-    });
-
-    if (textoRes.success) {
-      isDelivered = true;
-      deliveryDetails = 'Sent via Texto.ma successfully';
-      console.log(`🇲🇦 [Texto.ma] Successfully sent SMS to ${localPhone}`);
-    } else {
-      isDelivered = false;
-      deliveryDetails = textoRes.message;
-      console.warn('[Texto.ma] Notice:', deliveryDetails);
-    }
-  } else if (androidConfig?.enabled && androidConfig?.url) {
-    // 2. Android SMS Gateway (هاتف الإدارة مع شريحة SIM عادية وفورفي غير محدود)
-    try {
-      gatewayUsed = 'Android SMS Gateway (هاتف الإدارة)';
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json'
-      };
-      if (androidConfig.token) {
-        headers['Authorization'] = `Bearer ${androidConfig.token}`;
-        headers['X-Token'] = androidConfig.token;
-      }
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-      const gatewayRes = await fetch(androidConfig.url, {
-        method: 'POST',
-        headers,
-        signal: controller.signal,
-        body: JSON.stringify({
-          to: '+' + intlPhone,
-          phone: '+' + intlPhone,
-          phoneNumber: '+' + intlPhone,
-          phoneNumbers: ['+' + intlPhone],
-          message: messageText,
-          text: messageText,
-          code
-        })
-      });
-      clearTimeout(timeoutId);
-
-      if (gatewayRes.ok) {
-        isDelivered = true;
-        deliveryDetails = 'Sent via Android SMS Gateway app';
-        console.log(`📱 [Android SMS Gateway] Successfully dispatched OTP to +${intlPhone}`);
-      } else {
-        isDelivered = false;
-        deliveryDetails = `Android Gateway responded with HTTP ${gatewayRes.status}`;
-        console.warn('[Android SMS Gateway] Warning:', deliveryDetails);
-      }
-    } catch (androidErr: any) {
-      isDelivered = false;
-      deliveryDetails = androidErr?.message || 'Android Gateway connection error';
-      console.warn('[Android SMS Gateway] Dispatch error:', deliveryDetails);
-    }
-  } else if (twilioSid && twilioAuthToken && twilioFrom) {
-    // 3. Twilio (if configured)
-    try {
-      gatewayUsed = 'Twilio SMS Gateway';
-      const twilioEndpoint = `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`;
-      const authHeader = 'Basic ' + Buffer.from(`${twilioSid}:${twilioAuthToken}`).toString('base64');
-      const params = new URLSearchParams();
-      params.append('To', '+' + intlPhone);
-      params.append('From', twilioFrom);
-      params.append('Body', messageText);
-
-      const twilioRes = await fetch(twilioEndpoint, {
-        method: 'POST',
-        headers: {
-          'Authorization': authHeader,
-          'Content-Type': 'application/x-www-form-urlencoded'
-        },
-        body: params.toString()
-      });
-
-      const twilioData = await twilioRes.json();
-      if (!twilioRes.ok) {
-        isDelivered = false;
-        deliveryDetails = twilioData.message || 'Twilio delivery error';
-        console.warn('[SMS Gateway] Twilio error:', deliveryDetails);
-      } else {
-        deliveryDetails = `SID: ${twilioData.sid}`;
-      }
-    } catch (twErr: any) {
-      isDelivered = false;
-      deliveryDetails = twErr?.message || 'Network error';
-      console.warn('[SMS Gateway] Twilio dispatch failed:', deliveryDetails);
-    }
-  } else if (gatewayUrl && apiKey) {
-    // 3. Generic SMS Provider
-    try {
-      gatewayUsed = 'External SMS Provider';
-      const response = await fetch(gatewayUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          from: senderName,
-          to: '+' + intlPhone,
-          text: messageText,
-          code
-        })
-      });
-      if (!response.ok) {
-        console.warn(`[SMS Gateway] Provider responded with status ${response.status}`);
-      }
-    } catch (apiErr: any) {
-      console.warn('[SMS Gateway] Direct gateway request error:', apiErr?.message);
-    }
-  }
-
-  // Direct WhatsApp Web dispatch link (free, instant fallback for parents)
-  const whatsappUrl = `https://api.whatsapp.com/send?phone=${intlPhone}&text=${encodeURIComponent(messageText)}`;
-
-  // Record dispatch in history
-  const record: SmsDispatchRecord = {
-    id: dispatchId,
-    toPhone,
-    intlPhone,
-    senderName,
-    messageText,
-    code,
-    status: isDelivered ? 'delivered' : 'failed',
-    gateway: gatewayUsed,
-    sentAt: now
-  };
-
-  dispatchHistory.unshift(record);
-  if (dispatchHistory.length > 100) {
-    dispatchHistory.pop();
-  }
-
-  console.log(`✉️ [SMS Gateway] Automated OTP dispatched to +${intlPhone} from "${senderName}" via ${gatewayUsed}`);
-
-  return {
-    success: true,
-    message: isDelivered
-      ? `تم إرسال رمز التحقق (OTP) بنجاح عبر رسالة قصيرة SMS باسم "${senderName}" إلى هاتف ولي الأمر (+${intlPhone}).`
-      : `تم تجهيز رمز التحقق لولي الأمر (+${intlPhone}). يمكنك إرساله أيضاً بنقرة واحدة عبر واتساب.`,
-    senderName,
-    intlPhone: '+' + intlPhone,
-    code,
-    dispatchId,
-    gatewayUsed,
-    whatsappUrl
-  };
-}
-
-/**
- * Test connectivity to the Android SMS Gateway
- */
-export async function testAndroidGateway(url: string, token: string | undefined, testPhone: string): Promise<{ success: boolean; message: string }> {
-  const intlPhone = formatToInternationalPhone(testPhone);
-  const testMessage = `المملكة المغربية • ثانوية ايكسان الإعدادية\nهذه رسالة اختبار تجريبية من بوابة هاتف الإدارة (Android SMS Gateway). الاتصال والتنسيق يعملان بنجاح! ✓`;
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-    headers['X-Token'] = token;
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 8000);
-
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      signal: controller.signal,
-      body: JSON.stringify({
-        to: '+' + intlPhone,
-        phone: '+' + intlPhone,
-        phoneNumber: '+' + intlPhone,
-        phoneNumbers: ['+' + intlPhone],
-        message: testMessage,
-        text: testMessage
-      })
-    });
-    clearTimeout(timeoutId);
-
-    if (res.ok) {
-      return {
-        success: true,
-        message: `تم إرسال رسالة الاختبار بنجاح عبر هاتف الإدارة إلى الرقم (+${intlPhone}) ✓`
-      };
-    } else {
-      const errText = await res.text().catch(() => '');
-      return {
-        success: false,
-        message: `استجاب هاتف الإدارة بكود (${res.status}): ${errText || 'يرجى التأكد من تشغيل الخادم بالتطبيق على هاتف الأندرويد'}`
-      };
-    }
-  } catch (err: any) {
-    clearTimeout(timeoutId);
-    return {
-      success: false,
-      message: `تعذر الاتصال بهاتف الإدارة (${url}): ${err?.message || 'تأكد من فتح تطبيق SMS Gateway على الهاتف واتصاله بالإنترنت'}`
-    };
-  }
-}
-
-export async function testTextoMaConnection(token: string, testPhone: string, url?: string): Promise<{ success: boolean; message: string; data?: any; error?: string }> {
-  const localPhone = formatToMoroccanLocalPhone(testPhone);
-  const testMessage = `المملكة المغربية • ثانوية ايكسان الإعدادية\nهذه رسالة اختبار تجريبية من بوابة Texto.ma للمدرسة الإلكترونية. الربط يعمل بنجاح! ✓`;
-
-  return sendViaTextoMa({
-    token,
-    toPhone: localPhone,
-    messageText: testMessage,
-    url
-  });
-}
-
-/**
- * Send SMS using Textbee.dev (300 free monthly SMS with synced Android phone)
- */
-export async function sendViaTextbee(options: {
-  apiKey: string;
-  deviceId: string;
-  toPhone: string;
-  messageText: string;
-}): Promise<{ success: boolean; message: string; data?: any; error?: string }> {
-  const { apiKey, deviceId, toPhone, messageText } = options;
-  const localPhone = formatToMoroccanLocalPhone(toPhone);
-  const intlPhone = '+' + formatToInternationalPhone(toPhone);
-
-  const url = `https://api.textbee.dev/api/v1/gateway/devices/${deviceId}/sendSMS`;
-
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        recipients: [intlPhone, localPhone],
-        message: messageText
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-
-    const data = await res.json().catch(() => null);
-
-    if (res.ok && (data?.success || data?.status === 'success' || data?.data)) {
-      return {
-        success: true,
-        message: `تم إرسال الرسالة القصيرة بنجاح عبر Textbee.dev إلى (${localPhone}) ✓`,
-        data
-      };
-    }
-
-    const err = data?.message || data?.error || `HTTP ${res.status}`;
-    return {
-      success: false,
-      message: `ردت بوابة Textbee.dev: ${err}`,
-      error: err,
-      data
-    };
-  } catch (err: any) {
-    return {
-      success: false,
-      message: `تعذر الاتصال ببوابة Textbee.dev: ${err?.message || 'خطأ في الشبكة'}`,
-      error: err?.message
-    };
-  }
 }
 
 // ---------------- WhatsApp Cloud API (Meta Official) ----------------
@@ -610,6 +190,108 @@ export async function testWhatsAppCloudConnection(options: {
   });
 }
 
+/**
+ * Send an automated OTP verification code via WhatsApp Cloud API or direct WhatsApp link.
+ */
+export async function sendSmsOtp(options: {
+  toPhone: string;
+  code: string;
+  institutionName?: string;
+  studentName?: string;
+  smsConfig?: any;
+  androidConfig?: any;
+}): Promise<{
+  success: boolean;
+  message: string;
+  senderName: string;
+  intlPhone: string;
+  code: string;
+  dispatchId: string;
+  gatewayUsed?: string;
+  whatsappUrl?: string;
+}> {
+  const { toPhone, code, institutionName = 'ثانوية ايكسان الإعدادية', studentName, smsConfig } = options;
+
+  const intlPhone = formatToInternationalPhone(toPhone);
+  const localPhone = formatToMoroccanLocalPhone(toPhone);
+  const senderName = institutionName.trim() || 'إدارة المؤسسة';
+  const dispatchId = 'otp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const now = new Date().toISOString();
+
+  // Official school WhatsApp OTP message text
+  const studentPrefix = studentName ? ` لولي أمر التلميذ(ة) ${studentName}` : '';
+  const messageText = `المملكة المغربية • ${senderName}\nرمز التحقق (OTP)${studentPrefix} هو: ${code}\nيرجى إدخاله في التطبيق لتأكيد وتفعيل رقمكم لدى الإدارة. صالح لمدة 10 دقائق.`;
+
+  let gatewayUsed = 'WhatsApp Web / App Direct (مباشر عبر واتساب)';
+  let isDelivered = false;
+
+  // Direct WhatsApp Web / App dispatch link
+  const whatsappUrl = `https://api.whatsapp.com/send?phone=${intlPhone}&text=${encodeURIComponent(messageText)}`;
+
+  // Priority 1: WhatsApp Cloud API (if configured in system settings)
+  const isCloudConfigured = Boolean(
+    smsConfig?.whatsappPhoneNumberId &&
+    smsConfig?.whatsappAccessToken
+  );
+
+  if (isCloudConfigured) {
+    try {
+      const cloudRes = await sendViaWhatsAppCloudApi({
+        phoneNumberId: smsConfig.whatsappPhoneNumberId,
+        accessToken: smsConfig.whatsappAccessToken,
+        toPhone: intlPhone,
+        messageText,
+        templateName: smsConfig.whatsappTemplateName,
+        studentName,
+        institutionName: senderName
+      });
+
+      if (cloudRes.success) {
+        isDelivered = true;
+        gatewayUsed = 'WhatsApp Cloud API (Meta Official)';
+      } else {
+        console.warn('[WhatsApp Cloud API] OTP dispatch notice:', cloudRes.message);
+      }
+    } catch (err: any) {
+      console.warn('[WhatsApp Cloud API] Failed to send OTP:', err.message);
+    }
+  }
+
+  // Record dispatch in history
+  const record: SmsDispatchRecord = {
+    id: dispatchId,
+    toPhone: localPhone,
+    intlPhone: '+' + intlPhone,
+    senderName,
+    messageText,
+    code,
+    status: isDelivered ? 'delivered' : 'pending',
+    gateway: gatewayUsed,
+    sentAt: now
+  };
+
+  dispatchHistory.unshift(record);
+  if (dispatchHistory.length > 100) {
+    dispatchHistory.pop();
+  }
+
+  return {
+    success: true,
+    message: isDelivered
+      ? `تم إرسال رمز التحقق (OTP) بنجاح وبشكل آلي عبر WhatsApp Cloud API إلى هاتف ولي الأمر (+${intlPhone}).`
+      : `تم تجهيز رمز التحقق لولي الأمر (+${intlPhone}). يمكنك إرساله بنقرة واحدة مباشرة عبر واتساب.`,
+    senderName,
+    intlPhone: '+' + intlPhone,
+    code,
+    dispatchId,
+    gatewayUsed,
+    whatsappUrl
+  };
+}
+
+// Export WhatsApp-named alias for seamless transition
+export const sendWhatsAppOtp = sendSmsOtp;
+
 export interface GuardianNotificationOptions {
   toPhone: string;
   studentName: string;
@@ -617,14 +299,14 @@ export interface GuardianNotificationOptions {
   sectionName?: string;
   notificationType: 'absence' | 'violation' | 'summons' | 'custom';
   messageText: string;
-  channel?: 'sms' | 'whatsapp' | 'whatsapp_cloud' | 'both';
+  channel?: 'whatsapp' | 'whatsapp_cloud' | 'sms' | 'both';
   institutionName?: string;
   directorName?: string;
   smsConfig?: any;
 }
 
 /**
- * Unified Guardian Notification Dispatcher (WhatsApp Cloud API + SMS + WhatsApp Web)
+ * Unified Guardian Notification Dispatcher (Exclusively WhatsApp Cloud API & Direct WhatsApp)
  */
 export async function sendGuardianNotification(options: GuardianNotificationOptions): Promise<{
   success: boolean;
@@ -643,7 +325,6 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
     studentName,
     notificationType,
     messageText,
-    channel = 'whatsapp_cloud',
     institutionName = 'المدرسة الإلكترونية',
     smsConfig
   } = options;
@@ -655,117 +336,31 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
 
   const whatsappUrl = `https://api.whatsapp.com/send?phone=${intlPhone}&text=${encodeURIComponent(messageText)}`;
 
-  let smsSuccess = false;
   let whatsappCloudSuccess = false;
-  let gatewayUsed = 'None';
+  let gatewayUsed = 'WhatsApp Web / App Direct (مباشر عبر واتساب)';
   let statusMessage = '';
 
   const isWhatsAppCloudEligible = Boolean(
-    smsConfig?.whatsappCloudEnabled &&
     smsConfig?.whatsappPhoneNumberId &&
     smsConfig?.whatsappAccessToken
   );
 
-  // 1. Try WhatsApp Cloud API if requested or if it's the preferred provider
-  if (
-    channel === 'whatsapp_cloud' ||
-    ((channel === 'whatsapp' || channel === 'both') && (smsConfig?.provider === 'whatsapp_cloud' || isWhatsAppCloudEligible))
-  ) {
-    if (isWhatsAppCloudEligible) {
-      gatewayUsed = 'WhatsApp Cloud API (Meta)';
-      const cloudRes = await sendViaWhatsAppCloudApi({
-        phoneNumberId: smsConfig.whatsappPhoneNumberId,
-        accessToken: smsConfig.whatsappAccessToken,
-        toPhone: intlPhone,
-        messageText,
-        templateName: smsConfig.whatsappTemplateName,
-        studentName,
-        notificationType,
-        institutionName
-      });
+  // 1. Dispatch via WhatsApp Cloud API if credentials exist
+  if (isWhatsAppCloudEligible) {
+    gatewayUsed = 'WhatsApp Cloud API (Meta Official)';
+    const cloudRes = await sendViaWhatsAppCloudApi({
+      phoneNumberId: smsConfig.whatsappPhoneNumberId,
+      accessToken: smsConfig.whatsappAccessToken,
+      toPhone: intlPhone,
+      messageText,
+      templateName: smsConfig.whatsappTemplateName,
+      studentName,
+      notificationType,
+      institutionName
+    });
 
-      whatsappCloudSuccess = cloudRes.success;
-      statusMessage = cloudRes.message;
-
-      // Log to history
-      dispatchHistory.unshift({
-        id: dispatchId,
-        toPhone: localPhone,
-        intlPhone: '+' + intlPhone,
-        senderName: institutionName,
-        messageText,
-        code: notificationType,
-        status: whatsappCloudSuccess ? 'delivered' : 'failed',
-        gateway: gatewayUsed,
-        sentAt: now
-      });
-      if (dispatchHistory.length > 100) {
-        dispatchHistory.pop();
-      }
-
-      if (whatsappCloudSuccess) {
-        return {
-          success: true,
-          smsSuccess: false,
-          whatsappCloudSuccess: true,
-          message: `تم إرسال إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} تلقائياً لولي أمر (${studentName}) عبر WhatsApp Cloud API ✓`,
-          smsStatus: statusMessage,
-          gatewayUsed,
-          whatsappUrl,
-          toPhone: localPhone,
-          intlPhone: '+' + intlPhone,
-          dispatchId
-        };
-      }
-    }
-  }
-
-  // 2. Dispatch real SMS if channel is 'sms' or 'both', or as fallback
-  if (channel === 'sms' || channel === 'both' || (channel === 'whatsapp_cloud' && !isWhatsAppCloudEligible)) {
-    const provider = smsConfig?.provider || 'texto_ma';
-
-    if (provider === 'texto_ma' && (smsConfig?.textoToken || process.env.TEXTO_MA_TOKEN)) {
-      gatewayUsed = 'Texto.ma (المغرب)';
-      const token = smsConfig?.textoToken || process.env.TEXTO_MA_TOKEN || '$2y$10$Au3d./a/CEi3bpJ.MVgRauVLMj3YdrLN/P3UXbNmnlhDjEz/zQ2gq';
-      const url = smsConfig?.textoUrl || 'https://texto.ma/manage/data/api/send_sms';
-
-      const textoRes = await sendViaTextoMa({
-        token,
-        toPhone: localPhone,
-        messageText,
-        url
-      });
-
-      smsSuccess = textoRes.success;
-      statusMessage = textoRes.message;
-    } else if (provider === 'textbee' && smsConfig?.textbeeApiKey && smsConfig?.textbeeDeviceId) {
-      gatewayUsed = 'Textbee.dev (300 SMS مجاني)';
-      const textbeeRes = await sendViaTextbee({
-        apiKey: smsConfig.textbeeApiKey,
-        deviceId: smsConfig.textbeeDeviceId,
-        toPhone: localPhone,
-        messageText
-      });
-
-      smsSuccess = textbeeRes.success;
-      statusMessage = textbeeRes.message;
-    } else if (smsConfig?.androidEnabled && smsConfig?.androidUrl) {
-      gatewayUsed = 'Android SMS Gateway (هاتف الإدارة)';
-      const res = await testAndroidGateway(smsConfig.androidUrl, smsConfig.androidToken, localPhone);
-      smsSuccess = res.success;
-      statusMessage = res.message;
-    } else {
-      // Fallback: Texto.ma
-      gatewayUsed = 'Texto.ma (المزود التلقائي)';
-      const defaultToken = process.env.TEXTO_MA_TOKEN || '$2y$10$Au3d./a/CEi3bpJ.MVgRauVLMj3YdrLN/P3UXbNmnlhDjEz/zQ2gq';
-      const textoRes = await sendViaTextoMa({
-        token: defaultToken,
-        toPhone: localPhone,
-        messageText
-      });
-      smsSuccess = textoRes.success;
-      statusMessage = textoRes.message;
-    }
+    whatsappCloudSuccess = cloudRes.success;
+    statusMessage = cloudRes.message;
 
     // Log to history
     dispatchHistory.unshift({
@@ -775,30 +370,56 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
       senderName: institutionName,
       messageText,
       code: notificationType,
-      status: smsSuccess ? 'delivered' : 'failed',
+      status: whatsappCloudSuccess ? 'delivered' : 'failed',
       gateway: gatewayUsed,
       sentAt: now
     });
     if (dispatchHistory.length > 100) {
       dispatchHistory.pop();
     }
+
+    if (whatsappCloudSuccess) {
+      return {
+        success: true,
+        smsSuccess: false,
+        whatsappCloudSuccess: true,
+        message: `تم إرسال إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} تلقائياً لولي أمر (${studentName}) عبر WhatsApp Cloud API ✓`,
+        smsStatus: statusMessage,
+        gatewayUsed,
+        whatsappUrl,
+        toPhone: localPhone,
+        intlPhone: '+' + intlPhone,
+        dispatchId
+      };
+    }
   }
 
-  const success = channel === 'whatsapp' ? true : (smsSuccess || whatsappCloudSuccess);
-  const message = channel === 'whatsapp'
-    ? `تم إعداد رابط واتساب المباشر بنجاح لولي أمر التلميذ (${studentName})`
-    : smsSuccess
-      ? `تم إرسال إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} بنجاح عبر SMS إلى ولي أمر التلميذ (${studentName}) على الرقم (${localPhone}) عبر ${gatewayUsed} ✓`
-      : whatsappCloudSuccess
-        ? `تم إرسال إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} بنجاح عبر WhatsApp Cloud API لولي أمر (${studentName}) ✓`
-        : `تعذر الإرسال الآلي: ${statusMessage}. يمكنك استخدام المراسلة الفورية عبر واتساب كبديل مجاني ومباشر.`;
+  // 2. Direct WhatsApp link fallback (instant, 100% free, opens WhatsApp with pre-filled message)
+  dispatchHistory.unshift({
+    id: dispatchId,
+    toPhone: localPhone,
+    intlPhone: '+' + intlPhone,
+    senderName: institutionName,
+    messageText,
+    code: notificationType,
+    status: 'delivered',
+    gateway: gatewayUsed,
+    sentAt: now
+  });
+  if (dispatchHistory.length > 100) {
+    dispatchHistory.pop();
+  }
+
+  const message = isWhatsAppCloudEligible
+    ? `تعذر الإرسال السحابي الآلي: ${statusMessage}. يمكنك المراسلة الفورية عبر رابط واتساب المباشر.`
+    : `تم تجهيز إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} لولي أمر التلميذ (${studentName}) للإرسال الفوري عبر واتساب.`;
 
   return {
-    success,
-    smsSuccess,
-    whatsappCloudSuccess,
+    success: true,
+    smsSuccess: false,
+    whatsappCloudSuccess: false,
     message,
-    smsStatus: statusMessage,
+    smsStatus: statusMessage || 'جاهز للإرسال المباشر عبر واتساب',
     gatewayUsed,
     whatsappUrl,
     toPhone: localPhone,
@@ -810,6 +431,3 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
 export function getSmsDispatchLogs(): SmsDispatchRecord[] {
   return [...dispatchHistory];
 }
-
-
-
