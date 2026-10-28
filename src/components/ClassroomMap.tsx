@@ -23,11 +23,13 @@ import {
   List,
   Search,
   Eye,
-  EyeOff
+  EyeOff,
+  Box
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { SectionItem, SeatItem } from '../types';
 import { RosterReorderModal } from './RosterReorderModal';
+import { Classroom3DView } from './Classroom3DView';
 
 interface ClassroomMapProps {
   section: SectionItem;
@@ -70,7 +72,7 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
   const [showReorderModal, setShowReorderModal] = useState<boolean>(false);
 
   // Dual-Mode & Capacity state
-  const [viewMode, setViewMode] = useState<'map' | 'roster'>('map');
+  const [viewMode, setViewMode] = useState<'map' | '3d' | 'roster'>('map');
   const [hideEmptySeats, setHideEmptySeats] = useState<boolean>(false);
   const [capacity, setCapacity] = useState<number>(40);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -670,7 +672,7 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
 
       {/* Dual-Mode Switcher Toolbar */}
       <div className="bg-[#172B24] border border-[#C98A3C]/40 rounded-2xl p-2.5 mb-4 shadow-md flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="flex items-center gap-1.5 p-1 bg-black/30 rounded-xl border border-white/10 w-fit">
+        <div className="flex items-center gap-1.5 p-1 bg-black/30 rounded-xl border border-white/10 w-fit flex-wrap">
           <button
             type="button"
             onClick={() => setViewMode('map')}
@@ -679,7 +681,21 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
             }`}
           >
             <LayoutGrid className="w-4 h-4" />
-            <span>خريطة المقاعد التفاعلية</span>
+            <span>خريطة المقاعد (2D)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode('3d')}
+            className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === '3d' ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md' : 'text-[#F2EFE3]/70 hover:text-white'
+            }`}
+            title="معاينة ثلاثية الأبعاد تفاعلية للقاعة 3D"
+          >
+            <Box className="w-4 h-4 text-emerald-300" />
+            <span>قاعة ثلاثية الأبعاد (3D)</span>
+            <span className="px-1.5 py-0.2 bg-emerald-500 text-black text-[10px] font-black rounded-md animate-pulse">
+              3D
+            </span>
           </button>
           <button
             type="button"
@@ -854,8 +870,26 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
             </div>
           )}
         </div>
+      ) : viewMode === '3d' ? (
+        <Classroom3DView
+          section={section}
+          settings={{
+            institution: 'الثانوية الإعدادية ايكسان',
+            year: '2026/2027',
+            teacher: section.teacher || ''
+          }}
+          currentUser={null}
+          onToggleAttendance={() => {}}
+          onOpenPositiveParticipation={(seatNum) => {
+            if (onOpenPositiveParticipation) onOpenPositiveParticipation(seatNum);
+          }}
+          onOpenStudentRecord={(seat) => {
+            onOpenNotes(seat.seat);
+          }}
+          onBackTo2D={() => setViewMode('map')}
+        />
       ) : (
-        /* INTERACTIVE SEATING MAP VIEW */
+        /* INTERACTIVE SEATING MAP VIEW (2D) */
         <>
           {/* Drag & Drop Hint */}
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-2.5 mb-4 text-xs text-amber-100 flex items-center justify-between flex-wrap gap-2">

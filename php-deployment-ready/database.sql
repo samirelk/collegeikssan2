@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS `seats` (
   `student_name` VARCHAR(128) DEFAULT '',
   `student_number` VARCHAR(32) DEFAULT '',
   `massar_number` VARCHAR(64) DEFAULT '',
+  `guardian_phone` VARCHAR(32) DEFAULT '',
+  `photo_url` LONGTEXT DEFAULT NULL,
   `roster_id` VARCHAR(64) DEFAULT NULL,
   `status_color` VARCHAR(32) DEFAULT 'default',
   `attendance` ENUM('present', 'absent', 'late') DEFAULT NULL,
@@ -89,6 +91,8 @@ CREATE TABLE IF NOT EXISTS `attendance_history` (
   `removed_at` VARCHAR(64) DEFAULT '',
   `remover_name` VARCHAR(128) DEFAULT '',
   `remover_subject` VARCHAR(64) DEFAULT '',
+  `from_time` VARCHAR(16) DEFAULT NULL,
+  `to_time` VARCHAR(16) DEFAULT NULL,
   `count_in_stats` TINYINT(1) DEFAULT 1,
   `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   INDEX `idx_att_sec_date` (`section_id`, `recorded_date`),
@@ -207,3 +211,37 @@ INSERT INTO `users` (`id`, `username`, `email`, `password`, `full_name`, `role`,
 VALUES
 ('usr_admin_default', 'admin', 'admin@echsa.ma', '$2y$10$wTqKjWl0xL5YkU3V1Z8nxeZ8mX1C9y0qP4bO7A8d.kF2R6g9H3uO6', 'المشرف العام (الإدارة التربوية)', 'admin', 'active', 'الإدارة', 1)
 ON DUPLICATE KEY UPDATE `status`='active';
+
+CREATE TABLE IF NOT EXISTS `student_accounts` (
+  `id` INT AUTO_INCREMENT PRIMARY KEY,
+  `massar_number` VARCHAR(64) NOT NULL UNIQUE,
+  `student_name` VARCHAR(128) NOT NULL,
+  `section_id` VARCHAR(64) DEFAULT '',
+  `guardian_phone` VARCHAR(32) DEFAULT '',
+  `guardian_phone_verified` TINYINT(1) DEFAULT 0,
+  `photo_url` LONGTEXT DEFAULT NULL,
+  `verification_code` VARCHAR(16) DEFAULT NULL,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_sa_massar` (`massar_number`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `whatsapp_dispatch_logs` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `to_phone` VARCHAR(32) NOT NULL,
+  `intl_phone` VARCHAR(32) NOT NULL,
+  `sender_name` VARCHAR(128) NOT NULL,
+  `message_text` TEXT NOT NULL,
+  `code` VARCHAR(64) DEFAULT '',
+  `status` VARCHAR(32) NOT NULL DEFAULT 'delivered',
+  `gateway` VARCHAR(64) NOT NULL DEFAULT 'WhatsApp Cloud API',
+  `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  INDEX `idx_wdl_sent` (`sent_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `app_settings` (`key_name`, `value`) VALUES
+('sms_provider', 'whatsapp_cloud'),
+('verification_channel', 'whatsapp_cloud'),
+('whatsapp_cloud_enabled', '1')
+ON DUPLICATE KEY UPDATE `value`=VALUES(`value`);
+

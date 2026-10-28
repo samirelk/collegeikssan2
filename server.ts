@@ -854,31 +854,23 @@ async function startServer() {
     }
   });
 
-  // 6f. Download PHP & MySQL Complete Package (ZIP & TAR.GZ)
-  app.get(['/echsa_school_system_complete.zip', '/api/download-zip'], (req, res) => {
+  // 6f. Download Unified PHP & MySQL Package (ZIP)
+  app.get([
+    '/echsa_school_system_php_mysql.zip',
+    '/echsa_school_system_complete.zip',
+    '/echsa_school_system_complete.tar.gz',
+    '/echsa_php_mysql_complete_package.tar.gz',
+    '/api/download-zip',
+    '/api/export-php-package'
+  ], (req, res) => {
     try {
-      const filePath = path.join(process.cwd(), 'public', 'echsa_school_system_complete.zip');
+      const filePath = path.join(process.cwd(), 'public', 'echsa_school_system_php_mysql.zip');
       if (fs.existsSync(filePath)) {
-        res.setHeader('Content-Disposition', 'attachment; filename="echsa_school_system_complete.zip"');
+        res.setHeader('Content-Disposition', 'attachment; filename="echsa_school_system_php_mysql.zip"');
         res.setHeader('Content-Type', 'application/zip');
         fs.createReadStream(filePath).pipe(res);
       } else {
-        res.status(404).json({ success: false, error: 'ملف الحزمة غير موجود' });
-      }
-    } catch (err: any) {
-      res.status(500).json({ success: false, error: err.message });
-    }
-  });
-
-  app.get(['/echsa_school_system_complete.tar.gz', '/echsa_php_mysql_complete_package.tar.gz', '/api/export-php-package'], (req, res) => {
-    try {
-      const filePath = path.join(process.cwd(), 'public', 'echsa_school_system_complete.tar.gz');
-      if (fs.existsSync(filePath)) {
-        res.setHeader('Content-Disposition', 'attachment; filename="echsa_school_system_complete.tar.gz"');
-        res.setHeader('Content-Type', 'application/gzip');
-        fs.createReadStream(filePath).pipe(res);
-      } else {
-        res.status(404).json({ success: false, error: 'ملف الحزمة غير موجود حالياً' });
+        res.status(404).json({ success: false, error: 'ملف الحزمة الموحدة غير موجود' });
       }
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });

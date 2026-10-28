@@ -1051,6 +1051,470 @@ if ($segments[0] === 'assignment-requests') {
 }
 
 // -------------------------------------------------------------
+// 10. استعمال الزمان للأستاذ (Teacher Timetable)
+// -------------------------------------------------------------
+if ($segments[0] === 'teacher' && ($segments[1] ?? '') === 'timetable') {
+    try {
+        $pdo->exec("CREATE TABLE IF NOT EXISTS `teacher_timetable` (
+          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+          `teacher_id` VARCHAR(64) NOT NULL,
+          `day_of_week` VARCHAR(32) NOT NULL,
+          `slot_id` VARCHAR(32) NOT NULL,
+          `period_type` VARCHAR(32) NOT NULL,
+          `start_time` VARCHAR(16) NOT NULL,
+          `end_time` VARCHAR(16) NOT NULL,
+          `section_id` VARCHAR(64) NOT NULL,
+          `room` VARCHAR(64) DEFAULT '',
+          `subject` VARCHAR(64) DEFAULT '',
+          `notes` TEXT DEFAULT NULL,
+          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX `idx_tt_teacher` (`teacher_id`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    } catch (Exception $e) {}
+
+    // حذف حصة محددة
+    if (($segments[2] ?? '') === 'slot' && isset($segments[3]) && isset($segments[4]) && $method === 'DELETE') {
+        $day = $segments[3];
+        $slot = $segments[4];
+        $tId = $_GET['teacherId'] ?? $userId;
+        $pdo->prepare("DELETE FROM teacher_timetable WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?")->execute([$tId, $day, $slot]);
+        jsonResponse(['success' => true]);
+    }
+
+    // جلب جدول الحصص
+    if ($method === 'GET') {
+        $tId = $_GET['teacherId'] ?? $userId;
+        $stmt = $pdo->prepare("SELECT * FROM teacher_timetable WHERE teacher_id = ?");
+        $stmt->execute([$tId]);
+        $rows = $stmt->fetchAll();
+        $entries = array_map(function($r) {
+            return [
+                'id' => $r['id'],
+                'teacherId' => $r['teacher_id'],
+                'dayOfWeek' => $r['day_of_week'],
+                'slotId' => $r['slot_id'],
+                'period' => $r['period_type'],
+                'startTime' => $r['start_time'],
+                'endTime' => $r['end_time'],
+                'sectionId' => $r['section_id'],
+                'room' => $r['room'] ?? '',
+                'subject' => $r['subject'] ?? '',
+                'notes' => $r['notes'] ?? ''
+            ];
+        }, $rows);
+        jsonResponse(['success' => true, 'entries' => $entries]);
+    }
+
+    // إضافة أو تحديث حصة
+    if ($method === 'POST') {
+        $input = getJsonInput();
+        $id = 'tt_' . bin2hex(random_bytes(6));
+        $tId = $input['teacherId'] ?? $userId;
+        $day = $input['dayOfWeek'] ?? '';
+        $slot = $input['slotId'] ?? '';
+        $period = $input['periodType'] ?? 'morning';
+        $start = $input['startTime'] ?? '';
+        $end = $input['endTime'] ?? '';
+        $sec = $input['sectionId'] ?? '';
+        $room = $input['room'] ?? '';
+        $subj = $input['subject'] ?? '';
+        $notes = $input['notes'] ?? '';
+
+        $pdo->prepare("DELETE FROM teacher_timetable WHERE teacher_id = ? AND day_of_week = ? AND slot_id = ?")->execute([$tId, $day, $slot]);
+        $stmt = $pdo->prepare("INSERT INTO teacher_timetable (id, teacher_id, day_of_week, slot_id, period_type, start_time, end_time, section_id, room, subject, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $stmt->execute([$id, $tId, $day, $slot, $period, $start, $end, $sec, $room, $subj, $notes]);
+
+        jsonResponse([
+            'success' => true,
+            'entry' => [
+                'id' => $id,
+                'teacherId' => $tId,
+                'dayOfWeek' => $day,
+                'slotId' => $slot,
+                'period' => $period,
+                'startTime' => $start,
+                'endTime' => $end,
+                'sectionId' => $sec,
+                'room' => $room,
+                'subject' => $subj,
+                'notes' => $notes
+            ]
+        ]);
+    }
+}
+
+// -------------------------------------------------------------
+// 11. بوابة واتساب الرسمية (WhatsApp Cloud API - Meta) وإدارة الإشعارات
+// -------------------------------------------------------------
+if ($segments[0] === 'admin') {
+    $sub = $segments[1] ?? '';
+
+    // إعدادات بوابة واتساب (sms-gateway/config)
+    if ($sub === 'sms-gateway' && ($segments[2] ?? '') === 'config') {
+        if ($method === 'GET') {
+            $stmt = $pdo->query("SELECT key_name, value FROM app_settings WHERE key_name LIKE 'whatsapp_%' OR key_name LIKE 'sms_%' OR key_name = 'verification_channel'");
+            $map = [];
+            while ($r = $stmt->fetch()) {
+                $map[$r['key_name']] = $r['value'];
+            }
+            jsonResponse([
+                'success' => true,
+                'config' => [
+                    'provider' => 'whatsapp_cloud',
+                    'whatsappCloudEnabled' => ($map['whatsapp_cloud_enabled'] ?? '1') !== '0',
+                    'whatsappPhoneNumberId' => $map['whatsapp_phone_number_id'] ?? '',
+                    'whatsappAccessToken' => $map['whatsapp_access_token'] ?? '',
+                    'whatsappBusinessAccountId' => $map['whatsapp_waba_id'] ?? '',
+                    'whatsappTemplateName' => $map['whatsapp_template_name'] ?? '',
+                    'schoolPhone' => $map['school_phone'] ?? '',
+                    'defaultChannel' => 'whatsapp_cloud'
+                ]
+            ]);
+        }
+
+        if ($method === 'POST') {
+            $input = getJsonInput();
+            $now = date('Y-m-d H:i:s');
+            $upsert = $pdo->prepare("INSERT INTO app_settings (key_name, value, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)");
+            
+            $upsert->execute(['sms_provider', 'whatsapp_cloud', $now]);
+            $upsert->execute(['verification_channel', 'whatsapp_cloud', $now]);
+            if (isset($input['whatsappCloudEnabled'])) $upsert->execute(['whatsapp_cloud_enabled', $input['whatsappCloudEnabled'] ? '1' : '0', $now]);
+            if (isset($input['whatsappPhoneNumberId'])) $upsert->execute(['whatsapp_phone_number_id', trim($input['whatsappPhoneNumberId']), $now]);
+            if (isset($input['whatsappAccessToken'])) $upsert->execute(['whatsapp_access_token', trim($input['whatsappAccessToken']), $now]);
+            if (isset($input['whatsappBusinessAccountId'])) $upsert->execute(['whatsapp_waba_id', trim($input['whatsappBusinessAccountId']), $now]);
+            if (isset($input['whatsappTemplateName'])) $upsert->execute(['whatsapp_template_name', trim($input['whatsappTemplateName']), $now]);
+            if (isset($input['schoolPhone'])) $upsert->execute(['school_phone', trim($input['schoolPhone']), $now]);
+
+            jsonResponse([
+                'success' => true,
+                'message' => 'تم حفظ إعدادات بوابة واتساب (WhatsApp Cloud API) بنجاح ✓'
+            ]);
+        }
+    }
+
+    // اختبار الاتصال بـ WhatsApp Cloud API
+    if (($sub === 'sms-gateway' && ($segments[2] ?? '') === 'test') || ($sub === 'whatsapp-cloud' && ($segments[2] ?? '') === 'test')) {
+        $input = getJsonInput();
+        $testPhone = trim($input['testPhone'] ?? '');
+        if (!$testPhone) {
+            jsonResponse(['success' => false, 'error' => 'يرجى إدخال رقم هاتف لإرسال رسالة الاختبار إليه'], 400);
+        }
+
+        $phoneId = trim($input['phoneNumberId'] ?? '');
+        $token = trim($input['accessToken'] ?? $input['token'] ?? '');
+        $tpl = trim($input['templateName'] ?? '');
+
+        if (!$phoneId || !$token) {
+            $stmt = $pdo->query("SELECT key_name, value FROM app_settings WHERE key_name IN ('whatsapp_phone_number_id', 'whatsapp_access_token', 'whatsapp_template_name')");
+            while ($r = $stmt->fetch()) {
+                if ($r['key_name'] === 'whatsapp_phone_number_id' && !$phoneId) $phoneId = $r['value'];
+                if ($r['key_name'] === 'whatsapp_access_token' && !$token) $token = $r['value'];
+                if ($r['key_name'] === 'whatsapp_template_name' && !$tpl) $tpl = $r['value'];
+            }
+        }
+
+        if (!$phoneId || !$token) {
+            jsonResponse(['success' => false, 'error' => 'يرجى إدخال Phone Number ID و Access Token الخاصين بحساب Meta Developers'], 400);
+        }
+
+        $cleanTo = preg_replace('/[\s\-\.\(\)]/', '', $testPhone);
+        if (strpos($cleanTo, '0') === 0) $cleanTo = '212' . substr($cleanTo, 1);
+        if (strpos($cleanTo, '+212') === 0) $cleanTo = substr($cleanTo, 1);
+
+        $testMsg = "المملكة المغربية 🇲🇦\nمنظومة الإدارة التربوية والمواظبة الرقمية (PHP & MySQL)\nهذه رسالة اختبار للتأكد من نجاح ربط خدمة WhatsApp Cloud API بالمؤسسة ✓\nالتاريخ: " . date('Y-m-d H:i');
+
+        $url = "https://graph.facebook.com/v21.0/" . $phoneId . "/messages";
+        $payload = [
+            'messaging_product' => 'whatsapp',
+            'recipient_type' => 'individual',
+            'to' => $cleanTo,
+            'type' => 'text',
+            'text' => ['preview_url' => false, 'body' => $testMsg]
+        ];
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_POST, 1);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Authorization: Bearer ' . $token,
+            'Content-Type: application/json'
+        ]);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $res = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $cErr = curl_error($ch);
+        curl_close($ch);
+
+        if ($cErr) {
+            jsonResponse(['success' => false, 'message' => 'تعذر الاتصال بخوادم واتساب: ' . $cErr]);
+        }
+
+        $data = json_decode($res, true);
+        if ($httpCode >= 200 && $httpCode < 300 && !empty($data['messages'])) {
+            jsonResponse([
+                'success' => true,
+                'message' => 'تم إرسال رسالة الاختبار بنجاح عبر WhatsApp Cloud API إلى (' . $cleanTo . ') ✓',
+                'messageId' => $data['messages'][0]['id'] ?? ''
+            ]);
+        }
+
+        $fbErr = $data['error']['message'] ?? ('استجابت منصة Meta بكود ' . $httpCode);
+        jsonResponse([
+            'success' => false,
+            'message' => 'ردت منصة Meta: ' . $fbErr,
+            'error' => $data['error'] ?? null
+        ]);
+    }
+
+    // سجلات إرسال واتساب
+    if ($sub === 'sms-gateway' && ($segments[2] ?? '') === 'logs') {
+        try {
+            $pdo->exec("CREATE TABLE IF NOT EXISTS `whatsapp_dispatch_logs` (
+              `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+              `to_phone` VARCHAR(32) NOT NULL,
+              `intl_phone` VARCHAR(32) NOT NULL,
+              `sender_name` VARCHAR(128) NOT NULL,
+              `message_text` TEXT NOT NULL,
+              `code` VARCHAR(64) DEFAULT '',
+              `status` VARCHAR(32) NOT NULL DEFAULT 'delivered',
+              `gateway` VARCHAR(64) NOT NULL DEFAULT 'WhatsApp Cloud API',
+              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+        } catch (Exception $e) {}
+
+        $stmt = $pdo->query("SELECT id, to_phone as toPhone, intl_phone as intlPhone, sender_name as senderName, message_text as messageText, code, status, gateway, sent_at as sentAt FROM whatsapp_dispatch_logs ORDER BY sent_at DESC LIMIT 100");
+        jsonResponse(['success' => true, 'logs' => $stmt->fetchAll()]);
+    }
+
+    // البحث عن معلومات ولي الأمر
+    if ($sub === 'student-guardian-info') {
+        $massar = trim($_GET['massarNumber'] ?? '');
+        $stName = trim($_GET['studentName'] ?? '');
+        $info = null;
+
+        if ($massar) {
+            try {
+                $stmt = $pdo->prepare("SELECT student_name, guardian_phone, photo_url FROM student_accounts WHERE massar_number = ? LIMIT 1");
+                $stmt->execute([$massar]);
+                $r = $stmt->fetch();
+                if ($r) {
+                    $info = [
+                        'studentName' => $r['student_name'],
+                        'guardianPhone' => $r['guardian_phone'],
+                        'photoUrl' => $r['photo_url']
+                    ];
+                }
+            } catch (Exception $e) {}
+        }
+        if (!$info && ($massar || $stName)) {
+            $stmt = $pdo->prepare("SELECT student_name, guardian_phone, photo_url FROM seats WHERE (massar_number = ? OR student_name = ?) AND guardian_phone != '' LIMIT 1");
+            $stmt->execute([$massar, $stName]);
+            $r = $stmt->fetch();
+            if ($r) {
+                $info = [
+                    'studentName' => $r['student_name'],
+                    'guardianPhone' => $r['guardian_phone'],
+                    'photoUrl' => $r['photo_url'] ?? ''
+                ];
+            }
+        }
+
+        jsonResponse(['success' => true, 'info' => $info]);
+    }
+
+    // إرسال إشعار لولي أمر (WhatsApp Cloud API أو رابط مباشر)
+    if ($sub === 'notify-guardian' && $method === 'POST') {
+        $input = getJsonInput();
+        $phone = trim($input['guardianPhone'] ?? $input['toPhone'] ?? '');
+        $studentName = trim($input['studentName'] ?? '');
+        $massarNumber = trim($input['massarNumber'] ?? '');
+        $notificationType = $input['notificationType'] ?? 'absence';
+        $customMessage = trim($input['customMessage'] ?? $input['messageText'] ?? '');
+
+        if (!$phone && $massarNumber) {
+            try {
+                $st = $pdo->prepare("SELECT guardian_phone FROM student_accounts WHERE massar_number = ? LIMIT 1");
+                $st->execute([$massarNumber]);
+                $row = $st->fetch();
+                if ($row) $phone = $row['guardian_phone'];
+            } catch (Exception $e) {}
+        }
+        if (!$phone) {
+            jsonResponse(['success' => false, 'error' => 'رقم هاتف ولي الأمر غير متوفر لهذا التلميذ.'], 400);
+        }
+
+        if (!empty($input['guardianPhone']) && $massarNumber) {
+            try {
+                $pdo->prepare("UPDATE student_accounts SET guardian_phone = ?, guardian_phone_verified = 1 WHERE massar_number = ?")->execute([$phone, $massarNumber]);
+                $pdo->prepare("UPDATE seats SET guardian_phone = ? WHERE massar_number = ?")->execute([$phone, $massarNumber]);
+            } catch (Exception $e) {}
+        }
+
+        $intlPhone = preg_replace('/[\s\-\.\(\)]/', '', $phone);
+        if (strpos($intlPhone, '0') === 0) $intlPhone = '212' . substr($intlPhone, 1);
+        if (strpos($intlPhone, '+212') === 0) $intlPhone = substr($intlPhone, 1);
+
+        $instStmt = $pdo->query("SELECT value FROM app_settings WHERE key_name = 'institution' LIMIT 1");
+        $instRow = $instStmt->fetch();
+        $institutionName = $instRow ? $instRow['value'] : 'المدرسة الإلكترونية';
+
+        $messageText = $customMessage;
+        if (!$messageText) {
+            $d = $input['details']['date'] ?? date('Y-m-d');
+            $sName = $studentName ? "ابنكم/ابنتكم ({$studentName})" : 'ابنكم/ابنتكم';
+            if ($notificationType === 'absence') {
+                $messageText = "المملكة المغربية • {$institutionName}\nنحيطكم علماً بأن {$sName} قد سجل(ت) غياباً عن الدراسة بتاريخ {$d}.\nيرجى موافاة الإدارة بمبرر الغياب القانوني.";
+            } else {
+                $vReason = $input['details']['reason'] ?? 'مخالفة انضباطية داخل الحصة';
+                $messageText = "المملكة المغربية • {$institutionName}\nنحيطكم علماً بأن {$sName} قد ارتكب(ت) مخالفة انضباطية: ({$vReason}) بتاريخ {$d}.\nيرجى التواصل مع إدارة المؤسسة.";
+            }
+        }
+
+        $whatsappUrl = "https://api.whatsapp.com/send?phone=" . $intlPhone . "&text=" . urlencode($messageText);
+
+        $phoneId = '';
+        $token = '';
+        $tpl = '';
+        $stCfg = $pdo->query("SELECT key_name, value FROM app_settings WHERE key_name IN ('whatsapp_phone_number_id', 'whatsapp_access_token', 'whatsapp_template_name')");
+        while ($r = $stCfg->fetch()) {
+            if ($r['key_name'] === 'whatsapp_phone_number_id') $phoneId = $r['value'];
+            if ($r['key_name'] === 'whatsapp_access_token') $token = $r['value'];
+            if ($r['key_name'] === 'whatsapp_template_name') $tpl = $r['value'];
+        }
+
+        $cloudSuccess = false;
+        $statusMsg = '';
+        $gatewayUsed = 'WhatsApp Web / App Direct';
+
+        if ($phoneId && $token) {
+            $url = "https://graph.facebook.com/v21.0/" . $phoneId . "/messages";
+            $payload = [
+                'messaging_product' => 'whatsapp',
+                'recipient_type' => 'individual',
+                'to' => $intlPhone,
+                'type' => 'text',
+                'text' => ['preview_url' => false, 'body' => $messageText]
+            ];
+
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_POST, 1);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Authorization: Bearer ' . $token,
+                'Content-Type: application/json'
+            ]);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            $res = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            $data = json_decode($res, true);
+            if ($httpCode >= 200 && $httpCode < 300 && !empty($data['messages'])) {
+                $cloudSuccess = true;
+                $gatewayUsed = 'WhatsApp Cloud API (Meta)';
+                $statusMsg = 'تم الإرسال سحابياً بنجاح';
+            } else {
+                $statusMsg = $data['error']['message'] ?? 'فشل الإرسال عبر السحابة';
+            }
+        }
+
+        try {
+            $logId = 'notif_' . bin2hex(random_bytes(6));
+            $pdo->prepare("INSERT INTO whatsapp_dispatch_logs (id, to_phone, intl_phone, sender_name, message_text, code, status, gateway, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
+                ->execute([$logId, $phone, '+' . $intlPhone, $institutionName, $messageText, $notificationType, $cloudSuccess ? 'delivered' : 'pending', $gatewayUsed]);
+        } catch (Exception $e) {}
+
+        jsonResponse([
+            'success' => true,
+            'smsSuccess' => false,
+            'whatsappCloudSuccess' => $cloudSuccess,
+            'message' => $cloudSuccess 
+                ? "تم إرسال إشعار {$notificationType} تلقائياً لولي أمر ({$studentName}) عبر WhatsApp Cloud API ✓"
+                : "تم تجهيز الإشعار لولي أمر ({$studentName}) بنجاح. يمكنك إرساله بنقرة واحدة عبر واتساب.",
+            'gatewayUsed' => $gatewayUsed,
+            'whatsappUrl' => $whatsappUrl,
+            'toPhone' => $phone,
+            'intlPhone' => '+' . $intlPhone
+        ]);
+    }
+}
+
+// -------------------------------------------------------------
+// 12. بوابة التلاميذ وأولياء الأمور (Student Portal & Profile)
+// -------------------------------------------------------------
+if ($segments[0] === 'student') {
+    $action = $segments[1] ?? '';
+
+    // طلب رمز التحقق لرقم هاتف ولي الأمر
+    if ($action === 'profile' && ($segments[2] ?? '') === 'request-code' && $method === 'POST') {
+        $input = getJsonInput();
+        $massar = trim($input['massarNumber'] ?? '');
+        $phone = trim($input['guardianPhone'] ?? '');
+
+        if (!$massar || !$phone) {
+            jsonResponse(['success' => false, 'error' => 'رقم مسار ورقم الهاتف مطلوبان'], 400);
+        }
+
+        $code = (string)random_int(100000, 999999);
+        $cleanPhone = preg_replace('/[\s\-\.\(\)]/', '', $phone);
+        $intlPhone = $cleanPhone;
+        if (strpos($intlPhone, '0') === 0) $intlPhone = '212' . substr($intlPhone, 1);
+
+        try {
+            $pdo->prepare("UPDATE student_accounts SET guardian_phone = ?, verification_code = ?, updated_at = NOW() WHERE massar_number = ?")
+                ->execute([$cleanPhone, $code, $massar]);
+        } catch (Exception $e) {}
+
+        $msgText = "المملكة المغربية • المدرسة الإلكترونية\nرمز التحقق (OTP) الخاص بتفعيل رقم هاتف ولي الأمر لرقم مسار ({$massar}) هو: {$code}\nصالح لمدة 10 دقائق.";
+        $whatsappUrl = "https://api.whatsapp.com/send?phone=" . $intlPhone . "&text=" . urlencode($msgText);
+
+        jsonResponse([
+            'success' => true,
+            'message' => "تم تجهيز كود التحقق ({$code}) لولي الأمر (+{$intlPhone}). يمكنك إرساله بنقرة واحدة عبر واتساب.",
+            'code' => $code,
+            'phone' => $cleanPhone,
+            'intlPhone' => '+' . $intlPhone,
+            'whatsappUrl' => $whatsappUrl
+        ]);
+    }
+
+    // تفعيل رقم هاتف ولي الأمر عبر الرمز
+    if ($action === 'profile' && ($segments[2] ?? '') === 'verify-code' && $method === 'POST') {
+        $input = getJsonInput();
+        $massar = trim($input['massarNumber'] ?? '');
+        $code = trim($input['code'] ?? '');
+
+        $stmt = $pdo->prepare("SELECT verification_code FROM student_accounts WHERE massar_number = ? LIMIT 1");
+        $stmt->execute([$massar]);
+        $acc = $stmt->fetch();
+
+        if ($acc && $acc['verification_code'] === $code) {
+            $pdo->prepare("UPDATE student_accounts SET guardian_phone_verified = 1, updated_at = NOW() WHERE massar_number = ?")->execute([$massar]);
+            jsonResponse(['success' => true, 'message' => 'تم تأكيد وتفعيل رقم هاتف ولي الأمر بنجاح عبر خدمة واتساب (WhatsApp) ✓']);
+        }
+        jsonResponse(['success' => false, 'error' => 'رمز التحقق غير صحيح. يرجى التأكد من الكود المرسل عبر واتساب.'], 400);
+    }
+
+    // إكمال أو تحديث الملف
+    if ($action === 'profile' && ($segments[2] ?? '') === 'complete' && $method === 'POST') {
+        $input = getJsonInput();
+        $massar = trim($input['massarNumber'] ?? '');
+        $photo = trim($input['photoUrl'] ?? '');
+        $phone = trim($input['guardianPhone'] ?? '');
+        $verified = !empty($input['guardianPhoneVerified']) ? 1 : 0;
+
+        $pdo->prepare("UPDATE student_accounts SET photo_url = ?, guardian_phone = ?, guardian_phone_verified = ?, updated_at = NOW() WHERE massar_number = ?")
+            ->execute([$photo, $phone, $verified, $massar]);
+
+        jsonResponse(['success' => true, 'message' => 'تم حفظ الصورة وتأكيد رقم ولي الأمر وإكمال الملف بنجاح ✓']);
+    }
+}
+
+// -------------------------------------------------------------
 // المسار الافتراضي (Safe 200 Response for unknown routes)
 // -------------------------------------------------------------
 jsonResponse(['success' => false, 'error' => 'مسار واجهة البرمجة غير موجود: ' . $path]);

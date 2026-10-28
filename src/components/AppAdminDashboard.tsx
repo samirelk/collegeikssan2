@@ -692,13 +692,13 @@ export const AppAdminDashboard: React.FC<AppAdminDashboardProps> = ({
                 </button>
 
                 <a
-                  href="/api/export-php-package"
-                  download="echsa_php_mysql_complete_package.tar.gz"
+                  href="/echsa_school_system_php_mysql.zip"
+                  download="echsa_school_system_php_mysql.zip"
                   className="px-5 py-2.5 rounded-xl bg-amber-700 hover:bg-amber-800 text-white text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-2 no-underline"
-                  title="تحميل حزمة PHP & MySQL الكاملة للاستضافة على cPanel / XAMPP / InfinityFree"
+                  title="تحميل حزمة PHP & MySQL الموحدة الكاملة (cPanel / XAMPP / InfinityFree / GoDaddy)"
                 >
                   <Download className="w-4 h-4 text-amber-200" />
-                  <span>تصدير حزمة PHP & MySQL للاستضافات المجانية (cPanel / XAMPP)</span>
+                  <span>تحميل نسخة PHP & MySQL الموحدة الكاملة (ZIP)</span>
                 </a>
               </div>
             </div>

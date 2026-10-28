@@ -42,6 +42,8 @@ import { StudentPortalDashboard, StudentData } from './components/StudentPortalD
 import { StudentLoginModal } from './components/StudentLoginModal';
 import { CustomDomainModal } from './components/CustomDomainModal';
 import { AbsenceConfirmationModal } from './components/AbsenceConfirmationModal';
+import { Classroom3DView } from './components/Classroom3DView';
+import { Box } from 'lucide-react';
 
 function normalizeArabicText(str?: string): string {
   if (!str) return '';
@@ -142,8 +144,8 @@ export default function App() {
   const [isShuffling, setIsShuffling] = useState(false);
   const [isOrdering, setIsOrdering] = useState(false);
 
-  // Classroom Dual-Mode & Dynamic Capacity state (خريطة المقاعد vs لائحة مسار السريعة)
-  const [classroomViewMode, setClassroomViewMode] = useState<'map' | 'roster'>('map');
+  // Classroom Dual-Mode & Dynamic Capacity state (خريطة المقاعد vs 3D vs لائحة مسار السريعة)
+  const [classroomViewMode, setClassroomViewMode] = useState<'map' | '3d' | 'roster'>('map');
   const [hideEmptySeats, setHideEmptySeats] = useState<boolean>(false);
   const [activeCapacity, setActiveCapacity] = useState<number>(40);
   const [rosterSearchQuery, setRosterSearchQuery] = useState<string>('');
@@ -2741,10 +2743,27 @@ export default function App() {
                         ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md'
                         : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3] hover:bg-white/5'
                     }`}
-                    title="عرض توزيع المقاعد في القاعة بتقسيم الصفوف والطاولات المزدوجة"
+                    title="عرض توزيع المقاعد في القاعة بتقسيم الصفوف والطاولات المزدوجة (2D)"
                   >
                     <LayoutGrid className="w-4 h-4" />
-                    <span>خريطة المقاعد التفاعلية</span>
+                    <span>خريطة المقاعد (2D)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setClassroomViewMode('3d')}
+                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer ${
+                      classroomViewMode === '3d'
+                        ? 'bg-[#C98A3C] text-[#1E362D] font-black shadow-md'
+                        : 'text-[rgba(242,239,227,0.7)] hover:text-[#F2EFE3] hover:bg-white/5'
+                    }`}
+                    title="معاينة ثلاثية الأبعاد (3D) تفاعلية للقاعة والسبورة مع إمكانية التدوير 360° وتسجيل الحضور"
+                  >
+                    <Box className="w-4 h-4 text-emerald-300" />
+                    <span>قاعة ثلاثية الأبعاد (3D)</span>
+                    <span className="px-1.5 py-0.2 bg-emerald-500 text-black text-[10px] font-black rounded-md animate-pulse">
+                      3D
+                    </span>
                   </button>
 
                   <button
@@ -3241,8 +3260,27 @@ export default function App() {
                     </div>
                   )}
                 </div>
+              ) : classroomViewMode === '3d' ? (
+                /* =================== VIEW B: 3D CLASSROOM INTERACTIVE VIEW =================== */
+                <Classroom3DView
+                  section={activeSection}
+                  settings={settings}
+                  currentUser={currentUser}
+                  onToggleAttendance={handleToggleStudentAttendance}
+                  onOpenPositiveParticipation={(seatNum, studentName, studentNumber, massarNumber, rosterId) => {
+                    setActivePositiveParticipationModal({
+                      seatNum,
+                      studentName,
+                      studentNumber,
+                      massarNumber,
+                      rosterId
+                    });
+                  }}
+                  onOpenStudentRecord={openStudentRecord}
+                  onBackTo2D={() => setClassroomViewMode('map')}
+                />
               ) : (
-                /* =================== VIEW B: INTERACTIVE SEATING MAP VIEW =================== */
+                /* =================== VIEW C: INTERACTIVE SEATING MAP VIEW (2D) =================== */
                 <>
                   {/* Interactive Drag & Drop Helper Bar */}
                   <div className="bg-amber-50 border border-amber-300 rounded-xl px-4 py-2.5 mb-4 text-xs text-amber-950 flex items-center justify-between flex-wrap gap-2 shadow-sm">

@@ -254,6 +254,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                           `note_date` VARCHAR(32) NOT NULL,
                           `note_time` VARCHAR(16) NOT NULL,
                           `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `student_accounts` (
+                          `id` INT AUTO_INCREMENT PRIMARY KEY,
+                          `massar_number` VARCHAR(64) NOT NULL UNIQUE,
+                          `student_name` VARCHAR(128) NOT NULL,
+                          `section_id` VARCHAR(64) DEFAULT '',
+                          `guardian_phone` VARCHAR(32) DEFAULT '',
+                          `guardian_phone_verified` TINYINT(1) DEFAULT 0,
+                          `photo_url` LONGTEXT DEFAULT NULL,
+                          `verification_code` VARCHAR(16) DEFAULT NULL,
+                          `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                          `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                          INDEX `idx_sa_massar` (`massar_number`)
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;",
+                        "CREATE TABLE IF NOT EXISTS `whatsapp_dispatch_logs` (
+                          `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                          `to_phone` VARCHAR(32) NOT NULL,
+                          `intl_phone` VARCHAR(32) NOT NULL,
+                          `sender_name` VARCHAR(128) NOT NULL,
+                          `message_text` TEXT NOT NULL,
+                          `code` VARCHAR(64) DEFAULT '',
+                          `status` VARCHAR(32) NOT NULL DEFAULT 'delivered',
+                          `gateway` VARCHAR(64) NOT NULL DEFAULT 'WhatsApp Cloud API',
+                          `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                          INDEX `idx_wdl_sent` (`sent_at`)
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;"
                     ];
                     foreach ($embeddedTables as $tblSql) {
@@ -266,8 +291,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // إعادة تفعيل القيود
             $pdo->exec("SET FOREIGN_KEY_CHECKS = 1;");
 
-            // تحديث إعدادات المؤسسة
-            $stmtSet = $pdo->prepare("INSERT INTO app_settings (key_name, value) VALUES ('institution', ?), ('year', ?) ON DUPLICATE KEY UPDATE value = VALUES(value)");
+            // تحديث إعدادات المؤسسة وبوابة واتساب
+            $stmtSet = $pdo->prepare("INSERT INTO app_settings (key_name, value) VALUES ('institution', ?), ('year', ?), ('sms_provider', 'whatsapp_cloud'), ('verification_channel', 'whatsapp_cloud'), ('whatsapp_cloud_enabled', '1') ON DUPLICATE KEY UPDATE value = VALUES(value)");
             $stmtSet->execute([$institution, $academicYear]);
 
             // إنشاء / تحديث حساب المشرف العام
