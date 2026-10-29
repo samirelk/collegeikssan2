@@ -245,3 +245,28 @@ INSERT INTO `app_settings` (`key_name`, `value`) VALUES
 ('whatsapp_cloud_enabled', '1')
 ON DUPLICATE KEY UPDATE `value`=VALUES(`value`);
 
+CREATE TABLE IF NOT EXISTS `school_activities` (
+  `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+  `title` VARCHAR(255) NOT NULL,
+  `description` TEXT NOT NULL,
+  `category` VARCHAR(64) NOT NULL DEFAULT 'أنشطة عامة',
+  `image_url` LONGTEXT DEFAULT NULL,
+  `author_id` VARCHAR(64) DEFAULT '',
+  `author_name` VARCHAR(128) DEFAULT '',
+  `author_role` VARCHAR(32) DEFAULT 'teacher',
+  `author_subject` VARCHAR(64) DEFAULT '',
+  `status` ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved',
+  `likes_count` INT NOT NULL DEFAULT 0,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX `idx_act_status` (`status`),
+  INDEX `idx_act_cat` (`category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT INTO `school_activities` (`id`, `title`, `description`, `category`, `image_url`, `author_id`, `author_name`, `author_role`, `author_subject`, `status`, `likes_count`)
+VALUES 
+('act_seed_1', 'أسبوع العلوم والتجارب الفيزيائية بالمختبر المدرسي', 'تنظيم ورشات علمية تطبيقية تفاعلية لتلاميذ السنة الثالثة إعدادي حول الظواهر الكهربائية والميكانيكية بإشراف أساتذة العلوم والفيزياء.', 'أنشطة علمية', 'https://images.unsplash.com/photo-1532094349884-543bc11b234d?auto=format&fit=crop&w=800&q=80', 'usr_admin_samir', 'الأستاذ: سمير القراشي (المشرف العام)', 'admin', 'الإدارة التربوية', 'approved', 25),
+('act_seed_2', 'دوري التضامن الرياضي في كرة القدم المصغرة', 'انطلاق فعاليات دوري كرة القدم المصغرة لتلاميذ المؤسسة بملاعب التربية البدنية، تكريساً لقيم الروح الرياضية والتعاون الجماعي.', 'أنشطة رياضية', 'https://images.unsplash.com/photo-1574629810360-7efbbe195018?auto=format&fit=crop&w=800&q=80', 'usr_teacher_alami', 'ذ. محمد العلمي', 'teacher', 'الرياضيات', 'approved', 38)
+ON DUPLICATE KEY UPDATE `title`=VALUES(`title`);
+
+

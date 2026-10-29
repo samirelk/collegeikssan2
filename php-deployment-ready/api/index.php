@@ -1536,6 +1536,135 @@ if ($segments[0] === 'student') {
 }
 
 // -------------------------------------------------------------
+// أنشطة الحياة المدرسية (School Activities Wall)
+// -------------------------------------------------------------
+if (isset($segments[0]) && $segments[0] === 'activities') {
+    $actId = $segments[1] ?? '';
+    $subAction = $segments[2] ?? '';
+
+    // إنشاء جدول الأنشطة تلقائياً إن لم يكن موجوداً
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `school_activities` (
+                `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                `title` VARCHAR(255) NOT NULL,
+                `description` TEXT NOT NULL,
+                `category` VARCHAR(64) NOT NULL DEFAULT 'أنشطة عامة',
+                `image_url` LONGTEXT DEFAULT NULL,
+                `author_id` VARCHAR(64) DEFAULT '',
+                `author_name` VARCHAR(128) DEFAULT '',
+                `author_role` VARCHAR(32) DEFAULT 'teacher',
+                `author_subject` VARCHAR(64) DEFAULT '',
+                `status` ENUM('approved', 'pending', 'rejected') NOT NULL DEFAULT 'approved',
+                `likes_count` INT NOT NULL DEFAULT 0,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX `idx_act_status` (`status`),
+                INDEX `idx_act_cat` (`category`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    } catch (Exception $e) {}
+
+    // جلب الأنشطة
+    if ($method === 'GET' && empty($actId)) {
+        try {
+            $stmt = $pdo->query("SELECT * FROM school_activities ORDER BY created_at DESC");
+            $rows = $stmt->fetchAll();
+            $activities = array_map(function($r) {
+                return [
+                    'id' => $r['id'],
+                    'title' => $r['title'],
+                    'description' => $r['description'],
+                    'category' => $r['category'],
+                    'imageUrl' => $r['image_url'],
+                    'authorId' => $r['author_id'],
+                    'authorName' => $r['author_name'],
+                    'authorRole' => $r['author_role'],
+                    'authorSubject' => $r['author_subject'],
+                    'status' => $r['status'],
+                    'likesCount' => (int)($r['likes_count'] ?? 0),
+                    'createdAt' => $r['created_at'],
+                    'updatedAt' => $r['updated_at']
+                ];
+            }, $rows);
+            jsonResponse(['success' => true, 'activities' => $activities]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => true, 'activities' => []]);
+        }
+    }
+
+    // نشر نشاط جديد
+    if ($method === 'POST' && empty($actId)) {
+        $input = getJsonInput();
+        $newId = 'act_' . time() . '_' . substr(md5(uniqid()), 0, 6);
+        $title = trim($input['title'] ?? '');
+        $desc = trim($input['description'] ?? '');
+        $cat = trim($input['category'] ?? 'أنشطة عامة');
+        $img = trim($input['imageUrl'] ?? '');
+        $aId = trim($input['authorId'] ?? $userId);
+        $aName = trim($input['authorName'] ?? 'أستاذ(ة)');
+        $aRole = trim($input['authorRole'] ?? $userRole);
+        $aSubj = trim($input['authorSubject'] ?? '');
+        $status = ($userRole === 'admin' || $userRole === 'director') ? 'approved' : 'pending';
+
+        if (!$title || !$desc) {
+            jsonResponse(['success' => false, 'error' => 'عنوان النشاط والوصف مطلوبان'], 400);
+        }
+
+        try {
+            $stmt = $pdo->prepare("
+                INSERT INTO school_activities (id, title, description, category, image_url, author_id, author_name, author_role, author_subject, status, likes_count, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NOW(), NOW())
+            ");
+            $stmt->execute([$newId, $title, $desc, $cat, $img, $aId, $aName, $aRole, $aSubj, $status]);
+            jsonResponse([
+                'success' => true,
+                'activity' => [
+                    'id' => $newId, 'title' => $title, 'description' => $desc, 'category' => $cat,
+                    'imageUrl' => $img, 'authorId' => $aId, 'authorName' => $aName,
+                    'authorRole' => $aRole, 'authorSubject' => $aSubj, 'status' => $status,
+                    'likesCount' => 0, 'createdAt' => date('Y-m-d H:i:s'), 'updatedAt' => date('Y-m-d H:i:s')
+                ],
+                'message' => ($status === 'approved') ? 'تم نشر النشاط بنجاح في حائط المؤسسة ✓' : 'تم إرسال النشاط بنجاح وهو قيد مصادقة الإدارة التربوية ✓'
+            ]);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    // إعجاب بنشاط
+    if ($method === 'POST' && !empty($actId) && $subAction === 'like') {
+        try {
+            $pdo->prepare("UPDATE school_activities SET likes_count = likes_count + 1 WHERE id = ?")->execute([$actId]);
+            jsonResponse(['success' => true, 'message' => 'تم تسجيل الإعجاب بنجاح']);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    // مصادقة أو تعديل نشاط
+    if ($method === 'PUT' && !empty($actId)) {
+        $input = getJsonInput();
+        $status = $input['status'] ?? null;
+        if ($status && in_array($status, ['approved', 'pending', 'rejected'])) {
+            $pdo->prepare("UPDATE school_activities SET status = ?, updated_at = NOW() WHERE id = ?")->execute([$status, $actId]);
+            jsonResponse(['success' => true, 'message' => 'تم تحديث حالة النشاط بنجاح']);
+        }
+        jsonResponse(['success' => false, 'error' => 'بيانات التحديث غير صالحة'], 400);
+    }
+
+    // حذف نشاط
+    if ($method === 'DELETE' && !empty($actId)) {
+        try {
+            $pdo->prepare("DELETE FROM school_activities WHERE id = ?")->execute([$actId]);
+            jsonResponse(['success' => true, 'message' => 'تم حذف النشاط بنجاح']);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+}
+
+// -------------------------------------------------------------
 // المسار الافتراضي (Safe 200 Response for unknown routes)
 // -------------------------------------------------------------
 jsonResponse(['success' => false, 'error' => 'مسار واجهة البرمجة غير موجود: ' . $path]);
