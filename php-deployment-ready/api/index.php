@@ -1085,19 +1085,28 @@ if ($segments[0] === 'teacher' && ($segments[1] ?? '') === 'timetable') {
     // جلب جدول الحصص
     if ($method === 'GET') {
         $tId = $_GET['teacherId'] ?? $userId;
-        $stmt = $pdo->prepare("SELECT * FROM teacher_timetable WHERE teacher_id = ?");
+        $stmt = $pdo->prepare("
+            SELECT tt.*, sec.level, sec.class_number 
+            FROM teacher_timetable tt 
+            LEFT JOIN sections sec ON tt.section_id = sec.id 
+            WHERE tt.teacher_id = ?
+            ORDER BY tt.slot_id ASC
+        ");
         $stmt->execute([$tId]);
         $rows = $stmt->fetchAll();
         $entries = array_map(function($r) {
+            $secName = ($r['level'] && $r['class_number']) ? ($r['level'] . '/' . $r['class_number']) : '';
             return [
                 'id' => $r['id'],
                 'teacherId' => $r['teacher_id'],
                 'dayOfWeek' => $r['day_of_week'],
                 'slotId' => $r['slot_id'],
                 'period' => $r['period_type'],
+                'periodType' => $r['period_type'],
                 'startTime' => $r['start_time'],
                 'endTime' => $r['end_time'],
                 'sectionId' => $r['section_id'],
+                'sectionName' => $secName,
                 'room' => $r['room'] ?? '',
                 'subject' => $r['subject'] ?? '',
                 'notes' => $r['notes'] ?? ''
@@ -1125,6 +1134,16 @@ if ($segments[0] === 'teacher' && ($segments[1] ?? '') === 'timetable') {
         $stmt = $pdo->prepare("INSERT INTO teacher_timetable (id, teacher_id, day_of_week, slot_id, period_type, start_time, end_time, section_id, room, subject, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([$id, $tId, $day, $slot, $period, $start, $end, $sec, $room, $subj, $notes]);
 
+        $secName = '';
+        if ($sec && $sec !== 'empty') {
+            $secStmt = $pdo->prepare("SELECT level, class_number FROM sections WHERE id = ?");
+            $secStmt->execute([$sec]);
+            $secRow = $secStmt->fetch();
+            if ($secRow && !empty($secRow['level'])) {
+                $secName = $secRow['level'] . '/' . $secRow['class_number'];
+            }
+        }
+
         jsonResponse([
             'success' => true,
             'entry' => [
@@ -1133,9 +1152,11 @@ if ($segments[0] === 'teacher' && ($segments[1] ?? '') === 'timetable') {
                 'dayOfWeek' => $day,
                 'slotId' => $slot,
                 'period' => $period,
+                'periodType' => $period,
                 'startTime' => $start,
                 'endTime' => $end,
                 'sectionId' => $sec,
+                'sectionName' => $secName,
                 'room' => $room,
                 'subject' => $subj,
                 'notes' => $notes

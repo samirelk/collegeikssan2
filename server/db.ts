@@ -9382,6 +9382,16 @@ export function upsertTimetableSlot(teacherId: string, data: {
       now
     );
 
+    let sectionName = '';
+    if (data.sectionId && data.sectionId !== 'empty') {
+      try {
+        const sec = db.prepare('SELECT level, class_number FROM sections WHERE id = ?').get(data.sectionId) as any;
+        if (sec && sec.level) {
+          sectionName = `${sec.level}/${sec.class_number}`;
+        }
+      } catch {}
+    }
+
     const savedRecord = {
       id,
       teacherId: tId,
@@ -9391,6 +9401,7 @@ export function upsertTimetableSlot(teacherId: string, data: {
       startTime: data.startTime,
       endTime: data.endTime,
       sectionId: data.sectionId,
+      sectionName,
       room: data.room || '',
       subject: data.subject || '',
       notes: data.notes || '',

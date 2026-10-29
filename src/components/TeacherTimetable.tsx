@@ -93,7 +93,8 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
   const [teachersList, setTeachersList] = useState<Array<{ id: string; fullName: string; subject?: string }>>([]);
   const [selectedTeacherId, setSelectedTeacherId] = useState<string>(() => {
     if (currentUser.role === 'admin' || currentUser.role === 'director') {
-      return 'usr_mus3qsxfuxy3'; // Default to Teacher Samir El Korachi
+      const saved = localStorage.getItem('echsa_timetable_selected_teacher');
+      return saved || 'usr_mus3qsxfuxy3'; // Default to Teacher Samir El Korachi
     }
     return currentUser.id;
   });
@@ -275,15 +276,23 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
 
       const data = await res.json();
       if (data.success && data.entry) {
+        const secObj = sections.find((s) => s.id === formSectionId);
+        const resolvedEntry: TeacherTimetableEntry = {
+          ...data.entry,
+          periodType: data.entry.periodType || data.entry.period || editingSlot.slot.period,
+          sectionName: data.entry.sectionName || (secObj ? `${secObj.level}/${secObj.classNumber}` : (formSectionId !== 'empty' ? formSectionId : ''))
+        };
         setEntries((prev) => {
           const filtered = prev.filter(
             (e) => !(e.dayOfWeek === editingSlot.dayOfWeek && e.slotId === editingSlot.slot.id)
           );
-          return [...filtered, data.entry];
+          return [...filtered, resolvedEntry];
         });
+        setSelectedDay(editingSlot.dayOfWeek);
         setEditingSlot(null);
-        setSuccessMsg('تم حفظ الحصة بنجاح في استعمال الزمان');
-        setTimeout(() => setSuccessMsg(null), 3000);
+        setSuccessMsg('تم حفظ وتثبيت الحصة بنجاح في استعمال الزمان');
+        setTimeout(() => setSuccessMsg(null), 3500);
+        fetchTimetable();
       } else {
         setErrorMsg(data.error || 'تعذر حفظ الحصة');
       }
@@ -601,7 +610,11 @@ export const TeacherTimetable: React.FC<TeacherTimetableProps> = ({
             <span className="text-xs font-bold text-[#1A4E47]">عرض جدول:</span>
             <select
               value={effectiveTeacherId}
-              onChange={(e) => setSelectedTeacherId(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedTeacherId(val);
+                localStorage.setItem('echsa_timetable_selected_teacher', val);
+              }}
               className="bg-white border-2 border-[#1A4E47] text-xs font-bold text-[#1F2926] px-3.5 py-2 rounded-xl shadow-xs cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1A4E47]"
             >
               {teachersList.length > 0 ? (
@@ -1184,7 +1197,8 @@ const SlotCard: React.FC<SlotCardProps> = ({
   onDelete
 }) => {
   const isEmptySlot = Boolean(entry && (entry.sectionId === 'empty' || entry.periodType === 'empty'));
-  const isFilled = Boolean(entry && !isEmptySlot && (section || entry.sectionName));
+  const isFilled = Boolean(entry && !isEmptySlot && (section || entry.sectionName || entry.sectionId));
+  const sectionDisplayName = section ? `${section.level} / ${section.classNumber}` : (entry?.sectionName || 'قسم مسند');
 
   return (
     <div
@@ -1244,22 +1258,30 @@ const SlotCard: React.FC<SlotCardProps> = ({
             )}
           </button>
         </div>
-      ) : isFilled && section ? (
+      ) : isFilled ? (
         <div className="my-1">
           {/* Main button to navigate to section for recording attendance & violations */}
           <button
             type="button"
-            onClick={() => onSelectSection(section.id)}
+            onClick={() => {
+              if (section) {
+                onSelectSection(section.id);
+              } else if (entry?.sectionId && entry.sectionId !== 'empty') {
+                onSelectSection(entry.sectionId);
+              } else {
+                onOpenEdit();
+              }
+            }}
             className="w-full text-right p-2 rounded-lg bg-white border border-[#B9D8D2] hover:bg-[#E8F2F0] hover:border-[#1A4E47] transition-colors cursor-pointer group shadow-2xs"
             title="انقر لفتح هذا القسم وتسجيل الغيابات والمخالفات مباشرة"
           >
             <div className="flex items-center justify-between">
               <div className="font-bold text-sm text-[#1A4E47] group-hover:underline flex items-center gap-1">
-                <span>{section.level} / {section.classNumber}</span>
-                <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />
+                <span>{sectionDisplayName}</span>
+                {section && <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />}
               </div>
               {(() => {
-                const absentCount = section.seats.filter((s) => s.attendance === 'absent').length;
+                const absentCount = section?.seats?.filter((s) => s.attendance === 'absent')?.length || 0;
                 return absentCount > 0 ? (
                   <span className="text-[10px] text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full font-bold border border-rose-300 shadow-2xs">
                     ✕ {absentCount} غياب
@@ -1340,7 +1362,8 @@ const GridCellSlot: React.FC<GridCellSlotProps> = ({
   onSelectSection
 }) => {
   const isEmptySlot = Boolean(entry && (entry.sectionId === 'empty' || entry.periodType === 'empty'));
-  const isFilled = Boolean(entry && !isEmptySlot && section);
+  const isFilled = Boolean(entry && !isEmptySlot && (section || entry.sectionName || entry.sectionId));
+  const sectionDisplayName = section ? `${section.level}/${section.classNumber}` : (entry?.sectionName || 'قسم مسند');
 
   if (isEmptySlot) {
     return (
@@ -1384,7 +1407,7 @@ const GridCellSlot: React.FC<GridCellSlotProps> = ({
     );
   }
 
-  if (!isFilled || !section) {
+  if (!isFilled) {
     return (
       <button
         type="button"
@@ -1408,15 +1431,23 @@ const GridCellSlot: React.FC<GridCellSlotProps> = ({
     >
       <button
         type="button"
-        onClick={() => onSelectSection(section.id)}
+        onClick={() => {
+          if (section) {
+            onSelectSection(section.id);
+          } else if (entry?.sectionId && entry.sectionId !== 'empty') {
+            onSelectSection(entry.sectionId);
+          } else {
+            onOpenEdit();
+          }
+        }}
         className="text-right cursor-pointer group"
-        title="انقر لفتح القسم وتسجيل الغيابات والمخالفات"
+        title="انقر لفتح القسم أو تعديل الحصة"
       >
         <div className="flex items-center justify-between">
           <span className="font-bold text-xs text-[#1A4E47] group-hover:underline">
-            {section.level}/{section.classNumber}
+            {sectionDisplayName}
           </span>
-          <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />
+          {section && <ExternalLink className="w-3 h-3 text-[#1A4E47] opacity-60 group-hover:opacity-100" />}
         </div>
         {entry?.room && (
           <div className="text-[10px] text-[#7A6B58] mt-0.5">
