@@ -50,6 +50,10 @@ interface Classroom3DViewProps {
     massarNumber: string,
     rosterId: string | null
   ) => void;
+  onDeductPositiveParticipation?: (
+    seatNum: number,
+    student?: { name: string; number?: string; massarNumber?: string }
+  ) => void;
   onOpenStudentRecord: (seat: SeatItem) => void;
   onBackTo2D?: () => void;
 }
@@ -208,6 +212,7 @@ export const Classroom3DView: React.FC<Classroom3DViewProps> = ({
   currentUser,
   onToggleAttendance,
   onOpenPositiveParticipation,
+  onDeductPositiveParticipation,
   onOpenStudentRecord,
   onBackTo2D
 }) => {
@@ -1058,26 +1063,49 @@ export const Classroom3DView: React.FC<Classroom3DViewProps> = ({
 
               {/* Action Buttons: Star + Violations + Full Record */}
               <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={() => {
-                    onOpenPositiveParticipation(
-                      selectedSeat.seat,
-                      selectedSeat.name,
-                      selectedSeat.number || '',
-                      selectedSeat.massarNumber || '',
-                      selectedSeat.rosterId || null
-                    );
-                  }}
-                  className="flex-1 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
-                >
-                  <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                  <span>مشاركة إيجابية</span>
-                  {(selectedSeat.positiveParticipationCount || 0) > 0 && (
-                    <span className="bg-amber-500 text-black px-1.5 py-0.2 rounded-full text-[10px] font-black">
-                      +{selectedSeat.positiveParticipationCount}
-                    </span>
-                  )}
-                </button>
+                <div className="flex-1 flex items-center gap-1">
+                  <button
+                    onClick={() => {
+                      onOpenPositiveParticipation(
+                        selectedSeat.seat,
+                        selectedSeat.name,
+                        selectedSeat.number || '',
+                        selectedSeat.massarNumber || '',
+                        selectedSeat.rosterId || null
+                      );
+                    }}
+                    className="flex-1 py-2 px-3 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                  >
+                    <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                    <span>مشاركة</span>
+                    {(selectedSeat.positiveParticipationCount || 0) > 0 && (
+                      <span className="bg-amber-500 text-black px-1.5 py-0.2 rounded-full text-[10px] font-black">
+                        +{selectedSeat.positiveParticipationCount}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeductPositiveParticipation?.(selectedSeat.seat, {
+                        name: selectedSeat.name,
+                        number: selectedSeat.number,
+                        massarNumber: selectedSeat.massarNumber
+                      });
+                    }}
+                    disabled={(selectedSeat.positiveParticipationCount || 0) <= 0}
+                    className={`py-2 px-2.5 rounded-xl border text-xs font-black transition-all flex items-center justify-center ${
+                      (selectedSeat.positiveParticipationCount || 0) > 0
+                        ? 'bg-rose-500/20 text-rose-200 border-rose-400/60 hover:bg-rose-500/30 active:bg-rose-500/40 cursor-pointer shadow-xs active:scale-95'
+                        : 'bg-white/5 text-white/20 border-white/10 cursor-not-allowed opacity-50'
+                    }`}
+                    title={(selectedSeat.positiveParticipationCount || 0) > 0 ? `خصم نقطة مشاركة واحدة للتلميذ (${selectedSeat.name})` : 'الرصيد 0 نقاط'}
+                  >
+                    -
+                  </button>
+                </div>
 
                 <button
                   onClick={() => onOpenStudentRecord(selectedSeat)}

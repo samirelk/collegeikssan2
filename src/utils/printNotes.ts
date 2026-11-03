@@ -113,6 +113,8 @@ export const MOROCCAN_COAT_OF_ARMS_SVG = `
 
 export interface MoroccanHeaderOptions {
   institution?: string;
+  siteName?: string;
+  siteUrl?: string;
   academy?: string;
   directorate?: string;
   academicYear?: string;
@@ -129,6 +131,8 @@ export interface MoroccanHeaderOptions {
  */
 export function buildOfficialMoroccanHeaderHtml(options: MoroccanHeaderOptions = {}): string {
   const inst = options.institution || 'الثانوية الإعدادية ايكسان';
+  const siteName = options.siteName || '';
+  const siteUrl = options.siteUrl || '';
   const academy = options.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق';
   const directorate = options.directorate || 'المديرية الإقليمية بالناظور';
   const year = options.academicYear || '2026/2027';
@@ -148,14 +152,17 @@ export function buildOfficialMoroccanHeaderHtml(options: MoroccanHeaderOptions =
           <div class="header-sub-ar">${escapeHtml(academy)}</div>
           <div class="header-sub-ar">${escapeHtml(directorate)}</div>
           <div class="header-institution-ar"><b>${escapeHtml(inst)}</b></div>
+          ${siteName ? `<div style="font-size: 11px; font-weight: bold; color: #1A4E47; margin-top: 1px;">${escapeHtml(siteName)}</div>` : ''}
+          ${siteUrl ? `<div style="direction: ltr; font-family: monospace; font-size: 10px; color: #1A4E47; margin-top: 1px; font-weight: bold;">${escapeHtml(siteUrl)}</div>` : ''}
           <div class="header-code-ar">رمز المؤسسة (GRESA): <b>${escapeHtml(instCode)}</b></div>
         </td>
         <td class="header-col-center">
           <div class="header-emblem-wrap">
             ${MOROCCAN_COAT_OF_ARMS_SVG}
           </div>
-          <div class="header-system-tag">منظومة التدبير المدرسي 2026</div>
+          <div class="header-system-tag">${escapeHtml(siteName || 'منظومة التدبير المدرسي 2026')}</div>
           <div class="header-sub-system">مسار التربوي • تدبير الحياة المدرسية</div>
+          ${siteUrl ? `<div style="direction: ltr; font-family: monospace; font-size: 9.5px; color: #1A4E47; margin-top: 2px; font-weight: bold;">${escapeHtml(siteUrl)}</div>` : ''}
         </td>
         <td class="header-col-fr official-head">
           <div class="header-country-fr">ROYAUME DU MAROC</div>
@@ -641,6 +648,8 @@ export const printNotesReport = printViolationsReport;
 
 export interface PrintBatchViolationsOptions {
   institution: string;
+  siteName?: string;
+  siteUrl?: string;
   academicYear: string;
   sectionTitle: string; // e.g. "جميع الأقسام" or "الثانية إعدادي 3"
   dateFilterText?: string;
@@ -732,6 +741,8 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
   <div class="print-container">
     ${buildOfficialMoroccanHeaderHtml({
       institution,
+      siteName: options.siteName,
+      siteUrl: options.siteUrl,
       academicYear,
       date: printDate,
       time: printTime,
@@ -788,7 +799,7 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الإلكترونية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: ${escapeHtml(options.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://school.ma'))}</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>
@@ -805,6 +816,8 @@ export function printAllViolationsReport(options: PrintBatchViolationsOptions): 
 
 export interface PrintAbsencesOptions {
   institution: string;
+  siteName?: string;
+  siteUrl?: string;
   academicYear: string;
   sectionTitle: string; // e.g. "جميع الأقسام" or "الثالثة إعدادي 1"
   dateFilterText?: string;
@@ -907,6 +920,8 @@ export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
   <div class="print-container">
     ${buildOfficialMoroccanHeaderHtml({
       institution,
+      siteName: options.siteName,
+      siteUrl: options.siteUrl,
       academicYear,
       date: printDate,
       time: printTime,
@@ -967,7 +982,7 @@ export function printAbsencesReport(options: PrintAbsencesOptions): boolean {
     </table>
 
     <div class="footer-bar">
-      <span>المدرسة الإلكترونية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: www.lyceecom.com</span>
+      <span>المدرسة الإلكترونية وإدارة المؤسسة • ${escapeHtml(institution || 'الثانوية الإعدادية ايكسان')} • الموقع الرسمي: ${escapeHtml(options.siteUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://school.ma'))}</span>
       <span>وثيقة إدارية رسمية مستخرجة آلياً</span>
     </div>
   </div>

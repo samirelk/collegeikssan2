@@ -110,6 +110,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   onRefreshData
 }) => {
   const isTeacher = currentUser?.role === 'teacher';
+  const isDirector = currentUser?.role === 'director' || currentUser?.role === 'admin';
 
   // Filter sections belonging to teacher if teacher
   const teacherSections = useMemo(() => {
@@ -137,6 +138,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
   const [selectedActionFilter, setSelectedActionFilter] = useState<string>('all');
   const [dateRangeFilter, setDateRangeFilter] = useState<'all' | 'today' | 'week' | 'month'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [teacherScope, setTeacherScope] = useState<'all' | 'my_only'>('all');
 
   // Extract unique teachers from violations for Admin filtering
   const recordedTeachers = useMemo(() => {
@@ -177,6 +179,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
   // Deleting State
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [violationToDelete, setViolationToDelete] = useState<ViolationRecordItem | null>(null);
 
   // Load violations
   const fetchViolations = async () => {
@@ -189,6 +192,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
       if (isTeacher && currentUser) {
         params.append('teacherId', currentUser.id);
         params.append('teacherName', currentUser.fullName);
+        params.append('scope', teacherScope);
       }
 
       if (selectedSectionFilter !== 'all') {
@@ -221,7 +225,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
     if (isOpen) {
       fetchViolations();
     }
-  }, [isOpen, selectedSectionFilter]);
+  }, [isOpen, selectedSectionFilter, teacherScope]);
 
   // Students list for selected section in Add Modal
   const currentAddSection = useMemo(() => {
@@ -265,6 +269,20 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
       const todayStr = new Date().toISOString().split('T')[0];
       const nowTimeStr = new Date().toLocaleTimeString('ar-FR', { hour: '2-digit', minute: '2-digit' });
 
+      // Auto-lookup seatNum, studentNumber and massarNumber from section if not set
+      let effSeat = newSeatNum;
+      let effNum = newStudentNumber;
+      let effMassar = newMassarNumber;
+      const targetSec = sections.find((s) => s.id === newSectionId);
+      if (targetSec && targetSec.seats) {
+        const foundSeat = targetSec.seats.find((st) => st.name && st.name.trim() === newStudentName.trim());
+        if (foundSeat) {
+          if (!effSeat && foundSeat.seat > 0) effSeat = foundSeat.seat;
+          if (!effNum && foundSeat.number) effNum = foundSeat.number;
+          if (!effMassar && foundSeat.massarNumber) effMassar = foundSeat.massarNumber;
+        }
+      }
+
       const res = await fetch('/api/violations', {
         method: 'POST',
         headers: {
@@ -278,10 +296,10 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
         },
         body: JSON.stringify({
           sectionId: newSectionId,
-          seatNum: newSeatNum,
+          seatNum: effSeat,
           studentName: newStudentName.trim(),
-          studentNumber: newStudentNumber,
-          massarNumber: newMassarNumber,
+          studentNumber: effNum,
+          massarNumber: effMassar,
           violationType: newViolationType,
           description: newDescription.trim(),
           actionTaken: newActionTaken,
@@ -316,9 +334,10 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
     }
   };
 
-  // Delete violation
-  const handleDeleteViolation = async (id: string) => {
-    if (!window.confirm('هل أنت متأكد من رغبتك في حذف هذا السجل نهائياً؟')) return;
+  // Delete violation confirmation handler
+  const handleConfirmDelete = async () => {
+    if (!violationToDelete) return;
+    const id = violationToDelete.id;
 
     setDeletingId(id);
     setErrorMessage(null);
@@ -340,6 +359,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
       setSuccessMessage('تم حذف المخالفة من السجل بنجاح ✓');
       setViolations((prev) => prev.filter((v) => v.id !== id));
+      setViolationToDelete(null);
       onRefreshData?.();
     } catch (err: any) {
       setErrorMessage(err.message || 'حدث خطأ أثناء حذف المخالفة');
@@ -804,39 +824,41 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                 <span>تصدير Excel</span>
               </button>
 
-              {/* Batch SMS / WhatsApp to Parents */}
-              <button
-                type="button"
-                onClick={() => {
-                  const batch: StudentNotificationItem[] = filteredViolations.map((v) => {
-                    const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
-                    return {
-                      studentName: v.student_name || v.studentName || 'التلميذ',
-                      massarNumber: v.massar_number || v.massarNumber,
-                      sectionId: v.section_id || v.sectionId,
-                      sectionLevel: v.section_level || (sec ? sec.level : undefined),
-                      sectionClass: v.section_class || (sec ? sec.classNumber : undefined),
-                      guardianPhone: v.guardian_phone || v.guardianPhone,
-                      type: 'violation',
-                      details: {
-                        date: v.recorded_date || v.recordedDate,
-                        time: v.recorded_time || v.recordedTime,
-                        reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
-                        subject: v.teacher_subject || v.teacherSubject
-                      }
-                    };
-                  });
-                  setNotifyBatchStudents(batch);
-                  setNotifyTargetStudent(null);
-                  setIsNotifyModalOpen(true);
-                }}
-                disabled={filteredViolations.length === 0}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-800 to-emerald-900 hover:brightness-110 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
-                title="إشعار جماعي لأولياء أمور التلاميذ المخالفين المعروضين عبر واتساب"
-              >
-                <MessageSquare className="w-4 h-4 text-emerald-300" />
-                <span>إشعار أولياء المخالفين عبر واتساب ({filteredViolations.length}) 💬</span>
-              </button>
+              {/* Batch SMS / WhatsApp to Parents (Director Only) */}
+              {isDirector && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const batch: StudentNotificationItem[] = filteredViolations.map((v) => {
+                      const sec = sections.find((s) => s.id === (v.section_id || v.sectionId));
+                      return {
+                        studentName: v.student_name || v.studentName || 'التلميذ',
+                        massarNumber: v.massar_number || v.massarNumber,
+                        sectionId: v.section_id || v.sectionId,
+                        sectionLevel: v.section_level || (sec ? sec.level : undefined),
+                        sectionClass: v.section_class || (sec ? sec.classNumber : undefined),
+                        guardianPhone: v.guardian_phone || v.guardianPhone,
+                        type: 'violation',
+                        details: {
+                          date: v.recorded_date || v.recordedDate,
+                          time: v.recorded_time || v.recordedTime,
+                          reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
+                          subject: v.teacher_subject || v.teacherSubject
+                        }
+                      };
+                    });
+                    setNotifyBatchStudents(batch);
+                    setNotifyTargetStudent(null);
+                    setIsNotifyModalOpen(true);
+                  }}
+                  disabled={filteredViolations.length === 0}
+                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#1A4E47] to-[#143E38] hover:brightness-110 text-white font-bold text-xs transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                  title="إشعار جماعي لأولياء أمور التلاميذ المخالفين (واتساب عادي / textbee.dev) - خاص بالمدير"
+                >
+                  <MessageSquare className="w-4 h-4 text-amber-300" />
+                  <span>إشعار أولياء المخالفين (واتساب / textbee.dev) ({filteredViolations.length}) 💬</span>
+                </button>
+              )}
             </div>
 
             <div className="text-xs text-[#6C6356]">
@@ -845,12 +867,38 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
           </div>
 
           {/* Separation & Scope Info Banner */}
-          <div className="flex items-center justify-between gap-2 p-2.5 rounded-xl text-xs font-bold shadow-2xs border bg-white">
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl text-xs font-bold shadow-2xs border bg-white">
             {isTeacher ? (
-              <div className="flex items-center gap-2 text-emerald-800">
-                <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
-                <span>👤 وضع الأستاذ ({currentUser?.fullName || 'الأستاذ'}): مفصول ومستقل — يتم عرض مخالفاتك فقط. الإدارة تطلع على كافة مخالفات المؤسسة.</span>
-              </div>
+              <>
+                <div className="flex items-center gap-2 text-emerald-800">
+                  <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse"></span>
+                  <span>👤 حساب الأستاذ ({currentUser?.fullName || 'الأستاذ'}): سجل المخالفات الموثق</span>
+                </div>
+                <div className="flex items-center gap-1.5 bg-[#FAF8F5] p-1 rounded-xl border border-[#D5CDC0]">
+                  <button
+                    type="button"
+                    onClick={() => setTeacherScope('all')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      teacherScope === 'all'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'text-[#6C6356] hover:text-[#1A4E47]'
+                    }`}
+                  >
+                    كافة مخالفات أقسامي (مع الإدارة)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTeacherScope('my_only')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      teacherScope === 'my_only'
+                        ? 'bg-[#1A4E47] text-white shadow-xs'
+                        : 'text-[#6C6356] hover:text-[#1A4E47]'
+                    }`}
+                  >
+                    مخالفاتي المحررة فقط
+                  </button>
+                </div>
+              </>
             ) : (
               <div className="flex items-center gap-2 text-amber-900">
                 <span className="w-2 h-2 rounded-full bg-amber-600"></span>
@@ -1109,31 +1157,33 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                                 <FileText className="w-3.5 h-3.5" />
                               </button>
 
-                              {/* WhatsApp Cloud Official Notification */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setNotifyTargetStudent({
-                                    studentName: v.student_name || v.studentName || 'التلميذ',
-                                    massarNumber: v.massar_number || v.massarNumber,
-                                    sectionId: v.section_id || v.sectionId,
-                                    sectionLevel: v.section_level,
-                                    sectionClass: v.section_class,
-                                    type: 'violation',
-                                    details: {
-                                      date: v.recorded_date || v.recordedDate,
-                                      time: v.recorded_time || v.recordedTime,
-                                      reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
-                                      subject: v.teacher_subject || v.teacherSubject
-                                    }
-                                  });
-                                  setIsNotifyModalOpen(true);
-                                }}
-                                className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition-colors cursor-pointer"
-                                title="إرسال إشعار بالمخالفة لولي الأمر عبر WhatsApp Cloud API"
-                              >
-                                <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
-                              </button>
+                              {/* Official Notification (Director Only: WhatsApp / textbee.dev) */}
+                              {isDirector && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNotifyTargetStudent({
+                                      studentName: v.student_name || v.studentName || 'التلميذ',
+                                      massarNumber: v.massar_number || v.massarNumber,
+                                      sectionId: v.section_id || v.sectionId,
+                                      sectionLevel: v.section_level,
+                                      sectionClass: v.section_class,
+                                      type: 'violation',
+                                      details: {
+                                        date: v.recorded_date || v.recordedDate,
+                                        time: v.recorded_time || v.recordedTime,
+                                        reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
+                                        subject: v.teacher_subject || v.teacherSubject
+                                      }
+                                    });
+                                    setIsNotifyModalOpen(true);
+                                  }}
+                                  className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition-colors cursor-pointer"
+                                  title="إرسال إشعار بالمخالفة لولي الأمر (واتساب عادي / textbee.dev) - خاص بالمدير"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                                </button>
+                              )}
 
                               {/* Single Notice Slip */}
                               <button
@@ -1148,7 +1198,7 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                               {/* Delete */}
                               <button
                                 type="button"
-                                onClick={() => handleDeleteViolation(v.id)}
+                                onClick={() => setViolationToDelete(v)}
                                 disabled={deletingId === v.id}
                                 className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer disabled:opacity-50"
                                 title="حذف المخالفة"
@@ -1227,31 +1277,33 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
                           <span>استدعاء</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNotifyTargetStudent({
-                              studentName: v.student_name || v.studentName || 'التلميذ',
-                              massarNumber: v.massar_number || v.massarNumber,
-                              sectionId: v.section_id || v.sectionId,
-                              sectionLevel: v.section_level,
-                              sectionClass: v.section_class,
-                              type: 'violation',
-                              details: {
-                                date: v.recorded_date || v.recordedDate,
-                                time: v.recorded_time || v.recordedTime,
-                                reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
-                                subject: v.teacher_subject || v.teacherSubject
-                              }
-                            });
-                            setIsNotifyModalOpen(true);
-                          }}
-                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[10px] transition-colors cursor-pointer"
-                          title="إرسال إشعار عبر WhatsApp Cloud API"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>WhatsApp Cloud</span>
-                        </button>
+                        {isDirector && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotifyTargetStudent({
+                                studentName: v.student_name || v.studentName || 'التلميذ',
+                                massarNumber: v.massar_number || v.massarNumber,
+                                sectionId: v.section_id || v.sectionId,
+                                sectionLevel: v.section_level,
+                                sectionClass: v.section_class,
+                                type: 'violation',
+                                details: {
+                                  date: v.recorded_date || v.recordedDate,
+                                  time: v.recorded_time || v.recordedTime,
+                                  reason: `${v.violation_type || v.violationType} - ${v.description || ''}`,
+                                  subject: v.teacher_subject || v.teacherSubject
+                                }
+                              });
+                              setIsNotifyModalOpen(true);
+                            }}
+                            className="flex items-center justify-center gap-1 p-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-[10px] transition-colors cursor-pointer"
+                            title="إرسال إشعار عبر واتساب عادي أو textbee.dev - خاص بالمدير"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>إشعار ولي الأمر</span>
+                          </button>
+                        )}
 
                         <button
                           type="button"
@@ -1265,8 +1317,9 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
                         <button
                           type="button"
-                          onClick={() => handleDeleteViolation(v.id)}
-                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-gray-50 hover:bg-rose-100 text-rose-800 border border-gray-200 font-bold text-[10px] transition-colors cursor-pointer"
+                          onClick={() => setViolationToDelete(v)}
+                          disabled={deletingId === v.id}
+                          className="flex items-center justify-center gap-1 p-2 rounded-xl bg-gray-50 hover:bg-rose-100 text-rose-800 border border-gray-200 font-bold text-[10px] transition-colors cursor-pointer disabled:opacity-50"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-rose-600" />
                           <span>حذف</span>
@@ -1588,6 +1641,93 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
           fetchViolations();
         }}
       />
+
+      {/* Delete Violation Confirmation Dialog (Native React Modal - No window.confirm) */}
+      {violationToDelete && (
+        <div
+          className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          dir="rtl"
+          onClick={() => setViolationToDelete(null)}
+        >
+          <div
+            className="bg-[#FBF8EF] border border-[#E4DBC0] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 my-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-[#E4DBC0] bg-rose-50">
+              <div className="flex items-center gap-2 text-rose-700">
+                <div className="w-8 h-8 rounded-lg bg-rose-100 flex items-center justify-center text-rose-600 shrink-0">
+                  <Trash2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold font-serif text-rose-950">
+                    تأكيد مسح المخالفة
+                  </h3>
+                  <p className="text-[11px] text-rose-700">
+                    هل أنت متأكد من رغبتك في حذف هذا السجل نهائياً؟
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViolationToDelete(null)}
+                className="p-1 rounded-lg hover:bg-rose-100 text-rose-400 hover:text-rose-700 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5 space-y-3">
+              <div className="bg-white p-3.5 rounded-xl border border-[#E5DFD4] text-xs space-y-2 text-[#5C4F40]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#7A6B58]">اسم التلميذ:</span>
+                  <strong className="text-[#2A2118] text-sm">{violationToDelete.student_name || violationToDelete.studentName}</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#7A6B58]">نوع المخالفة:</span>
+                  <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-200">
+                    {violationToDelete.violation_type || violationToDelete.violationType}
+                  </span>
+                </div>
+                {violationToDelete.description && (
+                  <div className="pt-1 border-t border-[#E5DFD4]">
+                    <span className="text-[#7A6B58] block mb-0.5">التفاصيل:</span>
+                    <p className="text-[#2A2118] bg-[#FAF8F5] p-2 rounded-lg text-[11px] leading-relaxed">
+                      {violationToDelete.description}
+                    </p>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#E5DFD4]">
+                  <span className="text-[#7A6B58]">المسجل:</span>
+                  <span className="text-[#2A2118] font-semibold">{violationToDelete.teacher_name || violationToDelete.teacherName || '—'}</span>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-normal">
+                ⚠️ سيتم حذف هذا السجل نهائياً من قاعدة البيانات والسجل التأديبي للمؤسسة ولا يمكن التراجع عن هذا الإجراء.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 p-4 border-t border-[#E4DBC0] bg-[#F4EFDE]">
+              <button
+                type="button"
+                onClick={() => setViolationToDelete(null)}
+                className="px-4 py-2 rounded-xl bg-white border border-[#D5CDC0] text-[#5B5040] hover:text-[#2A2118] hover:bg-[#FBF8EF] font-bold text-xs transition-colors cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={deletingId === violationToDelete.id}
+                onClick={handleConfirmDelete}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-md hover:shadow-lg cursor-pointer disabled:opacity-50 flex items-center gap-1.5 transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{deletingId === violationToDelete.id ? 'جاري الحذف...' : 'تأكيد الحذف نهائياً'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

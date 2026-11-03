@@ -76,6 +76,7 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
   studentHistory,
   isStudentHistoryLoading = false
 }) => {
+  const isDirector = currentUser?.role === 'director' || currentUser?.role === 'admin';
   const [violationTypes, setViolationTypes] = useState<ViolationTypeItem[]>([]);
   const [selectedType, setSelectedType] = useState<string>('');
   const [actionTaken, setActionTaken] = useState<string>('تنبيه شفهي');
@@ -579,32 +580,34 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
                     <span>طباعة إشعار رسمي للمخالفة</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNotifyTargetStudent({
-                        studentName: seat.studentName || 'التلميذ',
-                        massarNumber: seat.massarNumber,
-                        sectionId: section.id,
-                        sectionLevel: section.level,
-                        sectionClass: section.classNumber,
-                        guardianPhone: seat.guardianPhone,
-                        type: 'violation',
-                        details: {
-                          date: justRecordedViolation.date,
-                          time: justRecordedViolation.time,
-                          reason: `${justRecordedViolation.violationType} - ${justRecordedViolation.actionTaken}`,
-                          subject: justRecordedViolation.teacherSubject
-                        }
-                      });
-                      setIsNotifyModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs cursor-pointer transition-colors"
-                    title="إرسال إشعار فوري لولي الأمر عبر واتساب"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
-                    <span>إشعار ولي الأمر (واتساب) 💬</span>
-                  </button>
+                  {isDirector && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotifyTargetStudent({
+                          studentName: seat.studentName || 'التلميذ',
+                          massarNumber: seat.massarNumber,
+                          sectionId: section.id,
+                          sectionLevel: section.level,
+                          sectionClass: section.classNumber,
+                          guardianPhone: seat.guardianPhone,
+                          type: 'violation',
+                          details: {
+                            date: justRecordedViolation.date,
+                            time: justRecordedViolation.time,
+                            reason: `${justRecordedViolation.violationType} - ${justRecordedViolation.actionTaken}`,
+                            subject: justRecordedViolation.teacherSubject
+                          }
+                        });
+                        setIsNotifyModalOpen(true);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A4E47] hover:bg-[#143E38] text-white font-bold text-xs shadow-xs cursor-pointer transition-colors"
+                      title="إرسال إشعار فوري لولي الأمر (واتساب / textbee.dev) - خاص بالمدير"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-amber-300" />
+                      <span>إشعار ولي الأمر (واتساب / textbee.dev) 💬</span>
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -688,31 +691,33 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
                         </button>
 
                         {/* Send via SMS / WhatsApp Modal */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNotifyTargetStudent({
-                              studentName: seat.studentName || 'التلميذ',
-                              massarNumber: seat.massarNumber,
-                              sectionId: section.id,
-                              sectionLevel: section.level,
-                              sectionClass: section.classNumber,
-                              guardianPhone: seat.guardianPhone,
-                              type: 'violation',
-                              details: {
-                                date: v.recordedDate || (v as any).date,
-                                time: v.recordedTime || (v as any).time,
-                                reason: `${v.violationType || (v as any).text} - ${v.actionTaken || ''}`,
-                                subject: v.teacherSubject
-                              }
-                            });
-                            setIsNotifyModalOpen(true);
-                          }}
-                          className="text-emerald-800 hover:text-emerald-950 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors cursor-pointer"
-                          title="إرسال إشعار رسمي لولي الأمر عبر WhatsApp Cloud API"
-                        >
-                          <MessageSquare className="w-4 h-4 text-emerald-700" />
-                        </button>
+                        {isDirector && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotifyTargetStudent({
+                                studentName: seat.studentName || 'التلميذ',
+                                massarNumber: seat.massarNumber,
+                                sectionId: section.id,
+                                sectionLevel: section.level,
+                                sectionClass: section.classNumber,
+                                guardianPhone: seat.guardianPhone,
+                                type: 'violation',
+                                details: {
+                                  date: v.recordedDate || (v as any).date,
+                                  time: v.recordedTime || (v as any).time,
+                                  reason: `${v.violationType || (v as any).text} - ${v.actionTaken || ''}`,
+                                  subject: v.teacherSubject
+                                }
+                              });
+                              setIsNotifyModalOpen(true);
+                            }}
+                            className="text-emerald-800 hover:text-emerald-950 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors cursor-pointer"
+                            title="إرسال إشعار رسمي لولي الأمر (واتساب / textbee.dev) - خاص بالمدير"
+                          >
+                            <MessageSquare className="w-4 h-4 text-emerald-700" />
+                          </button>
+                        )}
 
                         {/* Delete Violation */}
                         <button
@@ -745,40 +750,42 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            {/* SMS / WhatsApp Official Parent Notification */}
-            <button
-              type="button"
-              onClick={() => {
-                const target = violationsList[0];
-                setNotifyTargetStudent({
-                  studentName: seat.studentName || 'التلميذ',
-                  massarNumber: seat.massarNumber,
-                  sectionId: section.id,
-                  sectionLevel: section.level,
-                  sectionClass: section.classNumber,
-                  guardianPhone: seat.guardianPhone,
-                  type: 'violation',
-                  details: target
-                    ? {
-                        date: target.recordedDate || (target as any).date,
-                        time: target.recordedTime || (target as any).time,
-                        reason: `${target.violationType || (target as any).text} - ${target.actionTaken || ''}`,
-                        subject: target.teacherSubject,
-                        count: violationsList.length
-                      }
-                    : {
-                        count: violationsList.length
-                      }
-                });
-                setIsNotifyModalOpen(true);
-              }}
-              disabled={violationsList.length === 0}
-              className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-800 hover:brightness-110 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
-              title="إرسال إشعار رسمي لولي الأمر عبر WhatsApp Cloud API"
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
-              <span>إشعار ولي الأمر (WhatsApp Cloud) 🚀</span>
-            </button>
+            {/* SMS / WhatsApp Official Parent Notification (Director Only) */}
+            {isDirector && (
+              <button
+                type="button"
+                onClick={() => {
+                  const target = violationsList[0];
+                  setNotifyTargetStudent({
+                    studentName: seat.studentName || 'التلميذ',
+                    massarNumber: seat.massarNumber,
+                    sectionId: section.id,
+                    sectionLevel: section.level,
+                    sectionClass: section.classNumber,
+                    guardianPhone: seat.guardianPhone,
+                    type: 'violation',
+                    details: target
+                      ? {
+                          date: target.recordedDate || (target as any).date,
+                          time: target.recordedTime || (target as any).time,
+                          reason: `${target.violationType || (target as any).text} - ${target.actionTaken || ''}`,
+                          subject: target.teacherSubject,
+                          count: violationsList.length
+                        }
+                      : {
+                          count: violationsList.length
+                        }
+                  });
+                  setIsNotifyModalOpen(true);
+                }}
+                disabled={violationsList.length === 0}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#1A4E47] to-[#143E38] hover:brightness-110 disabled:opacity-40 text-white text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs"
+                title="إرسال إشعار رسمي لولي الأمر (واتساب عادي / textbee.dev) - خاص بالمدير"
+              >
+                <MessageSquare className="w-3.5 h-3.5 text-amber-300" />
+                <span>إشعار ولي الأمر (واتساب / textbee.dev) 💬</span>
+              </button>
+            )}
 
             <button
               type="button"

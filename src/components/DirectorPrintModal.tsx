@@ -214,6 +214,8 @@ export const DirectorPrintModal: React.FC<DirectorPrintModalProps> = ({
     if (mode === 'violations') {
       printAllViolationsReport({
         institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+        siteName: settings.siteName,
+        siteUrl: settings.siteUrl,
         academicYear: settings.year || '2026/2027',
         sectionTitle: selectedSectionTitle,
         dateFilterText: dateFilterLabel,
@@ -222,6 +224,8 @@ export const DirectorPrintModal: React.FC<DirectorPrintModalProps> = ({
     } else {
       printAbsencesReport({
         institution: settings.institution || 'الثانوية الإعدادية ايكسان',
+        siteName: settings.siteName,
+        siteUrl: settings.siteUrl,
         academicYear: settings.year || '2026/2027',
         sectionTitle: selectedSectionTitle,
         dateFilterText: dateFilterLabel,

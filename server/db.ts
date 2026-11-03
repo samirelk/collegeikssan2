@@ -28,6 +28,8 @@ import {
 import { commitBatchDocs } from './firestoreService.ts';
 import { markDirty, purgeAllSnapshots } from './cloudBackup.ts';
 import { sendSmsOtp, sendGuardianNotification } from './smsService.ts';
+import { BASELINE_VIOLATIONS } from './baselineViolations.ts';
+import { BASELINE_POSITIVE_PARTICIPATIONS } from './baselineParticipations.ts';
 
 // Ensure data directory exists for durable SQLite file persistence
 const DATA_DIR = path.join(process.cwd(), 'data');
@@ -53,6 +55,9 @@ export interface AppSettings {
   academy?: string;
   directorate?: string;
   institutionFr?: string;
+  siteName?: string;
+  directorName?: string;
+  siteUrl?: string;
 }
 
 export interface NoteItem {
@@ -484,6 +489,11 @@ export function initDatabase() {
       order_index INTEGER DEFAULT 0,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS deleted_violation_ids (
+      id TEXT PRIMARY KEY,
+      deleted_at TEXT NOT NULL
+    );
   `);
 
   // Ensure massar_number column in daily_violations
@@ -911,7 +921,7 @@ export function initDatabase() {
   }
   }
 
-  // Ensure section roster_json is synced from occupied seats if any section is missing roster data
+  // Ensure section roster_json is synced from occupied seats and duplicate seats are self-healed
   try {
     const allSecs = db.prepare('SELECT id, roster_json FROM sections').all() as any[];
     for (const sec of allSecs) {
@@ -925,11 +935,28 @@ export function initDatabase() {
         SELECT seat_num, student_name, student_number, massar_number, roster_id 
         FROM seats 
         WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
-        ORDER BY CAST(student_number AS INTEGER) ASC, seat_num ASC
+        ORDER BY seat_num DESC
       `).all(sec.id) as any[];
 
-      if (occupiedSeats.length > 0 && rCount < occupiedSeats.length) {
-        const syncedRoster = occupiedSeats.map((s) => ({
+      // Self-healing: if any student is assigned to multiple seats in this section, keep only the latest seat and vacate duplicates!
+      const seenNames = new Set<string>();
+      const deduplicatedOccupied = [];
+      for (const s of occupiedSeats) {
+        const cleanName = s.student_name.trim().toLowerCase();
+        if (seenNames.has(cleanName)) {
+          db.prepare(`
+            UPDATE seats SET student_name = '', student_number = '', massar_number = '', roster_id = NULL, attendance = NULL, status_color = 'default', updated_at = ?
+            WHERE section_id = ? AND seat_num = ?
+          `).run(now, sec.id, s.seat_num);
+        } else {
+          seenNames.add(cleanName);
+          deduplicatedOccupied.push(s);
+        }
+      }
+      deduplicatedOccupied.sort((a, b) => (Number(a.student_number || a.seat_num) - Number(b.student_number || b.seat_num)));
+
+      if (deduplicatedOccupied.length > 0 && rCount !== deduplicatedOccupied.length) {
+        const syncedRoster = deduplicatedOccupied.map((s) => ({
           id: s.roster_id || `r_${sec.id}_${s.seat_num}`,
           name: s.student_name.trim(),
           number: s.student_number || String(s.seat_num),
@@ -953,6 +980,231 @@ export function initDatabase() {
     ensureStudentAccountsExist();
   } catch (accErr) {
     console.error('Failed to ensureStudentAccountsExist:', accErr);
+  }
+
+  try {
+    ensureBaselineViolationsExist();
+  } catch (vioErr) {
+    console.error('Failed to ensureBaselineViolationsExist:', vioErr);
+  }
+
+  try {
+    ensureBaselineParticipationsExist();
+  } catch (posErr) {
+    console.error('Failed to ensureBaselineParticipationsExist:', posErr);
+  }
+}
+
+export function backupAllViolationsToDisk() {
+  try {
+    const all = db.prepare('SELECT * FROM daily_violations').all();
+    const storePath = path.join(DATA_DIR, 'violations_store.json');
+    fs.writeFileSync(storePath, JSON.stringify(all, null, 2), 'utf-8');
+
+    const backupPath = path.join(DATA_DIR, 'full_system_backup_latest.json');
+    let backupObj: any = {};
+    if (fs.existsSync(backupPath)) {
+      try {
+        backupObj = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+      } catch {}
+    }
+    backupObj.daily_violations = all;
+    backupObj.updated_at = new Date().toISOString();
+    fs.writeFileSync(backupPath, JSON.stringify(backupObj, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Failed to backup violations to disk:', err);
+  }
+}
+
+export function ensureBaselineViolationsExist() {
+  try {
+    const storePath = path.join(DATA_DIR, 'violations_store.json');
+    let diskViolations: any[] = [];
+    if (fs.existsSync(storePath)) {
+      try {
+        diskViolations = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+      } catch (e) {
+        diskViolations = [];
+      }
+    }
+
+    const insertStmt = db.prepare(`
+      INSERT INTO daily_violations (
+        id, section_id, seat_num, student_name, student_number, massar_number,
+        violation_type, description, action_taken, teacher_name, teacher_subject,
+        recorded_date, recorded_time, created_at, teacher_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        student_name = COALESCE(NULLIF(excluded.student_name, ''), daily_violations.student_name),
+        teacher_name = COALESCE(NULLIF(excluded.teacher_name, ''), daily_violations.teacher_name),
+        teacher_id = COALESCE(NULLIF(excluded.teacher_id, ''), daily_violations.teacher_id),
+        violation_type = COALESCE(NULLIF(excluded.violation_type, ''), daily_violations.violation_type),
+        description = excluded.description,
+        action_taken = COALESCE(NULLIF(excluded.action_taken, ''), daily_violations.action_taken),
+        recorded_date = COALESCE(NULLIF(excluded.recorded_date, ''), daily_violations.recorded_date),
+        recorded_time = COALESCE(NULLIF(excluded.recorded_time, ''), daily_violations.recorded_time)
+    `);
+
+    let deletedIds = new Set<string>();
+    try {
+      const rows = db.prepare('SELECT id FROM deleted_violation_ids').all() as any[];
+      deletedIds = new Set(rows.map((r: any) => r.id));
+    } catch {}
+
+    // Insert baseline violations
+    for (const v of BASELINE_VIOLATIONS) {
+      if (deletedIds.has(v.id)) continue;
+      insertStmt.run(
+        v.id,
+        v.section_id,
+        v.seat_num,
+        v.student_name,
+        v.student_number || '',
+        v.massar_number || '',
+        v.violation_type,
+        v.description,
+        v.action_taken,
+        v.teacher_name,
+        v.teacher_subject,
+        v.recorded_date,
+        v.recorded_time,
+        v.created_at,
+        v.teacher_id || ''
+      );
+    }
+
+    // Insert any disk saved violations
+    if (Array.isArray(diskViolations)) {
+      for (const dv of diskViolations) {
+        if (!dv.id || deletedIds.has(dv.id)) continue;
+        insertStmt.run(
+          dv.id,
+          dv.section_id || dv.sectionId || '',
+          dv.seat_num ?? dv.seatNum ?? null,
+          dv.student_name || dv.studentName || '',
+          dv.student_number || dv.studentNumber || '',
+          dv.massar_number || dv.massarNumber || '',
+          dv.violation_type || dv.violationType || 'مخالفة تربوية أخرى',
+          dv.description || dv.notes || 'مخالفة سلوكية',
+          dv.action_taken || dv.actionTaken || 'تنبيه شفهي',
+          dv.teacher_name || dv.teacherName || '',
+          dv.teacher_subject || dv.teacherSubject || '',
+          dv.recorded_date || dv.recordedDate || dv.date || new Date().toISOString().slice(0, 10),
+          dv.recorded_time || dv.recordedTime || dv.time || new Date().toTimeString().slice(0, 5),
+          dv.created_at || dv.createdAt || new Date().toISOString(),
+          dv.teacher_id || dv.teacherId || ''
+        );
+      }
+    }
+
+    // Always update the persistent store on disk
+    backupAllViolationsToDisk();
+    console.log('🛡️ [DB] Permanent Violations Shield active: verified baseline & disk violations in SQLite.');
+  } catch (err: any) {
+    console.error('Error in ensureBaselineViolationsExist:', err);
+  }
+}
+
+export function backupAllParticipationsToDisk() {
+  try {
+    const all = db.prepare('SELECT * FROM positive_participations').all();
+    const storePath = path.join(DATA_DIR, 'positive_participations_store.json');
+    fs.writeFileSync(storePath, JSON.stringify(all, null, 2), 'utf-8');
+
+    const backupPath = path.join(DATA_DIR, 'full_system_backup_latest.json');
+    let backupObj: any = {};
+    if (fs.existsSync(backupPath)) {
+      try {
+        backupObj = JSON.parse(fs.readFileSync(backupPath, 'utf-8'));
+      } catch {}
+    }
+    backupObj.positive_participations = all;
+    backupObj.updated_at = new Date().toISOString();
+    fs.writeFileSync(backupPath, JSON.stringify(backupObj, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Failed to backup positive participations to disk:', err);
+  }
+}
+
+export function ensureBaselineParticipationsExist() {
+  try {
+    const storePath = path.join(DATA_DIR, 'positive_participations_store.json');
+    let diskParticipations: any[] = [];
+    if (fs.existsSync(storePath)) {
+      try {
+        diskParticipations = JSON.parse(fs.readFileSync(storePath, 'utf-8'));
+      } catch (e) {
+        diskParticipations = [];
+      }
+    }
+
+    const insertStmt = db.prepare(`
+      INSERT INTO positive_participations (
+        id, section_id, seat_num, student_name, student_number, massar_number,
+        participation_type, points, note, teacher_id, teacher_name, teacher_subject,
+        recorded_date, recorded_time, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        student_name = COALESCE(NULLIF(excluded.student_name, ''), positive_participations.student_name),
+        teacher_name = COALESCE(NULLIF(excluded.teacher_name, ''), positive_participations.teacher_name),
+        teacher_id = COALESCE(NULLIF(excluded.teacher_id, ''), positive_participations.teacher_id),
+        participation_type = COALESCE(NULLIF(excluded.participation_type, ''), positive_participations.participation_type),
+        points = COALESCE(excluded.points, positive_participations.points),
+        note = COALESCE(NULLIF(excluded.note, ''), positive_participations.note),
+        recorded_date = COALESCE(NULLIF(excluded.recorded_date, ''), positive_participations.recorded_date),
+        recorded_time = COALESCE(NULLIF(excluded.recorded_time, ''), positive_participations.recorded_time)
+    `);
+
+    // Insert baseline participations (including الثانية 2)
+    for (const p of BASELINE_POSITIVE_PARTICIPATIONS) {
+      insertStmt.run(
+        p.id,
+        p.section_id,
+        p.seat_num,
+        p.student_name,
+        p.student_number || '',
+        p.massar_number || '',
+        p.participation_type,
+        p.points,
+        p.note || '',
+        p.teacher_id || '',
+        p.teacher_name,
+        p.teacher_subject,
+        p.recorded_date,
+        p.recorded_time,
+        p.created_at
+      );
+    }
+
+    // Insert any disk saved participations
+    if (Array.isArray(diskParticipations)) {
+      for (const dp of diskParticipations) {
+        if (!dp.id) continue;
+        insertStmt.run(
+          dp.id,
+          dp.section_id || dp.sectionId || '',
+          dp.seat_num ?? dp.seatNum ?? null,
+          dp.student_name || dp.studentName || '',
+          dp.student_number || dp.studentNumber || '',
+          dp.massar_number || dp.massarNumber || '',
+          dp.participation_type || dp.participationType || 'إنجاز متقن للواجبات والتمارين',
+          dp.points ?? 1,
+          dp.note || '',
+          dp.teacher_id || dp.teacherId || '',
+          dp.teacher_name || dp.teacherName || '',
+          dp.teacher_subject || dp.teacherSubject || '',
+          dp.recorded_date || dp.recordedDate || new Date().toISOString().slice(0, 10),
+          dp.recorded_time || dp.recordedTime || new Date().toTimeString().slice(0, 5),
+          dp.created_at || dp.createdAt || new Date().toISOString()
+        );
+      }
+    }
+
+    // Always update disk store
+    backupAllParticipationsToDisk();
+    console.log('🛡️ [DB] Permanent Positive Participations Shield active: verified baseline & disk records in SQLite.');
+  } catch (err: any) {
+    console.error('Error in ensureBaselineParticipationsExist:', err);
   }
 }
 
@@ -1135,7 +1387,10 @@ export function getAppSettings(): AppSettings {
     year: map.year || '2026/2027',
     teacher: map.teacher || '',
     academy: map.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق',
-    directorate: map.directorate || 'المديرية الإقليمية بالناظور'
+    directorate: map.directorate || 'المديرية الإقليمية بالناظور',
+    siteName: map.siteName || map.site_name || 'منظومة إحسان لتدبير الأقسام والغياب والسلوك',
+    directorName: map.directorName || map.director_name || 'محمد الشريف',
+    siteUrl: map.siteUrl || map.site_url || map.website_url || ''
   };
 }
 
@@ -1148,6 +1403,9 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
   `);
 
   if (settings.institution !== undefined) upsert.run('institution', settings.institution, now);
+  if (settings.siteName !== undefined) upsert.run('siteName', settings.siteName, now);
+  if (settings.directorName !== undefined) upsert.run('directorName', settings.directorName, now);
+  if (settings.siteUrl !== undefined) upsert.run('siteUrl', settings.siteUrl, now);
   if (settings.year !== undefined && settings.year.trim()) {
     const cleanYear = settings.year.trim();
     upsert.run('year', cleanYear, now);
@@ -1175,16 +1433,22 @@ export function saveAppSettings(settings: Partial<AppSettings>): AppSettings {
 // ---------------- Messaging & Gateway Settings (WhatsApp Cloud API & WhatsApp) ----------------
 
 export interface SmsGatewayConfig {
-  provider: 'whatsapp_cloud' | 'whatsapp';
-  // WhatsApp Cloud API (Meta Official)
+  provider: 'whatsapp' | 'textbee' | 'whatsapp_cloud';
+  // Textbee.dev Android Gateway
+  textbeeApiKey?: string;
+  textbeeDeviceId?: string;
+  textbeeEnabled?: boolean;
+  // WhatsApp Standard Direct (wa.me)
+  whatsappEnabled?: boolean;
+  // WhatsApp Cloud API (Meta Official - Optional)
   whatsappCloudEnabled?: boolean;
   whatsappPhoneNumberId?: string;
   whatsappAccessToken?: string;
   whatsappBusinessAccountId?: string;
   whatsappTemplateName?: string;
   schoolPhone?: string;
-  // General Channel
-  defaultChannel: 'whatsapp_cloud' | 'whatsapp';
+  // Director-selected default channel: 'whatsapp' | 'textbee'
+  defaultChannel: 'whatsapp' | 'textbee' | 'whatsapp_cloud';
 }
 
 export interface AndroidSmsGatewayConfig {
@@ -1192,25 +1456,36 @@ export interface AndroidSmsGatewayConfig {
   url: string;
   token?: string;
   schoolPhone?: string;
-  defaultChannel: 'whatsapp_cloud' | 'whatsapp';
+  defaultChannel: 'whatsapp' | 'textbee';
 }
 
 export function getSmsGatewayConfig(): SmsGatewayConfig {
-  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'whatsapp_%' OR key LIKE 'sms_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
+  const rows = db.prepare(`SELECT key, value FROM app_settings WHERE key LIKE 'whatsapp_%' OR key LIKE 'sms_%' OR key LIKE 'textbee_%' OR key LIKE 'notification_%' OR key = 'verification_channel'`).all() as { key: string; value: string }[];
   const map: Record<string, string> = {};
   for (const r of rows) {
     map[r.key] = r.value;
   }
+
+  const rawChannel = map['notification_default_channel'] || map['sms_provider'] || 'whatsapp';
+  const defaultChannel: 'whatsapp' | 'textbee' | 'whatsapp_cloud' =
+    rawChannel === 'textbee' ? 'textbee' : rawChannel === 'whatsapp_cloud' ? 'whatsapp_cloud' : 'whatsapp';
+
   return {
-    provider: 'whatsapp_cloud',
-    // WhatsApp Cloud API
-    whatsappCloudEnabled: map['whatsapp_cloud_enabled'] !== '0',
+    provider: defaultChannel,
+    // Textbee.dev Android SMS Gateway
+    textbeeApiKey: map['textbee_api_key'] || process.env.TEXTBEE_API_KEY || '',
+    textbeeDeviceId: map['textbee_device_id'] || process.env.TEXTBEE_DEVICE_ID || '',
+    textbeeEnabled: map['textbee_enabled'] !== '0',
+    // WhatsApp Standard
+    whatsappEnabled: map['whatsapp_enabled'] !== '0',
+    // WhatsApp Cloud API (Meta)
+    whatsappCloudEnabled: map['whatsapp_cloud_enabled'] === '1',
     whatsappPhoneNumberId: map['whatsapp_phone_number_id'] || process.env.WHATSAPP_PHONE_NUMBER_ID || '',
     whatsappAccessToken: map['whatsapp_access_token'] || process.env.WHATSAPP_ACCESS_TOKEN || '',
     whatsappBusinessAccountId: map['whatsapp_waba_id'] || process.env.WHATSAPP_WABA_ID || '',
     whatsappTemplateName: map['whatsapp_template_name'] || process.env.WHATSAPP_TEMPLATE_NAME || '',
     schoolPhone: map['school_phone'] || '',
-    defaultChannel: 'whatsapp_cloud'
+    defaultChannel
   };
 }
 
@@ -1222,22 +1497,32 @@ export function saveSmsGatewayConfig(config: Partial<SmsGatewayConfig>): SmsGate
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
   `);
 
-  upsert.run('sms_provider', 'whatsapp_cloud', now);
-  // WhatsApp Cloud
+  if (config.defaultChannel !== undefined) {
+    upsert.run('notification_default_channel', config.defaultChannel, now);
+    upsert.run('sms_provider', config.defaultChannel, now);
+  }
+  // Textbee.dev settings
+  if (config.textbeeApiKey !== undefined) upsert.run('textbee_api_key', config.textbeeApiKey.trim(), now);
+  if (config.textbeeDeviceId !== undefined) upsert.run('textbee_device_id', config.textbeeDeviceId.trim(), now);
+  if (config.textbeeEnabled !== undefined) upsert.run('textbee_enabled', config.textbeeEnabled ? '1' : '0', now);
+
+  // WhatsApp Standard settings
+  if (config.whatsappEnabled !== undefined) upsert.run('whatsapp_enabled', config.whatsappEnabled ? '1' : '0', now);
+
+  // WhatsApp Cloud settings
   if (config.whatsappCloudEnabled !== undefined) upsert.run('whatsapp_cloud_enabled', config.whatsappCloudEnabled ? '1' : '0', now);
   if (config.whatsappPhoneNumberId !== undefined) upsert.run('whatsapp_phone_number_id', config.whatsappPhoneNumberId.trim(), now);
   if (config.whatsappAccessToken !== undefined) upsert.run('whatsapp_access_token', config.whatsappAccessToken.trim(), now);
   if (config.whatsappBusinessAccountId !== undefined) upsert.run('whatsapp_waba_id', config.whatsappBusinessAccountId.trim(), now);
   if (config.whatsappTemplateName !== undefined) upsert.run('whatsapp_template_name', config.whatsappTemplateName.trim(), now);
   if (config.schoolPhone !== undefined) upsert.run('school_phone', config.schoolPhone.trim(), now);
-  upsert.run('verification_channel', 'whatsapp_cloud', now);
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
     VALUES (?, ?, ?, ?)
   `).run(
     'update_sms_gateway',
-    `تحديث إعدادات بوابة واتساب الرسمية (WhatsApp Cloud API - Meta)`,
+    `تحديث إعدادات قنوات إرسال الإشعارات (واتساب عادي / textbee.dev)`,
     JSON.stringify(config),
     now
   );
@@ -1251,7 +1536,7 @@ export function getAndroidSmsGatewayConfig(): AndroidSmsGatewayConfig {
     url: '',
     token: '',
     schoolPhone: '',
-    defaultChannel: 'whatsapp_cloud'
+    defaultChannel: 'whatsapp'
   };
 }
 
@@ -1273,6 +1558,13 @@ export function normalizeArabic(str?: string): string {
     .replace(/ة/g, 'ه')
     .replace(/ى/g, 'ي')
     .replace(/\s+/g, ' ');
+}
+
+export function normalizeTeacherName(str?: string): string {
+  if (!str) return '';
+  let s = normalizeArabic(str);
+  s = s.replace(/^(ذ\.|ذ\s+|أ\.|أ\s+|الاستاذ\s+|الاستاذه\s+|السيد\s+|السيده\s+|المدير\s+|المديره\s+)/g, '');
+  return s.trim();
 }
 
 export function matchStudent(
@@ -1529,29 +1821,15 @@ export function getAllSections(teacherFilterId?: string, viewerId?: string, view
     }
 
     // Get violations for section with teacher and date/time info (attached to students)
-    const violRows = isTeacherViewer
-      ? (db.prepare(`
-          SELECT id, section_id, seat_num, student_name, student_number, massar_number,
-                 violation_type, description, action_taken, teacher_name, teacher_subject, teacher_id,
-                 recorded_date, recorded_time, created_at
-          FROM daily_violations
-          WHERE section_id = ? AND (
-            teacher_id = ? 
-            OR (teacher_name != '' AND (
-              LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))
-              OR (? != '' AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?)))
-            ))
-          )
-          ORDER BY created_at DESC
-        `).all(sec.id, activeTeacherId, currentTeacherName, currentTeacherUsername, currentTeacherUsername) as any[])
-      : (db.prepare(`
-          SELECT id, section_id, seat_num, student_name, student_number, massar_number,
-                 violation_type, description, action_taken, teacher_name, teacher_subject, teacher_id,
-                 recorded_date, recorded_time, created_at
-          FROM daily_violations
-          WHERE section_id = ?
-          ORDER BY created_at DESC
-        `).all(sec.id) as any[]);
+    // Institutional discipline: all teachers assigned to or viewing this section can see student behavioral violations
+    const violRows = db.prepare(`
+      SELECT id, section_id, seat_num, student_name, student_number, massar_number,
+             violation_type, description, action_taken, teacher_name, teacher_subject, teacher_id,
+             recorded_date, recorded_time, created_at
+      FROM daily_violations
+      WHERE section_id = ?
+      ORDER BY created_at DESC
+    `).all(sec.id) as any[];
 
     // Get positive participations for section (attached to students)
     const posRows = isTeacherViewer
@@ -2205,6 +2483,26 @@ export function updateSeat(
     // If the seat is being emptied or the card is fully cleared, remove stale absence history.
     if ((!name || !name.trim()) && (attendance === null || attendance === undefined || attendance === 'present')) {
       clearSeatAbsenceHistory(sectionId, seatNum);
+    }
+
+    // Prevent duplicate seat allocations: clear this student from any other seat in this section
+    if (name && name.trim()) {
+      const cleanStudentName = name.trim();
+      db.prepare(`
+        UPDATE seats SET
+          student_name = '',
+          student_number = '',
+          massar_number = '',
+          roster_id = NULL,
+          attendance = NULL,
+          status_color = 'default',
+          updated_at = ?
+        WHERE section_id = ? AND seat_num != ? AND (
+          (massar_number != '' AND massar_number IS NOT NULL AND massar_number = ?)
+          OR (roster_id IS NOT NULL AND roster_id != '' AND roster_id = ?)
+          OR (LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
+        )
+      `).run(now, sectionId, seatNum, massarNumber || '', rosterId || '', cleanStudentName);
     }
 
     db.prepare(`
@@ -2863,6 +3161,7 @@ export function addStudentViolation(
     now
   );
 
+  backupAllViolationsToDisk();
   markDirty();
 
   return {
@@ -2896,6 +3195,9 @@ export function deleteStudentViolation(sectionId: string, seatNum: number, viola
       }
     }
   }
+  try {
+    db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(violationId, new Date().toISOString());
+  } catch {}
   // Delete by ID to ensure it is cleanly deleted regardless of seat movements
   db.prepare('DELETE FROM daily_violations WHERE id = ?').run(violationId);
   try {
@@ -2907,6 +3209,7 @@ export function deleteStudentViolation(sectionId: string, seatNum: number, viola
   } catch (err) {
     console.warn('Firestore cloudDeleteViolation failed:', err);
   }
+  backupAllViolationsToDisk();
 
   db.prepare(`
     INSERT INTO change_history (action, summary, details_json, created_at)
@@ -6747,6 +7050,9 @@ export function getDirectorAnalytics() {
       SELECT 
         dv.section_id, 
         dv.seat_num, 
+        dv.student_name,
+        dv.student_number,
+        dv.massar_number,
         dv.id as viol_id, 
         dv.violation_type as viol_text, 
         dv.recorded_date as viol_date, 
@@ -6754,11 +7060,11 @@ export function getDirectorAnalytics() {
       FROM daily_violations dv
     )
     SELECT 
-      s.section_id,
-      s.seat_num,
-      s.student_name,
-      s.student_number,
-      s.massar_number,
+      COALESCE(s.section_id, v.section_id) as section_id,
+      COALESCE(s.seat_num, v.seat_num, 0) as seat_num,
+      COALESCE(s.student_name, v.student_name) as student_name,
+      COALESCE(s.student_number, v.student_number, '') as student_number,
+      COALESCE(s.massar_number, v.massar_number, '') as massar_number,
       sec.level as section_level,
       sec.class_number as section_class,
       u.full_name as teacher_name,
@@ -6767,23 +7073,32 @@ export function getDirectorAnalytics() {
       (
         SELECT v2.viol_text 
         FROM AllViolationsCombined v2 
-        WHERE v2.section_id = s.section_id AND v2.seat_num = s.seat_num 
+        WHERE v2.section_id = v.section_id AND (
+          (v2.seat_num > 0 AND v2.seat_num = v.seat_num)
+          OR (LOWER(TRIM(v2.student_name)) = LOWER(TRIM(v.student_name)))
+        )
         ORDER BY v2.created_at DESC LIMIT 1
       ) as last_note_text,
       (
         SELECT v2.viol_date 
         FROM AllViolationsCombined v2 
-        WHERE v2.section_id = s.section_id AND v2.seat_num = s.seat_num 
+        WHERE v2.section_id = v.section_id AND (
+          (v2.seat_num > 0 AND v2.seat_num = v.seat_num)
+          OR (LOWER(TRIM(v2.student_name)) = LOWER(TRIM(v.student_name)))
+        )
         ORDER BY v2.created_at DESC LIMIT 1
       ) as last_note_date
     FROM AllViolationsCombined v
-    JOIN seats s ON v.section_id = s.section_id AND v.seat_num = s.seat_num
-    JOIN sections sec ON s.section_id = sec.id
+    LEFT JOIN seats s ON v.section_id = s.section_id AND (
+      (v.seat_num > 0 AND v.seat_num = s.seat_num)
+      OR (LOWER(TRIM(v.student_name)) = LOWER(TRIM(s.student_name)))
+    )
+    JOIN sections sec ON v.section_id = sec.id
     LEFT JOIN users u ON sec.assigned_teacher_id = u.id
-    WHERE s.student_name IS NOT NULL AND TRIM(s.student_name) != ''
-    GROUP BY s.section_id, s.seat_num, s.student_name, s.student_number, s.massar_number, sec.level, sec.class_number, u.full_name, u.subject
+    WHERE v.student_name IS NOT NULL AND TRIM(v.student_name) != ''
+    GROUP BY v.section_id, v.student_name
     HAVING violations_count > 0
-    ORDER BY violations_count DESC, s.student_name ASC
+    ORDER BY violations_count DESC, v.student_name ASC
     LIMIT 10
   `).all() as any[];
 
@@ -6861,10 +7176,13 @@ export function getDirectorAnalytics() {
     JOIN sections sec ON s.section_id = sec.id
     LEFT JOIN users u ON sec.assigned_teacher_id = u.id
     LEFT JOIN (
-      SELECT section_id, seat_num, COUNT(*) as viols_count
+      SELECT section_id, seat_num, student_name, COUNT(*) as viols_count
       FROM daily_violations
-      GROUP BY section_id, seat_num
-    ) nc ON nc.section_id = s.section_id AND nc.seat_num = s.seat_num
+      GROUP BY section_id, student_name
+    ) nc ON nc.section_id = s.section_id AND (
+      (nc.seat_num > 0 AND nc.seat_num = s.seat_num)
+      OR (LOWER(TRIM(nc.student_name)) = LOWER(TRIM(s.student_name)))
+    )
     LEFT JOIN (
       SELECT section_id, seat_num, COUNT(*) as hist_count
       FROM attendance_history
@@ -7600,16 +7918,48 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   } catch {}
 
   // 2. Violations Query for targetDate (Only actual violations from daily_violations)
+  let teacherUser: any = null;
+  let cleanTName = '';
+  let rawTName = '';
+  if (teacherId) {
+    try {
+      teacherUser = db.prepare('SELECT id, full_name FROM users WHERE id = ?').get(teacherId) as any;
+      if (teacherUser) {
+        rawTName = teacherUser.full_name || '';
+        cleanTName = normalizeTeacherName(rawTName);
+      }
+    } catch {}
+  }
+
   let violWhere = `v.recorded_date IN (${datePlaceholders})`;
   const violParams: any[] = [...dateList];
 
   if (teacherId) {
-    violWhere += ` AND (
-      v.teacher_id = ? 
-      OR v.teacher_name = (SELECT full_name FROM users WHERE id = ?)
-      OR (v.teacher_name != '' AND LOWER(TRIM(v.teacher_name)) = (SELECT LOWER(TRIM(full_name)) FROM users WHERE id = ?))
-    )`;
-    violParams.push(teacherId, teacherId, teacherId);
+    if (cleanTName) {
+      violWhere += ` AND (
+        v.teacher_id = ? 
+        OR v.teacher_name = ?
+        OR v.teacher_name LIKE ?
+        OR v.teacher_name LIKE ?
+        OR v.section_id IN (
+          SELECT section_id FROM section_assignments WHERE teacher_id = ? AND status = 'approved'
+          UNION SELECT id FROM sections WHERE assigned_teacher_id = ?
+          UNION SELECT section_id FROM teacher_timetable WHERE teacher_id = ?
+        )
+      )`;
+      violParams.push(teacherId, rawTName, `%${cleanTName}%`, `%${rawTName}%`, teacherId, teacherId, teacherId);
+    } else {
+      violWhere += ` AND (
+        v.teacher_id = ? 
+        OR v.teacher_name = ?
+        OR v.section_id IN (
+          SELECT section_id FROM section_assignments WHERE teacher_id = ? AND status = 'approved'
+          UNION SELECT id FROM sections WHERE assigned_teacher_id = ?
+          UNION SELECT section_id FROM teacher_timetable WHERE teacher_id = ?
+        )
+      )`;
+      violParams.push(teacherId, teacherId, teacherId, teacherId, teacherId);
+    }
   }
 
   if (sectionIds.length > 0) {
@@ -7625,12 +7975,67 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
            sec.level as section_level, sec.class_number as section_class
     FROM daily_violations v
     JOIN sections sec ON v.section_id = sec.id
-    LEFT JOIN seats s ON v.section_id = s.section_id AND v.seat_num = s.seat_num
+    LEFT JOIN seats s ON v.section_id = s.section_id AND (
+      (v.seat_num > 0 AND v.seat_num = s.seat_num)
+      OR (LOWER(TRIM(v.student_name)) = LOWER(TRIM(s.student_name)))
+    )
     WHERE ${violWhere}
     ORDER BY v.recorded_time DESC, v.created_at DESC
   `;
 
   const violationsRows = db.prepare(violQuery).all(...violParams) as any[];
+
+  // Query all violations across all dates (سجل كافة المخالفات العام)
+  let allViolWhere = '1=1';
+  const allViolParams: any[] = [];
+  if (teacherId) {
+    if (cleanTName) {
+      allViolWhere += ` AND (
+        v.teacher_id = ? 
+        OR v.teacher_name = ?
+        OR v.teacher_name LIKE ?
+        OR v.teacher_name LIKE ?
+        OR v.section_id IN (
+          SELECT section_id FROM section_assignments WHERE teacher_id = ? AND status = 'approved'
+          UNION SELECT id FROM sections WHERE assigned_teacher_id = ?
+          UNION SELECT section_id FROM teacher_timetable WHERE teacher_id = ?
+        )
+      )`;
+      allViolParams.push(teacherId, rawTName, `%${cleanTName}%`, `%${rawTName}%`, teacherId, teacherId, teacherId);
+    } else {
+      allViolWhere += ` AND (
+        v.teacher_id = ? 
+        OR v.teacher_name = ?
+        OR v.section_id IN (
+          SELECT section_id FROM section_assignments WHERE teacher_id = ? AND status = 'approved'
+          UNION SELECT id FROM sections WHERE assigned_teacher_id = ?
+          UNION SELECT section_id FROM teacher_timetable WHERE teacher_id = ?
+        )
+      )`;
+      allViolParams.push(teacherId, teacherId, teacherId, teacherId, teacherId);
+    }
+  }
+  if (sectionIds.length > 0) {
+    allViolWhere += ` AND v.section_id IN (${sectionIds.map(() => '?').join(', ')})`;
+    allViolParams.push(...sectionIds);
+  }
+
+  const allViolQuery = `
+    SELECT v.id, v.section_id, v.seat_num, v.student_name, v.student_number,
+           COALESCE(s.massar_number, v.massar_number, '') as massar_number,
+           v.violation_type, v.description, v.action_taken, v.teacher_name, v.teacher_subject,
+           v.recorded_date, v.recorded_time, v.created_at,
+           sec.level as section_level, sec.class_number as section_class
+    FROM daily_violations v
+    JOIN sections sec ON v.section_id = sec.id
+    LEFT JOIN seats s ON v.section_id = s.section_id AND (
+      (v.seat_num > 0 AND v.seat_num = s.seat_num)
+      OR (LOWER(TRIM(v.student_name)) = LOWER(TRIM(s.student_name)))
+    )
+    WHERE ${allViolWhere}
+    ORDER BY v.recorded_date DESC, v.recorded_time DESC, v.created_at DESC
+  `;
+  const allViolationsRows = db.prepare(allViolQuery).all(...allViolParams) as any[];
 
   // 3. Available Dates in History (past 120 days that contain records)
   const dateRows = db.prepare(`
@@ -7745,28 +8150,46 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
     };
   };
 
+  const mapViolationItem = (r: any) => ({
+    id: r.id,
+    sectionId: r.section_id,
+    section_id: r.section_id,
+    sectionLevel: r.section_level,
+    section_level: r.section_level,
+    sectionClass: r.section_class,
+    section_class: r.section_class,
+    seatNum: r.seat_num,
+    seat_num: r.seat_num,
+    studentName: r.student_name || '',
+    student_name: r.student_name || '',
+    studentNumber: r.student_number || '',
+    student_number: r.student_number || '',
+    massarNumber: r.massar_number || '',
+    massar_number: r.massar_number || '',
+    violationType: r.violation_type || '',
+    violation_type: r.violation_type || '',
+    description: r.description || '',
+    actionTaken: r.action_taken || 'تنبيه شفهي',
+    action_taken: r.action_taken || 'تنبيه شفهي',
+    teacherName: r.teacher_name || '',
+    teacher_name: r.teacher_name || '',
+    teacherSubject: r.teacher_subject || '',
+    teacher_subject: r.teacher_subject || '',
+    recordedDate: r.recorded_date,
+    recorded_date: r.recorded_date,
+    recordedTime: r.recorded_time,
+    recorded_time: r.recorded_time,
+    createdAt: r.created_at,
+    created_at: r.created_at
+  });
+
   return {
     date: targetDate,
     absences: absencesRows.map(mapAbsenceItem),
     activeAbsences: activeAbsencesRows.map(mapAbsenceItem),
-    violations: violationsRows.map(r => ({
-      id: r.id,
-      sectionId: r.section_id,
-      sectionLevel: r.section_level,
-      sectionClass: r.section_class,
-      seatNum: r.seat_num,
-      studentName: r.student_name,
-      studentNumber: r.student_number || '',
-      massarNumber: r.massar_number || '',
-      violationType: r.violation_type,
-      description: r.description,
-      actionTaken: r.action_taken || 'تنبيه شفهي',
-      teacherName: r.teacher_name || '',
-      teacherSubject: r.teacher_subject || '',
-      recordedDate: r.recorded_date,
-      recordedTime: r.recorded_time,
-      createdAt: r.created_at
-    })),
+    violations: violationsRows.map(mapViolationItem),
+    allViolations: allViolationsRows.map(mapViolationItem),
+    allViolationsCount: allViolationsRows.length,
     stats: {
       totalAbsences,
       totalLates,
@@ -7820,17 +8243,20 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
       ORDER BY recorded_date DESC, created_at DESC
     `).all(sectionId, targetNumber || '__none__', targetName || '__none__', seatNum) as any[];
 
-    violations = db.prepare(`
+    const allSectionViolations = db.prepare(`
       SELECT id, violation_type, description, action_taken, teacher_name,
-             teacher_subject, recorded_date, recorded_time, created_at, teacher_id
+             teacher_subject, recorded_date, recorded_time, created_at, teacher_id,
+             student_name, student_number, massar_number, seat_num
       FROM daily_violations
-      WHERE section_id = ? AND (
-        (student_number != '' AND student_number = ?)
-        OR (student_name != '' AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)))
-        OR (seat_num = ? AND student_name = '')
-      )
+      WHERE section_id = ?
       ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
-    `).all(sectionId, targetNumber || '__none__', targetName || '__none__', seatNum) as any[];
+    `).all(sectionId) as any[];
+
+    violations = allSectionViolations.filter((v: any) => {
+      if (matchStudent(targetName, targetNumber, '', v.student_name, v.student_number, v.massar_number)) return true;
+      if (seatNum && v.seat_num === seatNum) return true;
+      return false;
+    });
   } else {
     absences = db.prepare(`
       SELECT id, status, recorded_date, session_period, teacher_name, teacher_subject,
@@ -7844,7 +8270,8 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
 
     violations = db.prepare(`
       SELECT id, violation_type, description, action_taken, teacher_name,
-             teacher_subject, recorded_date, recorded_time, created_at, teacher_id
+             teacher_subject, recorded_date, recorded_time, created_at, teacher_id,
+             student_name, student_number, massar_number, seat_num
       FROM daily_violations
       WHERE section_id = ? AND seat_num = ?
       ORDER BY recorded_date DESC, recorded_time DESC, created_at DESC
@@ -7852,15 +8279,22 @@ export function getStudentHistory(sectionId: string, seatNum: number, studentNam
   }
 
   // Strict separation per teacher:
-  // If the viewer is a teacher, only show violations recorded by this teacher.
+  // If the viewer is a teacher, show their own violations PLUS disciplinary notices recorded by the Director/Administration.
   // Administration (directors, supervisors, admins) sees everything.
   if (viewerRole === 'teacher' && viewerId) {
     const viewerTeacher = findUserById(viewerId);
-    const viewerTeacherName = viewerTeacher?.fullName?.trim().toLowerCase() || '';
+    const viewerTeacherName = viewerTeacher?.fullName?.trim() || '';
+    const cleanViewerName = normalizeTeacherName(viewerTeacherName);
     violations = violations.filter((v: any) => {
       const vTid = (v.teacher_id || '').trim();
-      const vTname = (v.teacher_name || '').trim().toLowerCase();
-      return vTid === viewerId || (viewerTeacherName && vTname === viewerTeacherName);
+      const vTname = (v.teacher_name || '').trim();
+      const cleanVTname = normalizeTeacherName(vTname);
+      const isDirectorViolation = vTid.startsWith('usr_director') || vTname.includes('مدير') || vTname.includes('إدارة');
+      return (
+        vTid === viewerId ||
+        (cleanViewerName && (cleanVTname === cleanViewerName || cleanVTname.includes(cleanViewerName) || cleanViewerName.includes(cleanVTname))) ||
+        isDirectorViolation
+      );
     });
   }
 
@@ -8373,15 +8807,24 @@ export async function resetAbsences(options: {
   let clearedHistory = 0;
 
   if (mode === 'today') {
+    const defaultActorName = actor?.name || (actor?.role === 'admin' ? 'المشرف العام' : 'إدارة المؤسسة');
     if (sectionId) {
       const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE section_id = ? AND (attendance = 'absent' OR attendance = 'late')`).run(sectionId);
       clearedSeats = Number(res.changes);
-      const histRes = db.prepare(`DELETE FROM attendance_history WHERE section_id = ? AND (recorded_date = ? OR recorded_date = ?)`).run(sectionId, today, todayFr);
+      const histRes = db.prepare(`
+        UPDATE attendance_history 
+        SET removed_at = ?, removed_by = ?, remover_name = ? 
+        WHERE section_id = ? AND (removed_at IS NULL OR removed_at = '')
+      `).run(now, actor?.id || '', defaultActorName, sectionId);
       clearedHistory = Number(histRes.changes);
     } else {
       const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'`).run();
       clearedSeats = Number(res.changes);
-      const histRes = db.prepare(`DELETE FROM attendance_history WHERE recorded_date = ? OR recorded_date = ?`).run(today, todayFr);
+      const histRes = db.prepare(`
+        UPDATE attendance_history 
+        SET removed_at = ?, removed_by = ?, remover_name = ? 
+        WHERE (removed_at IS NULL OR removed_at = '')
+      `).run(now, actor?.id || '', defaultActorName);
       clearedHistory = Number(histRes.changes);
     }
   } else if (mode === 'section' && sectionId) {
@@ -8422,15 +8865,48 @@ export async function resetAbsences(options: {
     now
   );
 
+  markDirty();
+
   return {
     success: true,
     message: mode === 'today'
-      ? `تم تصفير غيابات اليوم بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل)`
+      ? `تم تصفير غيابات اليوم بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل مسوى في الأرشيف)`
       : mode === 'section'
       ? `تم تصفير غيابات القسم المحدد بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل)`
       : `تم تصفير جميع سجلات الغياب بالمؤسسة بالكامل بنجاح (${clearedSeats} مقعد، ${clearedHistory} سجل)`,
     clearedSeats,
     clearedHistory
+  };
+}
+
+export function resetActiveAbsences(actorId?: string, actorRole?: string, actorName?: string) {
+  const now = new Date().toISOString();
+  const name = actorName || (actorRole === 'admin' ? 'المشرف العام' : 'إدارة المؤسسة');
+
+  const seatRes = db.prepare(`UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'`).run();
+  const histRes = db.prepare(`
+    UPDATE attendance_history 
+    SET removed_at = ?, removed_by = ?, remover_name = ? 
+    WHERE (removed_at IS NULL OR removed_at = '')
+  `).run(now, actorId || '', name);
+
+  db.prepare(`
+    INSERT INTO change_history (action, summary, details_json, created_at)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    'reset_active_absences',
+    `تصفير عداد الغياب وتسوية الحالات بواسطة ${name}`,
+    JSON.stringify({ clearedSeats: seatRes.changes, clearedHistory: histRes.changes }),
+    now
+  );
+
+  markDirty();
+
+  return {
+    success: true,
+    message: 'تم تصفير عداد الغيابات وتسوية جميع الحالات وتوثيقها في الأرشيف بنجاح',
+    clearedSeats: Number(seatRes.changes),
+    clearedHistory: Number(histRes.changes)
   };
 }
 
@@ -8613,20 +9089,52 @@ export function addDailyViolation(data: {
     }
   }
 
+  let seatNum = data.seatNum && data.seatNum > 0 ? data.seatNum : null;
+  let cleanStudentNumber = (data.studentNumber || '').trim();
+  if (cleanStudentNumber === 'undefined') cleanStudentNumber = '';
+  let massarNumber = '';
+
+  // Auto-resolve seatNum, studentNumber and massarNumber from seats if available
+  if (data.sectionId && data.studentName) {
+    try {
+      const sTrim = data.studentName.trim();
+      const foundSeat = db.prepare(`
+        SELECT seat_num, student_number, massar_number 
+        FROM seats 
+        WHERE section_id = ? AND (
+          LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+          OR TRIM(student_name) LIKE '%' || TRIM(?) || '%'
+          OR TRIM(?) LIKE '%' || TRIM(student_name) || '%'
+        )
+        LIMIT 1
+      `).get(data.sectionId, sTrim, sTrim, sTrim) as any;
+      if (foundSeat) {
+        if (!seatNum && foundSeat.seat_num > 0) seatNum = foundSeat.seat_num;
+        if (!cleanStudentNumber && foundSeat.student_number) cleanStudentNumber = foundSeat.student_number;
+        if (foundSeat.massar_number) massarNumber = foundSeat.massar_number;
+      }
+    } catch {}
+  }
+
+  const effDescription = (data.description && data.description.trim())
+    ? data.description.trim()
+    : (data.violationType && data.violationType.trim() ? data.violationType.trim() : 'مخالفة تربوية سلوكية');
+
   db.prepare(`
     INSERT INTO daily_violations (
-      id, section_id, seat_num, student_name, student_number,
+      id, section_id, seat_num, student_name, student_number, massar_number,
       violation_type, description, action_taken, teacher_name, teacher_subject,
       recorded_date, recorded_time, created_at, teacher_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     data.sectionId,
-    data.seatNum || null,
+    seatNum,
     data.studentName.trim(),
-    (data.studentNumber || '').trim(),
+    cleanStudentNumber,
+    massarNumber,
     data.violationType || 'مخالفة تربوية أخرى',
-    data.description.trim(),
+    effDescription,
     data.actionTaken || 'تنبيه شفهي',
     teacherName,
     teacherSubject,
@@ -8640,11 +9148,12 @@ export function addDailyViolation(data: {
     cloudSaveViolation({
       id,
       sectionId: data.sectionId,
-      seatNum: data.seatNum || null,
+      seatNum: seatNum,
       studentName: data.studentName.trim(),
-      studentNumber: (data.studentNumber || '').trim(),
+      studentNumber: cleanStudentNumber,
+      massarNumber: massarNumber,
       violationType: data.violationType || 'مخالفة تربوية أخرى',
-      description: data.description.trim(),
+      description: effDescription,
       actionTaken: data.actionTaken || 'تنبيه شفهي',
       teacherName,
       teacherSubject,
@@ -8657,6 +9166,7 @@ export function addDailyViolation(data: {
     console.warn('Firestore cloudSaveViolation in addDailyViolation warning:', err);
   }
 
+  backupAllViolationsToDisk();
   markDirty();
 
   return { success: true, id };
@@ -8697,12 +9207,16 @@ export function updateDailyViolation(id: string, data: {
     console.warn('Firestore cloudSaveViolation in updateDailyViolation warning:', err);
   }
 
+  backupAllViolationsToDisk();
   markDirty();
 
   return { success: true };
 }
 
 export function deleteDailyViolation(id: string) {
+  try {
+    db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(id, new Date().toISOString());
+  } catch {}
   db.prepare('DELETE FROM daily_violations WHERE id = ?').run(id);
   try {
     db.prepare('DELETE FROM notes WHERE id = ?').run(id);
@@ -8712,8 +9226,25 @@ export function deleteDailyViolation(id: string) {
   } catch (err) {
     console.warn('Firestore cloudDeleteViolation warning:', err);
   }
+  backupAllViolationsToDisk();
   markDirty();
   return { success: true };
+}
+
+export function getTeacherAssignedSectionIds(teacherId: string): string[] {
+  if (!teacherId) return [];
+  try {
+    const rows = db.prepare(`
+      SELECT section_id FROM section_assignments WHERE teacher_id = ? AND status = 'approved'
+      UNION
+      SELECT id FROM sections WHERE assigned_teacher_id = ?
+      UNION
+      SELECT section_id FROM teacher_timetable WHERE teacher_id = ?
+    `).all(teacherId, teacherId, teacherId) as any[];
+    return rows.map((r) => r.section_id);
+  } catch {
+    return [];
+  }
 }
 
 export function getAllViolations(filters?: {
@@ -8724,6 +9255,8 @@ export function getAllViolations(filters?: {
   violationType?: string;
   dateFrom?: string;
   dateTo?: string;
+  scope?: 'my_only' | 'all' | 'assigned_sections';
+  assignedSectionIds?: string[];
 }) {
   let query = `
     SELECT 
@@ -8746,16 +9279,49 @@ export function getAllViolations(filters?: {
   }
 
   if (filters?.teacherId) {
-    if (filters.teacherName && filters.teacherName.trim()) {
-      query += ` AND (dv.teacher_id = ? OR (dv.teacher_name != '' AND LOWER(TRIM(dv.teacher_name)) = LOWER(TRIM(?)))) `;
-      params.push(filters.teacherId, filters.teacherName.trim());
+    const rawTName = filters.teacherName ? filters.teacherName.trim() : '';
+    const cleanTName = rawTName ? normalizeTeacherName(rawTName) : '';
+    const hasAssigned = filters.assignedSectionIds && filters.assignedSectionIds.length > 0;
+    const isMyOnly = filters.scope === 'my_only';
+
+    if (isMyOnly || !hasAssigned) {
+      if (cleanTName) {
+        query += ` AND (
+          dv.teacher_id = ? 
+          OR dv.teacher_name = ?
+          OR dv.teacher_name LIKE ?
+          OR dv.teacher_name LIKE ?
+        ) `;
+        params.push(filters.teacherId, rawTName, `%${cleanTName}%`, `%${rawTName}%`);
+      } else {
+        query += ` AND (dv.teacher_id = ? OR dv.teacher_name = ?) `;
+        params.push(filters.teacherId, filters.teacherId);
+      }
     } else {
-      query += ` AND (dv.teacher_id = ? OR dv.teacher_name = ?) `;
-      params.push(filters.teacherId, filters.teacherId);
+      // Teacher can see their own violations + all violations for students in their assigned sections (including director notices)
+      const secPlaceholders = filters.assignedSectionIds!.map(() => '?').join(',');
+      if (cleanTName) {
+        query += ` AND (
+          dv.teacher_id = ? 
+          OR dv.teacher_name = ?
+          OR dv.teacher_name LIKE ?
+          OR dv.teacher_name LIKE ?
+          OR dv.section_id IN (${secPlaceholders})
+        ) `;
+        params.push(filters.teacherId, rawTName, `%${cleanTName}%`, `%${rawTName}%`, ...filters.assignedSectionIds!);
+      } else {
+        query += ` AND (
+          dv.teacher_id = ? 
+          OR dv.teacher_name = ?
+          OR dv.section_id IN (${secPlaceholders})
+        ) `;
+        params.push(filters.teacherId, filters.teacherId, ...filters.assignedSectionIds!);
+      }
     }
   } else if (filters?.teacherName) {
-    query += ` AND (dv.teacher_name LIKE ? OR dv.teacher_id = ?) `;
-    params.push(`%${filters.teacherName}%`, filters.teacherName);
+    const cleanTName = normalizeTeacherName(filters.teacherName);
+    query += ` AND (dv.teacher_name LIKE ? OR dv.teacher_name LIKE ? OR dv.teacher_id = ?) `;
+    params.push(`%${filters.teacherName}%`, `%${cleanTName}%`, filters.teacherName);
   }
 
   if (filters?.studentName) {
@@ -8789,22 +9355,37 @@ export function getAllViolations(filters?: {
   return rows.map(r => ({
     id: r.id,
     sectionId: r.section_id,
+    section_id: r.section_id,
     sectionName: r.section_level && r.section_class ? `${r.section_level} - ق ${r.section_class}` : '',
     sectionLevel: r.section_level || '',
+    section_level: r.section_level || '',
     sectionClass: r.section_class || '',
+    section_class: r.section_class || '',
     seatNum: r.seat_num,
-    studentName: r.student_name,
+    seat_num: r.seat_num,
+    studentName: r.student_name || '',
+    student_name: r.student_name || '',
     studentNumber: r.clean_student_number || r.student_number || '',
+    student_number: r.clean_student_number || r.student_number || '',
     massarNumber: r.massar_number || '',
-    violationType: r.violation_type,
+    massar_number: r.massar_number || '',
+    violationType: r.violation_type || '',
+    violation_type: r.violation_type || '',
     description: r.description || '',
     actionTaken: r.action_taken || 'تنبيه شفهي',
+    action_taken: r.action_taken || 'تنبيه شفهي',
     teacherName: r.teacher_name || '',
+    teacher_name: r.teacher_name || '',
     teacherSubject: r.teacher_subject || '',
+    teacher_subject: r.teacher_subject || '',
     teacherId: r.teacher_id || '',
+    teacher_id: r.teacher_id || '',
     recordedDate: r.recorded_date,
+    recorded_date: r.recorded_date,
     recordedTime: r.recorded_time,
-    createdAt: r.created_at
+    recorded_time: r.recorded_time,
+    createdAt: r.created_at,
+    created_at: r.created_at
   }));
 }
 
@@ -9793,6 +10374,7 @@ export function addPositiveParticipation(data: {
     createdAt
   });
 
+  backupAllParticipationsToDisk();
   markDirty();
 
   return {
@@ -9829,8 +10411,123 @@ export function deletePositiveParticipation(id: string, requesterId?: string, re
   }
   db.prepare('DELETE FROM positive_participations WHERE id = ?').run(id);
   cloudDeletePositiveParticipation(id);
+  backupAllParticipationsToDisk();
   markDirty();
   return { success: true };
+}
+
+export function deductPositiveParticipationPoint(data: {
+  sectionId: string;
+  seatNum?: number;
+  studentName?: string;
+  studentNumber?: string;
+  massarNumber?: string;
+  requesterId?: string;
+  requesterRole?: string;
+  amount?: number;
+}) {
+  let studentName = (data.studentName || '').trim();
+  let studentNumber = (data.studentNumber || '').trim();
+  let massarNumber = (data.massarNumber || '').trim();
+
+  // If student name not explicitly provided, find student occupying this seat
+  if (!studentName && data.seatNum && data.sectionId) {
+    let seat: any = null;
+    if (data.requesterId) {
+      seat = db.prepare('SELECT student_name, student_number, massar_number FROM teacher_seat_overrides WHERE teacher_id = ? AND section_id = ? AND seat_num = ?').get(data.requesterId, data.sectionId, data.seatNum) as any;
+    }
+    if (!seat || !seat.student_name) {
+      seat = db.prepare('SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ?').get(data.sectionId, data.seatNum) as any;
+    }
+    if (seat && seat.student_name) {
+      studentName = seat.student_name.trim();
+      if (!studentNumber && seat.student_number) studentNumber = String(seat.student_number).trim();
+      if (!massarNumber && seat.massar_number) massarNumber = String(seat.massar_number).trim();
+    }
+  }
+
+  if (!studentName) {
+    throw new Error('لم يتم تحديد التلميذ المستهدف لخصم النقطة');
+  }
+
+  // Fetch all participations in section
+  const allInSec = db.prepare('SELECT * FROM positive_participations WHERE section_id = ? ORDER BY created_at DESC, id DESC').all(data.sectionId) as any[];
+
+  // Match target student
+  let studentParts = allInSec.filter((p: any) =>
+    matchStudent(studentName, studentNumber, massarNumber, p.student_name, p.student_number, p.massar_number)
+  );
+
+  // If teacher, give priority to participations recorded by this teacher
+  if (data.requesterRole === 'teacher' && data.requesterId) {
+    const teacherParts = studentParts.filter((p: any) => p.teacher_id === data.requesterId);
+    if (teacherParts.length > 0) {
+      studentParts = teacherParts;
+    }
+  }
+
+  if (studentParts.length === 0) {
+    return {
+      success: true,
+      deducted: false,
+      studentName,
+      newCount: 0,
+      message: `رصيد نقاط المشاركة للتلميذ (${studentName}) هو 0 بالفعل`
+    };
+  }
+
+  // Pick the most recent participation to decrement or delete
+  const target = studentParts[0];
+  const currentPoints = Number(target.points || 1);
+  const deductAmount = Math.max(1, Number(data.amount || 1));
+
+  let actionTaken: 'decremented' | 'deleted' = 'deleted';
+  let targetRemainingPoints = currentPoints - deductAmount;
+
+  if (targetRemainingPoints > 0) {
+    actionTaken = 'decremented';
+    db.prepare('UPDATE positive_participations SET points = ? WHERE id = ?').run(targetRemainingPoints, target.id);
+    cloudSavePositiveParticipation({
+      id: target.id,
+      sectionId: target.section_id,
+      seatNum: target.seat_num,
+      studentName: target.student_name,
+      studentNumber: target.student_number,
+      massarNumber: target.massar_number,
+      participationType: target.participation_type,
+      points: targetRemainingPoints,
+      note: target.note,
+      teacherId: target.teacher_id,
+      teacherName: target.teacher_name,
+      teacherSubject: target.teacher_subject,
+      recordedDate: target.recorded_date,
+      recordedTime: target.recorded_time,
+      createdAt: target.created_at
+    });
+  } else {
+    actionTaken = 'deleted';
+    db.prepare('DELETE FROM positive_participations WHERE id = ?').run(target.id);
+    cloudDeletePositiveParticipation(target.id);
+  }
+
+  backupAllParticipationsToDisk();
+  markDirty();
+
+  // Recalculate remaining total for student in section
+  const remainingTotal = (db.prepare('SELECT * FROM positive_participations WHERE section_id = ?').all(data.sectionId) as any[])
+    .filter((p: any) => matchStudent(studentName, studentNumber, massarNumber, p.student_name, p.student_number, p.massar_number))
+    .reduce((sum: number, p: any) => sum + (Number(p.points) || 1), 0);
+
+  return {
+    success: true,
+    deducted: true,
+    studentName,
+    newCount: remainingTotal,
+    action: actionTaken,
+    targetId: target.id,
+    targetPoints: Math.max(0, targetRemainingPoints),
+    message: `تم خصم نقطة مشاركة واحدة للتلميذ (${studentName})، الرصيد المتبقي: ${remainingTotal} نقطة`
+  };
 }
 
 export function getPositiveParticipationsBySection(sectionId: string, teacherId?: string, teacherName?: string) {
@@ -9846,15 +10543,17 @@ export function getPositiveParticipationsBySection(sectionId: string, teacherId?
   const params: any[] = [sectionId];
   if (teacherId) {
     if (teacherName && teacherName.trim()) {
-      query += ' AND (teacher_id = ? OR (teacher_name != "" AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))))';
-      params.push(teacherId, teacherName.trim());
+      const cleanTName = normalizeTeacherName(teacherName.trim());
+      query += ' AND (teacher_id = ? OR teacher_name LIKE ? OR teacher_name LIKE ? OR LOWER(TRIM(teacher_name)) = LOWER(TRIM(?)))';
+      params.push(teacherId, `%${cleanTName}%`, `%${teacherName.trim()}%`, teacherName.trim());
     } else {
       query += ' AND teacher_id = ?';
       params.push(teacherId);
     }
   } else if (teacherName && teacherName.trim()) {
-    query += ' AND LOWER(TRIM(teacher_name)) = LOWER(TRIM(?))';
-    params.push(teacherName.trim());
+    const cleanTName = normalizeTeacherName(teacherName.trim());
+    query += ' AND (teacher_name LIKE ? OR teacher_name LIKE ? OR LOWER(TRIM(teacher_name)) = LOWER(TRIM(?)))';
+    params.push(`%${cleanTName}%`, `%${teacherName.trim()}%`, teacherName.trim());
   }
   query += ' ORDER BY created_at DESC';
   const participations = db.prepare(query).all(...params) as any[];

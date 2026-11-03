@@ -5,6 +5,9 @@ export interface AppSettings {
   academy?: string;
   directorate?: string;
   institutionFr?: string;
+  siteName?: string;
+  directorName?: string;
+  siteUrl?: string;
 }
 
 export type TeacherSubject =
@@ -520,6 +523,8 @@ export interface DailyArchiveResponse {
   absences: DailyAbsenceItem[];
   activeAbsences?: DailyAbsenceItem[];
   violations: DailyViolationItem[];
+  allViolations?: DailyViolationItem[];
+  allViolationsCount?: number;
   stats: DailyArchiveStats;
   availableDates: string[];
 }

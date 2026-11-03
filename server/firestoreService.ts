@@ -125,14 +125,19 @@ export async function getDoc(collection: string, docId: string): Promise<Record<
 
 // Quota circuit breaker to avoid hammering Firestore when daily write limit is reached (429 RESOURCE_EXHAUSTED)
 let quotaExhaustedUntil = 0;
+let lastQuotaLogTime = 0;
 
 export function isQuotaExhausted(): boolean {
   return Date.now() < quotaExhaustedUntil;
 }
 
-export function markQuotaExhausted(cooldownMs = 60_000): void {
-  quotaExhaustedUntil = Date.now() + cooldownMs;
-  console.warn(`⚠️ [FirestoreService] Quota reached (429 RESOURCE_EXHAUSTED). Cloud writes paused for ${Math.round(cooldownMs / 1000)}s; local SQLite & Cloud Backup are handling persistence.`);
+export function markQuotaExhausted(cooldownMs = 120_000): void {
+  const now = Date.now();
+  quotaExhaustedUntil = now + cooldownMs;
+  if (now - lastQuotaLogTime > 60_000) {
+    lastQuotaLogTime = now;
+    console.warn(`⚠️ [FirestoreService] Quota limit reached (429 RESOURCE_EXHAUSTED). Cloud writes paused for ${Math.round(cooldownMs / 1000)}s; local SQLite & disk backup are handling persistence safely.`);
+  }
 }
 
 export async function setDoc(collection: string, docId: string, data: Record<string, any>): Promise<boolean> {

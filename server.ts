@@ -72,11 +72,13 @@ import {
   resolveDailyAbsence,
   deleteDailyAbsence,
   resetAbsences,
+  resetActiveAbsences,
   batchImportDailyAbsences,
   addDailyViolation,
   updateDailyViolation,
   deleteDailyViolation,
   getAllViolations,
+  getTeacherAssignedSectionIds,
   getAllPositiveParticipations,
   getAllAcademicYears,
   createAcademicYear,
@@ -96,6 +98,7 @@ import {
   deleteStudentViolation,
   addPositiveParticipation,
   deletePositiveParticipation,
+  deductPositiveParticipationPoint,
   getPositiveParticipationsBySection,
   getTeacherTimetable,
   upsertTimetableSlot,
@@ -139,6 +142,8 @@ import {
 } from './server/db.ts';
 import {
   testWhatsAppCloudConnection,
+  testTextbeeConnection,
+  sendViaTextbeeApi,
   sendGuardianNotification,
   getSmsDispatchLogs
 } from './server/smsService.ts';
@@ -153,6 +158,7 @@ import {
   restoreLatestSnapshotOnBoot,
   getBackupStatus,
 } from './server/cloudBackup.ts';
+import { handleInstallerRoute } from './server/installerHtml.ts';
 
 async function startServer() {
   initDatabase();
@@ -198,6 +204,25 @@ async function startServer() {
   const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '15mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '15mb' }));
+
+  // =========================================================================
+  // WordPress / CMS Auto-Installer Engine & Gatekeeper
+  // =========================================================================
+  const LOCK_FILE = path.join(process.cwd(), 'installed.lock');
+
+  // Direct visits to install.php or /install redirect directly to main application
+  app.all(['/install.php', '/install'], (req, res) => {
+    if (req.query.reconfigure === '1') {
+      return handleInstallerRoute(req, res);
+    }
+    return res.redirect('/');
+  });
+
+  // WordPress style index.php redirect to root application
+  app.get('/index.php', (req, res) => {
+    return res.redirect('/');
+  });
 
   // Every successful mutation must wait for its Firestore writes and a full
   // snapshot before the response leaves the server. This prevents navigation,
@@ -687,6 +712,45 @@ async function startServer() {
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // Deduct/decrease positive participation points for a student
+  app.post('/api/sections/:id/positive-participations/deduct', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const requester = getRequester(req);
+      const requesterId = requester.userId || (req.headers['x-user-id'] as string) || '';
+      const requesterRole = requester.role || (req.headers['x-user-role'] as string) || '';
+      const result = deductPositiveParticipationPoint({
+        ...req.body,
+        sectionId,
+        requesterId,
+        requesterRole
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  app.post('/api/sections/:id/seats/:seatNum/positive-participations/deduct', (req, res) => {
+    try {
+      const sectionId = req.params.id;
+      const seatNum = Number(req.params.seatNum);
+      const requester = getRequester(req);
+      const requesterId = requester.userId || (req.headers['x-user-id'] as string) || '';
+      const requesterRole = requester.role || (req.headers['x-user-role'] as string) || '';
+      const result = deductPositiveParticipationPoint({
+        ...req.body,
+        sectionId,
+        seatNum,
+        requesterId,
+        requesterRole
+      });
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ success: false, error: err.message });
     }
   });
 
@@ -1948,6 +2012,19 @@ async function startServer() {
     }
   });
 
+  // Reset Active Absences (تصفير عداد الغياب وتسوية كافة الحالات)
+  app.post('/api/daily-archive/absences/reset-active', (req, res) => {
+    try {
+      const actorId = (req.headers['x-user-id'] as string) || req.body?.actorId || '';
+      const actorRole = (req.headers['x-user-role'] as string) || req.body?.actorRole || 'director';
+      const actorName = req.body?.actorName || '';
+      const result = resetActiveAbsences(actorId, actorRole, actorName);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // ==========================================
   // Advanced Institutional Analytics API
   // ==========================================
@@ -2137,13 +2214,44 @@ async function startServer() {
     try {
       const role = (req.headers['x-user-role'] as string) || '';
       if (role !== 'admin' && role !== 'director') {
-        return res.status(403).json({ success: false, error: 'غير مصرح: تعديل إعدادات بوابة SMS متاح للإدارة فقط' });
+        return res.status(403).json({ success: false, error: 'غير مصرح: تعديل إعدادات بوابات الإشعارات متاح لمدير المؤسسة فقط' });
       }
       const updated = saveSmsGatewayConfig(req.body);
       markDirty();
-      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات بوابة واتساب (WhatsApp Cloud API) بنجاح ✓' });
+      res.json({ success: true, config: updated, message: 'تم حفظ إعدادات قنوات الإشعارات (واتساب عادي / textbee.dev) بنجاح ✓' });
     } catch (err: any) {
       res.status(400).json({ success: false, error: err.message });
+    }
+  });
+
+  // Dedicated textbee.dev test endpoint (Director only)
+  app.post('/api/admin/sms-gateway/test-textbee', async (req, res) => {
+    try {
+      const requester = getRequester(req);
+      if (requester.role !== 'admin' && requester.role !== 'director') {
+        return res.status(403).json({ success: false, error: 'غير مصرح: اختبار بوابة textbee.dev متاح لمدير المؤسسة فقط' });
+      }
+      const { apiKey, deviceId, testPhone } = req.body;
+      const currentConfig = getSmsGatewayConfig();
+
+      const targetApiKey = apiKey || currentConfig.textbeeApiKey;
+      const targetDeviceId = deviceId || currentConfig.textbeeDeviceId;
+
+      if (!targetApiKey || !targetDeviceId) {
+        return res.status(400).json({
+          success: false,
+          error: 'يرجى إدخال API Key و Device ID الخاصين بحسابك في textbee.dev'
+        });
+      }
+
+      const testResult = await testTextbeeConnection({
+        apiKey: targetApiKey,
+        deviceId: targetDeviceId,
+        testPhone
+      });
+      return res.json(testResult);
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
@@ -2241,9 +2349,17 @@ async function startServer() {
     }
   });
 
-  // Send notification to student guardian (SMS or WhatsApp) for absence, violation, or summons
+  // Send notification to student guardian (Director only: Standard WhatsApp or textbee.dev)
   app.post('/api/admin/notify-guardian', async (req, res) => {
     try {
+      const requester = getRequester(req);
+      if (requester.role !== 'admin' && requester.role !== 'director') {
+        return res.status(403).json({
+          success: false,
+          error: 'صلاحية مرفوضة: إرسال الإشعارات لأولياء الأمور مقتصر حصرياً على مدير المؤسسة فقط.'
+        });
+      }
+
       const {
         massarNumber,
         studentName,
@@ -2260,7 +2376,7 @@ async function startServer() {
       const institutionName = settings.institution || 'المدرسة الإلكترونية';
       const smsConfig = getSmsGatewayConfig();
 
-      const channel = requestedChannel || 'whatsapp_cloud';
+      const channel = requestedChannel || smsConfig.defaultChannel || 'whatsapp';
 
       let phone = (explicitPhone || '').trim();
       let targetStudentName = studentName || '';
@@ -2352,9 +2468,17 @@ async function startServer() {
     }
   });
 
-  // Batch notify guardians (e.g. for today's absences or multiple violations)
+  // Batch notify guardians (Director only: Standard WhatsApp or textbee.dev)
   app.post('/api/admin/notify-guardians-batch', async (req, res) => {
     try {
+      const requester = getRequester(req);
+      if (requester.role !== 'admin' && requester.role !== 'director') {
+        return res.status(403).json({
+          success: false,
+          error: 'صلاحية مرفوضة: إرسال الإشعارات لأولياء الأمور مقتصر حصرياً على مدير المؤسسة فقط.'
+        });
+      }
+
       const { items, channel: requestedChannel, notificationType = 'absence' } = req.body;
       if (!Array.isArray(items) || items.length === 0) {
         return res.status(400).json({ success: false, error: 'قائمة التلاميذ فارغة' });
@@ -2363,7 +2487,7 @@ async function startServer() {
       const settings = getAppSettings();
       const institutionName = settings.institution || 'المدرسة الإلكترونية';
       const smsConfig = getSmsGatewayConfig();
-      const channel = requestedChannel || 'whatsapp_cloud';
+      const channel = requestedChannel || smsConfig.defaultChannel || 'whatsapp';
 
       let successCount = 0;
       let failedCount = 0;
@@ -2621,16 +2745,19 @@ async function startServer() {
       const sectionId = (req.query.sectionId as string) || undefined;
       const requester = getRequester(req);
       const userRole = requester.role || (req.headers['x-user-role'] as string) || '';
+      const scope = (req.query.scope as any) || (req.query.myOnly === 'true' ? 'my_only' : 'all');
       let teacherId = (req.query.teacherId as string) || undefined;
       let teacherName = (req.query.teacherName as string) || undefined;
+      let assignedSectionIds: string[] = [];
 
-      // Strict separation per teacher:
-      // If requester is a teacher, strictly enforce their own teacherId and teacherName
+      // Teacher view handling:
       if (userRole === 'teacher') {
-        teacherId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
-        if (teacherId) {
+        const tId = requester.userId || (req.headers['x-user-id'] as string) || undefined;
+        if (tId) {
+          teacherId = tId;
           const tUser = findUserById(teacherId);
           if (tUser) teacherName = tUser.fullName;
+          assignedSectionIds = getTeacherAssignedSectionIds(tId);
         }
       }
       // If administration (director, supervisor, admin), they see everything across all teachers unless they filter:
@@ -2646,7 +2773,9 @@ async function startServer() {
         studentName,
         violationType,
         dateFrom,
-        dateTo
+        dateTo,
+        scope,
+        assignedSectionIds
       });
 
       res.json({ success: true, violations });
@@ -2716,8 +2845,12 @@ async function startServer() {
         appointmentTime
       } = req.body;
 
-      if (!sectionId || !studentName || !description) {
-        return res.status(400).json({ success: false, error: 'القسم واسم التلميذ وتفاصيل المخالفة مطلوبة' });
+      const effDescription = (description && String(description).trim())
+        ? String(description).trim()
+        : (violationType && String(violationType).trim() ? String(violationType).trim() : 'مخالفة تربوية سلوكية');
+
+      if (!sectionId || !studentName) {
+        return res.status(400).json({ success: false, error: 'القسم واسم التلميذ مطلوبان' });
       }
 
       const teacherId = (req.headers['x-user-id'] as string) || req.body.teacherId || '';
@@ -2727,7 +2860,7 @@ async function startServer() {
         studentName,
         studentNumber,
         violationType: violationType || 'مخالفة تربوية أخرى',
-        description,
+        description: effDescription,
         actionTaken: actionTaken || 'تنبيه شفهي',
         teacherName,
         teacherSubject,

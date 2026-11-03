@@ -41,7 +41,8 @@ import {
   Globe,
   Smartphone,
   UserCheck,
-  MessageSquare
+  MessageSquare,
+  Download
 } from 'lucide-react';
 import {
   SectionItem,
@@ -1010,6 +1011,15 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
                 <Printer className="w-4 h-4 text-amber-700" />
                 <span>طباعة الغيابات</span>
               </button>
+              <a
+                href="/echsa_school_system_php_mysql.zip"
+                download="echsa_school_system_php_mysql.zip"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs border border-emerald-700 transition-colors cursor-pointer no-underline shadow-xs"
+                title="تحميل نسخة الاستضافة الموحدة الكاملة الجاهزة (PHP & MySQL)"
+              >
+                <Download className="w-4 h-4 text-emerald-100" />
+                <span>تحميل نسخة الاستضافة (PHP & MySQL)</span>
+              </a>
             </div>
           )}
         </div>
@@ -1403,15 +1413,15 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
           )}
         </button>
 
-        {/* WhatsApp Cloud Gateway Settings Button */}
+        {/* Notification Gateways Settings Button (Director Only) */}
         <button
           type="button"
           onClick={() => setShowSmsGatewayModal(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-xs sm:text-[13px] bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 transition-all cursor-pointer shadow-2xs"
-          title="إعدادات واختبار بوابة WhatsApp Cloud API الرسمية (مجاني 1,000 محادثة شهرياً)"
+          title="إعدادات بوابات إرسال الإشعارات (واتساب عادي / textbee.dev)"
         >
           <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
-          <span>بوابة إشعارات واتساب (WhatsApp Cloud)</span>
+          <span>بوابات الإشعارات (واتساب / textbee.dev)</span>
         </button>
       </div>
 
@@ -4229,7 +4239,10 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
         currentUser={currentUser}
         sections={sections}
         settings={settings}
-        onRefreshData={onRefreshSections}
+        onRefreshData={async () => {
+          await onRefreshSections();
+          await fetchDirectorData();
+        }}
       />
 
       {/* Android SMS Gateway & WhatsApp Modal */}
@@ -4247,7 +4260,7 @@ export const DirectorDashboard: React.FC<DirectorDashboardProps> = ({
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-emerald-700" />
                 <h3 className="font-bold text-base text-[#1F2926]">
-                  إعدادات بوابة إشعارات واتساب الرسمية (WhatsApp Cloud API - Meta)
+                  إعدادات بوابات إرسال الإشعارات (واتساب عادي / textbee.dev)
                 </h3>
               </div>
               <button

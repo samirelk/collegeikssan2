@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Save, CheckCircle2, Building, Calendar, User, Database } from 'lucide-react';
+import { Save, CheckCircle2, Building, Calendar, User, Database, Globe } from 'lucide-react';
 import { AppSettings } from '../types';
 
 interface SettingsPanelProps {
@@ -10,6 +10,8 @@ interface SettingsPanelProps {
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, isSaving }) => {
   const [institution, setInstitution] = useState(settings.institution || '');
+  const [siteName, setSiteName] = useState(settings.siteName || '');
+  const [siteUrl, setSiteUrl] = useState(settings.siteUrl || '');
   const [academy, setAcademy] = useState(settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق');
   const [directorate, setDirectorate] = useState(settings.directorate || 'المديرية الإقليمية بالناظور');
   const [year, setYear] = useState(settings.year || '2026/2027');
@@ -18,6 +20,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
 
   useEffect(() => {
     setInstitution(settings.institution || 'الثانوية الإعدادية ايكسان');
+    setSiteName(settings.siteName || '');
+    setSiteUrl(settings.siteUrl || '');
     setAcademy(settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق');
     setDirectorate(settings.directorate || 'المديرية الإقليمية بالناظور');
     setYear(settings.year || '2026/2027');
@@ -28,6 +32,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
     e.preventDefault();
     await onSave({
       institution: institution.trim(),
+      siteName: siteName.trim(),
+      siteUrl: siteUrl.trim(),
       academy: academy.trim(),
       directorate: directorate.trim(),
       year: year.trim(),
@@ -39,6 +45,8 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
 
   const isDirty =
     institution !== (settings.institution || '') ||
+    siteName !== (settings.siteName || '') ||
+    siteUrl !== (settings.siteUrl || '') ||
     academy !== (settings.academy || 'الأكاديمية الجهوية للتربية والتكوين - جهة الشرق') ||
     directorate !== (settings.directorate || 'المديرية الإقليمية بالناظور') ||
     year !== (settings.year || '') ||
@@ -71,6 +79,21 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSave, 
             value={institution}
             onChange={(e) => setInstitution(e.target.value)}
             placeholder="مثال: الثانوية الإعدادية ايكسان"
+            className="w-full bg-[rgba(0,0,0,0.22)] border border-[rgba(242,239,227,0.18)] rounded-xl px-3 py-2 text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.3)] focus:outline-hidden focus:border-[#C98A3C] transition-colors"
+          />
+        </div>
+
+        <div className="flex-1 min-w-[170px]">
+          <label className="block text-[11.5px] font-bold text-[rgba(242,239,227,0.65)] mb-1.5 flex items-center gap-1">
+            <Globe className="w-3 h-3 text-[#C98A3C]" />
+            <span>رابط المنظومة / الموقع (Site URL)</span>
+          </label>
+          <input
+            type="text"
+            id="input-site-url"
+            value={siteUrl}
+            onChange={(e) => setSiteUrl(e.target.value)}
+            placeholder="https://school.ma أو الرابط المباشر"
             className="w-full bg-[rgba(0,0,0,0.22)] border border-[rgba(242,239,227,0.18)] rounded-xl px-3 py-2 text-sm text-[#F2EFE3] placeholder-[rgba(242,239,227,0.3)] focus:outline-hidden focus:border-[#C98A3C] transition-colors"
           />
         </div>

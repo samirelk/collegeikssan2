@@ -34,6 +34,7 @@ interface PositiveParticipationModalProps {
     time?: string;
   }) => Promise<void>;
   onDeletePositiveParticipation: (id: string) => Promise<void>;
+  onDeductPoint?: () => Promise<void>;
 }
 
 const PRESET_TYPES = [
@@ -51,7 +52,8 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
   currentUser,
   onClose,
   onAddPositiveParticipation,
-  onDeletePositiveParticipation
+  onDeletePositiveParticipation,
+  onDeductPoint
 }) => {
   const [selectedType, setSelectedType] = useState<string>(PRESET_TYPES[0].title);
   const [points, setPoints] = useState<number>(PRESET_TYPES[0].points);
@@ -210,6 +212,29 @@ export const PositiveParticipationModal: React.FC<PositiveParticipationModalProp
                 <span className="text-emerald-950 font-black px-1.5 py-0.5 bg-amber-400 rounded-md shadow-xs">
                   {totalPoints} ⭐
                 </span>
+                {totalPoints > 0 && onDeductPoint && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        setIsSubmitting(true);
+                        await onDeductPoint();
+                        setSuccessMsg('تم خصم نقطة مشاركة واحدة بنجاح (-1) 📉');
+                        setTimeout(() => setSuccessMsg(null), 3000);
+                      } catch (err: any) {
+                        setErrorMsg(err.message || 'فشل خصم النقطة');
+                      } finally {
+                        setIsSubmitting(false);
+                      }
+                    }}
+                    disabled={isSubmitting}
+                    className="mr-1 px-2.5 py-0.5 rounded-lg bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white font-bold text-xs shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1"
+                    title="خصم نقطة مشاركة واحدة للتلميذ (-1)"
+                  >
+                    <span className="text-sm font-black leading-none">-</span>
+                    <span>خصم نقطة</span>
+                  </button>
+                )}
               </div>
 
               {/* Print buttons for Teacher & Admin */}

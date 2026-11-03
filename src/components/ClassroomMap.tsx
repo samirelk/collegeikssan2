@@ -37,6 +37,7 @@ interface ClassroomMapProps {
   onUpdateSeat: (seatNum: number, data: { name?: string; number?: string; massarNumber?: string; rosterId?: string | null }) => void;
   onOpenNotes: (seatNum: number) => void;
   onOpenPositiveParticipation?: (seatNum: number) => void;
+  onDeductPositiveParticipation?: (seatNum: number, student?: { name: string; number?: string; massarNumber?: string }) => void;
   onOpenPositiveParticipationReport?: () => void;
   onEditSection: () => void;
   onDeleteSection: () => void;
@@ -54,6 +55,7 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
   onUpdateSeat,
   onOpenNotes,
   onOpenPositiveParticipation,
+  onDeductPositiveParticipation,
   onOpenPositiveParticipationReport,
   onEditSection,
   onDeleteSection,
@@ -489,25 +491,50 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
 
           return (
             <div className="grid grid-cols-2 gap-1 mt-1.5 pt-1.5 border-t border-[rgba(42,33,24,0.1)]">
-              {/* Positive Participation Button */}
-              <button
-                type="button"
-                onClick={() => onOpenPositiveParticipation ? onOpenPositiveParticipation(seat.seat) : onOpenNotes(seat.seat)}
-                className={`flex items-center justify-center gap-1 border rounded-lg py-1.5 px-1 text-[10.5px] font-bold transition-all cursor-pointer ${
-                  positivePoints > 0
-                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
-                    : 'bg-emerald-50/40 hover:bg-emerald-50 text-emerald-700/80 border-dashed border-emerald-300/60'
-                }`}
-                title="تسجيل مشاركة إيجابية ونقاط تميز للتلميذ"
-              >
-                <Star className={`w-3 h-3 ${positivePoints > 0 ? 'text-amber-500 fill-amber-500' : 'text-emerald-600'}`} />
-                <span>مشاركة</span>
-                {positivePoints > 0 && (
-                  <span className="bg-emerald-600 text-white rounded-full text-[9.5px] min-w-[16px] h-[16px] px-1 inline-flex items-center justify-center font-black">
-                    +{positivePoints}
-                  </span>
+              {/* Positive Participation Button & Deduct (-) Button */}
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onOpenPositiveParticipation ? onOpenPositiveParticipation(seat.seat) : onOpenNotes(seat.seat)}
+                  className={`flex-1 flex items-center justify-center gap-1 border rounded-lg py-1.5 px-1 text-[10.5px] font-bold transition-all cursor-pointer ${
+                    positivePoints > 0
+                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300 shadow-2xs'
+                      : 'bg-emerald-50/40 hover:bg-emerald-50 text-emerald-700/80 border-dashed border-emerald-300/60'
+                  }`}
+                  title="تسجيل مشاركة إيجابية ونقاط تميز للتلميذ"
+                >
+                  <Star className={`w-3 h-3 ${positivePoints > 0 ? 'text-amber-500 fill-amber-500' : 'text-emerald-600'}`} />
+                  <span>مشاركة</span>
+                  {positivePoints > 0 && (
+                    <span className="bg-emerald-600 text-white rounded-full text-[9.5px] min-w-[16px] h-[16px] px-1 inline-flex items-center justify-center font-black">
+                      +{positivePoints}
+                    </span>
+                  )}
+                </button>
+
+                {hasStudent && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeductPositiveParticipation?.(seat.seat, {
+                        name: seat.name,
+                        number: seat.number,
+                        massarNumber: seat.massarNumber
+                      });
+                    }}
+                    disabled={positivePoints <= 0}
+                    className={`h-[28px] px-2 rounded-lg border text-xs font-black transition-all flex items-center justify-center ${
+                      positivePoints > 0
+                        ? 'bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-800 border-rose-300 shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer'
+                        : 'bg-stone-100 text-stone-300 border-stone-200 cursor-not-allowed opacity-50'
+                    }`}
+                    title={positivePoints > 0 ? `خصم نقطة مشاركة واحدة للتلميذ (${seat.name})` : 'الرصيد 0 نقاط'}
+                  >
+                    -
+                  </button>
                 )}
-              </button>
+              </div>
 
               {/* Violations Button */}
               <button
@@ -837,19 +864,42 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onOpenPositiveParticipation ? onOpenPositiveParticipation(st.seat) : onOpenNotes(st.seat)}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-200 border border-amber-400/60 hover:bg-amber-500/30 cursor-pointer"
-                    >
-                      <Star className={`w-3.5 h-3.5 ${st.positivePoints > 0 ? 'text-amber-400 fill-amber-400' : 'text-emerald-400'}`} />
-                      <span>مشاركة</span>
-                      {st.positivePoints > 0 && (
-                        <span className="bg-amber-500 text-black font-black px-1.5 py-0.2 rounded-full text-[10px]">
-                          +{st.positivePoints}
-                        </span>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => onOpenPositiveParticipation ? onOpenPositiveParticipation(st.seat) : onOpenNotes(st.seat)}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-200 border border-amber-400/60 hover:bg-amber-500/30 cursor-pointer"
+                      >
+                        <Star className={`w-3.5 h-3.5 ${st.positivePoints > 0 ? 'text-amber-400 fill-amber-400' : 'text-emerald-400'}`} />
+                        <span>مشاركة</span>
+                        {st.positivePoints > 0 && (
+                          <span className="bg-amber-500 text-black font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                            +{st.positivePoints}
+                          </span>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeductPositiveParticipation?.(st.seat, {
+                            name: st.name,
+                            number: st.number,
+                            massarNumber: st.massarNumber
+                          });
+                        }}
+                        disabled={st.positivePoints <= 0}
+                        className={`px-2.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center ${
+                          st.positivePoints > 0
+                            ? 'bg-rose-500/20 text-rose-200 border-rose-400/60 hover:bg-rose-500/30 active:bg-rose-500/40 cursor-pointer shadow-xs active:scale-95'
+                            : 'bg-black/20 text-white/20 border-white/5 cursor-not-allowed opacity-50'
+                        }`}
+                        title={st.positivePoints > 0 ? `خصم نقطة مشاركة واحدة للتلميذ (${st.name})` : 'الرصيد 0 نقاط'}
+                      >
+                        -
+                      </button>
+                    </div>
 
                     <button
                       type="button"

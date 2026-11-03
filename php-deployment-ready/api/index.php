@@ -159,18 +159,33 @@ if ($segments[0] === 'settings') {
             $settings[$row['key_name']] = $row['value'];
         }
         jsonResponse([
-            'institution' => $settings['institution'] ?? 'الثانوية الإعدادية ايكسان',
-            'year' => $settings['year'] ?? '2026/2027',
+            'institution' => $settings['institution'] ?? (defined('INSTITUTION_NAME') ? INSTITUTION_NAME : 'الثانوية الإعدادية إحسان'),
+            'siteName' => $settings['site_name'] ?? (defined('SITE_NAME') ? SITE_NAME : 'منظومة إحسان لتدبير الأقسام والغياب والسلوك'),
+            'site_name' => $settings['site_name'] ?? (defined('SITE_NAME') ? SITE_NAME : 'منظومة إحسان لتدبير الأقسام والغياب والسلوك'),
+            'siteUrl' => $settings['site_url'] ?? $settings['siteUrl'] ?? (defined('SITE_URL') ? SITE_URL : ''),
+            'site_url' => $settings['site_url'] ?? $settings['siteUrl'] ?? (defined('SITE_URL') ? SITE_URL : ''),
+            'directorName' => $settings['director_name'] ?? (defined('DIRECTOR_NAME') ? DIRECTOR_NAME : 'محمد الشريف'),
+            'director_name' => $settings['director_name'] ?? (defined('DIRECTOR_NAME') ? DIRECTOR_NAME : 'محمد الشريف'),
+            'year' => $settings['year'] ?? (defined('ACADEMIC_YEAR') ? ACADEMIC_YEAR : '2026/2027'),
             'teacher' => $settings['teacher'] ?? ''
         ]);
     }
 
     if ($method === 'POST') {
         $input = getJsonInput();
-        foreach (['institution', 'year', 'teacher'] as $key) {
-            if (isset($input[$key])) {
-                $stmt = $pdo->prepare("INSERT INTO app_settings (key_name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = ?");
-                $stmt->execute([$key, $input[$key], $input[$key]]);
+        $fields = [
+            'institution' => $input['institution'] ?? null,
+            'site_name' => $input['site_name'] ?? $input['siteName'] ?? null,
+            'site_url' => $input['site_url'] ?? $input['siteUrl'] ?? null,
+            'siteUrl' => $input['site_url'] ?? $input['siteUrl'] ?? null,
+            'director_name' => $input['director_name'] ?? $input['directorName'] ?? null,
+            'year' => $input['year'] ?? null,
+            'teacher' => $input['teacher'] ?? null
+        ];
+        foreach ($fields as $key => $val) {
+            if ($val !== null) {
+                $stmt = $pdo->prepare("INSERT INTO app_settings (key_name, value, updated_at) VALUES (?, ?, NOW()) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = NOW()");
+                $stmt->execute([$key, (string)$val]);
             }
         }
         jsonResponse(['success' => true, 'message' => 'تم حفظ الإعدادات بنجاح']);
@@ -425,6 +440,97 @@ if ($segments[0] === 'sections') {
             $pdo->rollBack();
             jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
         }
+    }
+
+    // تسجيل مخالفة سلوكية للتلميذ داخل القسم (Seat Violation)
+    if (isset($segments[1]) && isset($segments[2]) && $segments[2] === 'seats' && isset($segments[4]) && $segments[4] === 'violations' && $method === 'POST') {
+        $secId = $segments[1];
+        $seatNum = (int)$segments[3];
+        $input = getJsonInput();
+
+        $id = 'v_' . round(microtime(true) * 1000) . '_' . bin2hex(random_bytes(3));
+        $violationType = trim($input['violationType'] ?? 'مخالفة سلوكية');
+        $actionTaken = trim($input['actionTaken'] ?? 'تنبيه شفهي');
+        $description = trim($input['description'] ?? $violationType);
+        $teacherName = trim($input['teacherName'] ?? '');
+        $teacherSubject = trim($input['teacherSubject'] ?? '');
+        $teacherId = trim($input['teacherId'] ?? $userId);
+        $date = trim($input['date'] ?? $input['recordedDate'] ?? date('Y-m-d'));
+        $time = trim($input['time'] ?? $input['recordedTime'] ?? date('H:i'));
+
+        // جلب معلومات التلميذ من المقعد
+        $stSeat = $pdo->prepare("SELECT student_name, student_number, massar_number FROM seats WHERE section_id = ? AND seat_num = ? LIMIT 1");
+        $stSeat->execute([$secId, $seatNum]);
+        $seatRow = $stSeat->fetch();
+
+        $studentName = $seatRow ? $seatRow['student_name'] : ($input['studentName'] ?? "المقعد #{$seatNum}");
+        $studentNumber = $seatRow ? $seatRow['student_number'] : ($input['studentNumber'] ?? '');
+        $massarNumber = $seatRow ? $seatRow['massar_number'] : ($input['massarNumber'] ?? '');
+
+        if (!$teacherName && $teacherId) {
+            $uStmt = $pdo->prepare("SELECT full_name, subject FROM users WHERE id = ? LIMIT 1");
+            $uStmt->execute([$teacherId]);
+            $uRow = $uStmt->fetch();
+            if ($uRow) {
+                $teacherName = $uRow['full_name'];
+                if (!$teacherSubject) $teacherSubject = $uRow['subject'];
+            }
+        }
+        if (!$teacherName) $teacherName = 'الأستاذ';
+        if (!$teacherSubject) $teacherSubject = 'المادة';
+
+        $stmt = $pdo->prepare("
+            INSERT INTO daily_violations (
+                id, section_id, seat_num, student_name, student_number, massar_number,
+                violation_type, description, action_taken, teacher_name, teacher_subject,
+                teacher_id, recorded_date, recorded_time, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            $id, $secId, $seatNum, $studentName, $studentNumber, $massarNumber,
+            $violationType, $description, $actionTaken, $teacherName, $teacherSubject,
+            $teacherId, $date, $time
+        ]);
+
+        try {
+            $nStmt = $pdo->prepare("INSERT INTO notes (id, section_id, seat_num, note_text, note_date, note_time, created_at, teacher_id) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)");
+            $nStmt->execute([$id, $secId, $seatNum, $violationType, $date, $time, $teacherId]);
+        } catch (Exception $e) {}
+
+        jsonResponse([
+            'success' => true,
+            'violation' => [
+                'id' => $id,
+                'sectionId' => $secId,
+                'seatNum' => $seatNum,
+                'studentName' => $studentName,
+                'studentNumber' => $studentNumber,
+                'massarNumber' => $massarNumber,
+                'violationType' => $violationType,
+                'description' => $description,
+                'actionTaken' => $actionTaken,
+                'teacherName' => $teacherName,
+                'teacherSubject' => $teacherSubject,
+                'teacherId' => $teacherId,
+                'recordedDate' => $date,
+                'recordedTime' => $time,
+                'createdAt' => date('c')
+            ],
+            'message' => 'تم تسجيل المخالفة وحفظها بنجاح'
+        ]);
+    }
+
+    // حذف مخالفة من المقعد أو من القسم
+    if (isset($segments[1]) && isset($segments[2]) && (
+        ($segments[2] === 'seats' && isset($segments[4]) && $segments[4] === 'violations' && isset($segments[5]) && $method === 'DELETE') ||
+        ($segments[2] === 'violations' && isset($segments[3]) && $method === 'DELETE')
+    )) {
+        $vId = $segments[5] ?? $segments[3];
+        $pdo->prepare("DELETE FROM daily_violations WHERE id = ?")->execute([$vId]);
+        try {
+            $pdo->prepare("DELETE FROM notes WHERE id = ?")->execute([$vId]);
+        } catch (Exception $e) {}
+        jsonResponse(['success' => true, 'message' => 'تم حذف المخالفة بنجاح']);
     }
 
     // تسجيل مشاركة إيجابية
@@ -740,6 +846,73 @@ if ($segments[0] === 'daily-archive') {
         $stmt = $pdo->prepare("UPDATE attendance_history SET justified = ?, justification_reason = ? WHERE id = ?");
         $stmt->execute([$justified, $reason, $id]);
         jsonResponse(['success' => true, 'message' => 'تم تحديث التبرير بنجاح']);
+    }
+
+    // إضافة مخالفة من الأرشيف اليومي
+    if ($sub === 'violations' && $method === 'POST') {
+        $input = getJsonInput();
+        $id = 'v_' . round(microtime(true) * 1000) . '_' . bin2hex(random_bytes(3));
+        $secId = $input['sectionId'] ?? '';
+        $seatNum = !empty($input['seatNum']) ? (int)$input['seatNum'] : null;
+        $name = trim($input['studentName'] ?? '');
+        $num = trim($input['studentNumber'] ?? '');
+        $massar = trim($input['massarNumber'] ?? '');
+        $vType = trim($input['violationType'] ?? 'مخالفة سلوكية');
+        $desc = trim($input['description'] ?? $vType);
+        $action = trim($input['actionTaken'] ?? 'تنبيه شفهي');
+        $tName = trim($input['teacherName'] ?? 'الأستاذ');
+        $tSubj = trim($input['teacherSubject'] ?? '');
+        $tId = trim($input['teacherId'] ?? $userId);
+        $date = trim($input['recordedDate'] ?? date('Y-m-d'));
+        $time = trim($input['recordedTime'] ?? date('H:i'));
+
+        $stmt = $pdo->prepare("
+            INSERT INTO daily_violations (
+                id, section_id, seat_num, student_name, student_number, massar_number,
+                violation_type, description, action_taken, teacher_name, teacher_subject,
+                teacher_id, recorded_date, recorded_time, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            $id, $secId, $seatNum, $name, $num, $massar,
+            $vType, $desc, $action, $tName, $tSubj,
+            $tId, $date, $time
+        ]);
+
+        jsonResponse(['success' => true, 'id' => $id, 'message' => 'تم تسجيل المخالفة بنجاح']);
+    }
+
+    // تعديل مخالفة من الأرشيف اليومي
+    if ($sub === 'violations' && isset($segments[2]) && $method === 'PUT') {
+        $vId = $segments[2];
+        $input = getJsonInput();
+        $vType = trim($input['violationType'] ?? '');
+        $desc = trim($input['description'] ?? '');
+        $action = trim($input['actionTaken'] ?? '');
+        $date = trim($input['recordedDate'] ?? '');
+        $time = trim($input['recordedTime'] ?? '');
+
+        $stmt = $pdo->prepare("
+            UPDATE daily_violations SET
+                violation_type = COALESCE(NULLIF(?, ''), violation_type),
+                description = COALESCE(NULLIF(?, ''), description),
+                action_taken = COALESCE(NULLIF(?, ''), action_taken),
+                recorded_date = COALESCE(NULLIF(?, ''), recorded_date),
+                recorded_time = COALESCE(NULLIF(?, ''), recorded_time)
+            WHERE id = ?
+        ");
+        $stmt->execute([$vType, $desc, $action, $date, $time, $vId]);
+        jsonResponse(['success' => true, 'message' => 'تم تحديث سجل المخالفة بنجاح']);
+    }
+
+    // حذف مخالفة من الأرشيف اليومي
+    if ($sub === 'violations' && isset($segments[2]) && $method === 'DELETE') {
+        $vId = $segments[2];
+        $pdo->prepare("DELETE FROM daily_violations WHERE id = ?")->execute([$vId]);
+        try {
+            $pdo->prepare("DELETE FROM notes WHERE id = ?")->execute([$vId]);
+        } catch (Exception $e) {}
+        jsonResponse(['success' => true, 'message' => 'تم حذف سجل المخالفة بنجاح']);
     }
 }
 
@@ -1166,303 +1339,301 @@ if ($segments[0] === 'teacher' && ($segments[1] ?? '') === 'timetable') {
 }
 
 // -------------------------------------------------------------
-// 11. بوابة واتساب الرسمية (WhatsApp Cloud API - Meta) وإدارة الإشعارات
+// 11. بوابات الإشعارات (واتساب عادي / Textbee SMS Gateway) وإدارة الإشعارات
 // -------------------------------------------------------------
-if ($segments[0] === 'admin') {
-    $sub = $segments[1] ?? '';
+if ([0] === 'admin') {
+     = [1] ?? '';
 
-    // إعدادات بوابة واتساب (sms-gateway/config)
-    if ($sub === 'sms-gateway' && ($segments[2] ?? '') === 'config') {
-        if ($method === 'GET') {
-            $stmt = $pdo->query("SELECT key_name, value FROM app_settings WHERE key_name LIKE 'whatsapp_%' OR key_name LIKE 'sms_%' OR key_name = 'verification_channel'");
-            $map = [];
-            while ($r = $stmt->fetch()) {
-                $map[$r['key_name']] = $r['value'];
+    // إعدادات بوابة الإشعارات (sms-gateway/config)
+    if ( === 'sms-gateway' && ([2] ?? '') === 'config') {
+        if ( === 'GET') {
+             = ->query("SELECT key_name, value FROM app_settings WHERE key_name LIKE 'textbee_%' OR key_name LIKE 'whatsapp_%' OR key_name = 'default_channel'");
+             = [];
+            while ( = ->fetch()) {
+                [['key_name']] = ['value'];
             }
             jsonResponse([
                 'success' => true,
                 'config' => [
-                    'provider' => 'whatsapp_cloud',
-                    'whatsappCloudEnabled' => ($map['whatsapp_cloud_enabled'] ?? '1') !== '0',
-                    'whatsappPhoneNumberId' => $map['whatsapp_phone_number_id'] ?? '',
-                    'whatsappAccessToken' => $map['whatsapp_access_token'] ?? '',
-                    'whatsappBusinessAccountId' => $map['whatsapp_waba_id'] ?? '',
-                    'whatsappTemplateName' => $map['whatsapp_template_name'] ?? '',
-                    'schoolPhone' => $map['school_phone'] ?? '',
-                    'defaultChannel' => 'whatsapp_cloud'
+                    'provider' => 'textbee',
+                    'textbeeApiKey' => ['textbee_api_key'] ?? '',
+                    'textbeeDeviceId' => ['textbee_device_id'] ?? '',
+                    'textbeeEnabled' => (['textbee_enabled'] ?? '1') !== '0',
+                    'whatsappEnabled' => (['whatsapp_enabled'] ?? '1') !== '0',
+                    'defaultChannel' => ['default_channel'] ?? 'whatsapp',
+                    'schoolPhone' => ['school_phone'] ?? ''
                 ]
             ]);
         }
 
-        if ($method === 'POST') {
-            $input = getJsonInput();
-            $now = date('Y-m-d H:i:s');
-            $upsert = $pdo->prepare("INSERT INTO app_settings (key_name, value, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)");
+        if ( === 'POST') {
+             = getJsonInput();
+             = date('Y-m-d H:i:s');
+             = ->prepare("INSERT INTO app_settings (key_name, value, updated_at) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value), updated_at = VALUES(updated_at)");
             
-            $upsert->execute(['sms_provider', 'whatsapp_cloud', $now]);
-            $upsert->execute(['verification_channel', 'whatsapp_cloud', $now]);
-            if (isset($input['whatsappCloudEnabled'])) $upsert->execute(['whatsapp_cloud_enabled', $input['whatsappCloudEnabled'] ? '1' : '0', $now]);
-            if (isset($input['whatsappPhoneNumberId'])) $upsert->execute(['whatsapp_phone_number_id', trim($input['whatsappPhoneNumberId']), $now]);
-            if (isset($input['whatsappAccessToken'])) $upsert->execute(['whatsapp_access_token', trim($input['whatsappAccessToken']), $now]);
-            if (isset($input['whatsappBusinessAccountId'])) $upsert->execute(['whatsapp_waba_id', trim($input['whatsappBusinessAccountId']), $now]);
-            if (isset($input['whatsappTemplateName'])) $upsert->execute(['whatsapp_template_name', trim($input['whatsappTemplateName']), $now]);
-            if (isset($input['schoolPhone'])) $upsert->execute(['school_phone', trim($input['schoolPhone']), $now]);
+            if (isset(['textbeeApiKey'])) ->execute(['textbee_api_key', trim(['textbeeApiKey']), ]);
+            if (isset(['textbeeDeviceId'])) ->execute(['textbee_device_id', trim(['textbeeDeviceId']), ]);
+            if (isset(['textbeeEnabled'])) ->execute(['textbee_enabled', ['textbeeEnabled'] ? '1' : '0', ]);
+            if (isset(['whatsappEnabled'])) ->execute(['whatsapp_enabled', ['whatsappEnabled'] ? '1' : '0', ]);
+            if (isset(['defaultChannel'])) ->execute(['default_channel', trim(['defaultChannel']), ]);
+            if (isset(['schoolPhone'])) ->execute(['school_phone', trim(['schoolPhone']), ]);
 
             jsonResponse([
                 'success' => true,
-                'message' => 'تم حفظ إعدادات بوابة واتساب (WhatsApp Cloud API) بنجاح ✓'
+                'message' => 'تم حفظ إعدادات بوابات الإشعارات (واتساب / textbee.dev) بنجاح ✓'
             ]);
         }
     }
 
-    // اختبار الاتصال بـ WhatsApp Cloud API
-    if (($sub === 'sms-gateway' && ($segments[2] ?? '') === 'test') || ($sub === 'whatsapp-cloud' && ($segments[2] ?? '') === 'test')) {
-        $input = getJsonInput();
-        $testPhone = trim($input['testPhone'] ?? '');
-        if (!$testPhone) {
-            jsonResponse(['success' => false, 'error' => 'يرجى إدخال رقم هاتف لإرسال رسالة الاختبار إليه'], 400);
-        }
+    // اختبار الاتصال بـ Textbee API (POST /api/admin/sms-gateway/test-textbee)
+    if ( === 'sms-gateway' && ([2] ?? '') === 'test-textbee' &&  === 'POST') {
+         = getJsonInput();
+         = trim(['apiKey'] ?? '');
+         = trim(['deviceId'] ?? '');
+         = trim(['phoneNumber'] ?? '');
+         = trim(['message'] ?? 'رسالة اختبار من منظومة المؤسسة عبر بوابة textbee.dev');
 
-        $phoneId = trim($input['phoneNumberId'] ?? '');
-        $token = trim($input['accessToken'] ?? $input['token'] ?? '');
-        $tpl = trim($input['templateName'] ?? '');
-
-        if (!$phoneId || !$token) {
-            $stmt = $pdo->query("SELECT key_name, value FROM app_settings WHERE key_name IN ('whatsapp_phone_number_id', 'whatsapp_access_token', 'whatsapp_template_name')");
-            while ($r = $stmt->fetch()) {
-                if ($r['key_name'] === 'whatsapp_phone_number_id' && !$phoneId) $phoneId = $r['value'];
-                if ($r['key_name'] === 'whatsapp_access_token' && !$token) $token = $r['value'];
-                if ($r['key_name'] === 'whatsapp_template_name' && !$tpl) $tpl = $r['value'];
+        if (! || !) {
+             = ->query("SELECT key_name, value FROM app_settings WHERE key_name IN ('textbee_api_key', 'textbee_device_id')");
+            while ( = ->fetch()) {
+                if (['key_name'] === 'textbee_api_key' && !)  = ['value'];
+                if (['key_name'] === 'textbee_device_id' && !)  = ['value'];
             }
         }
 
-        if (!$phoneId || !$token) {
-            jsonResponse(['success' => false, 'error' => 'يرجى إدخال Phone Number ID و Access Token الخاصين بحساب Meta Developers'], 400);
+        if (! || !) {
+            jsonResponse(['success' => false, 'error' => 'يرجى إدخال API Key و Device ID الخاصين بـ textbee.dev'], 400);
         }
 
-        $cleanTo = preg_replace('/[\s\-\.\(\)]/', '', $testPhone);
-        if (strpos($cleanTo, '0') === 0) $cleanTo = '212' . substr($cleanTo, 1);
-        if (strpos($cleanTo, '+212') === 0) $cleanTo = substr($cleanTo, 1);
+         = preg_replace('/[\s\-\.\(\)]/', '',  ?: '0600000000');
+        if (strpos(, '0') === 0)  = '+212' . substr(, 1);
+        if (strpos(, '212') === 0 && strpos(, '+') !== 0)  = '+' . ;
 
-        $testMsg = "المملكة المغربية 🇲🇦\nمنظومة الإدارة التربوية والمواظبة الرقمية (PHP & MySQL)\nهذه رسالة اختبار للتأكد من نجاح ربط خدمة WhatsApp Cloud API بالمؤسسة ✓\nالتاريخ: " . date('Y-m-d H:i');
-
-        $url = "https://graph.facebook.com/v21.0/" . $phoneId . "/messages";
-        $payload = [
-            'messaging_product' => 'whatsapp',
-            'recipient_type' => 'individual',
-            'to' => $cleanTo,
-            'type' => 'text',
-            'text' => ['preview_url' => false, 'body' => $testMsg]
+         = "https://api.textbee.dev/api/v1/gateway/devices/" . urlencode() . "/send-sms";
+         = [
+            'recipients' => [],
+            'message' => 
         ];
 
-        $ch = curl_init($url);
-        curl_setopt($ch, CURLOPT_POST, 1);
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-        curl_setopt($ch, CURLOPT_HTTPHEADER, [
-            'Authorization: Bearer ' . $token,
+         = curl_init();
+        curl_setopt(, CURLOPT_POST, 1);
+        curl_setopt(, CURLOPT_POSTFIELDS, json_encode());
+        curl_setopt(, CURLOPT_HTTPHEADER, [
+            'x-api-key: ' . ,
             'Content-Type: application/json'
         ]);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        $res = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $cErr = curl_error($ch);
-        curl_close($ch);
+        curl_setopt(, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt(, CURLOPT_TIMEOUT, 12);
+         = curl_exec();
+         = curl_getinfo(, CURLINFO_HTTP_CODE);
+         = curl_error();
+        curl_close();
 
-        if ($cErr) {
-            jsonResponse(['success' => false, 'message' => 'تعذر الاتصال بخوادم واتساب: ' . $cErr]);
+        if () {
+            jsonResponse(['success' => false, 'error' => 'تعذر الاتصال بخادم Textbee: ' . ], 500);
         }
 
-        $data = json_decode($res, true);
-        if ($httpCode >= 200 && $httpCode < 300 && !empty($data['messages'])) {
-            jsonResponse([
-                'success' => true,
-                'message' => 'تم إرسال رسالة الاختبار بنجاح عبر WhatsApp Cloud API إلى (' . $cleanTo . ') ✓',
-                'messageId' => $data['messages'][0]['id'] ?? ''
-            ]);
+         = json_decode(, true);
+        if ( >= 200 &&  < 300) {
+            jsonResponse(['success' => true, 'message' => 'تم إرسال رسالة الاختبار بنجاح عبر textbee.dev ✓', 'data' => ]);
+        } else {
+            jsonResponse(['success' => false, 'error' => ['message'] ?? 'فشل الاتصال بجهاز Textbee (كود: ' .  . ')'], 400);
         }
-
-        $fbErr = $data['error']['message'] ?? ('استجابت منصة Meta بكود ' . $httpCode);
-        jsonResponse([
-            'success' => false,
-            'message' => 'ردت منصة Meta: ' . $fbErr,
-            'error' => $data['error'] ?? null
-        ]);
     }
 
-    // سجلات إرسال واتساب
-    if ($sub === 'sms-gateway' && ($segments[2] ?? '') === 'logs') {
-        try {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS `whatsapp_dispatch_logs` (
-              `id` VARCHAR(64) NOT NULL PRIMARY KEY,
-              `to_phone` VARCHAR(32) NOT NULL,
-              `intl_phone` VARCHAR(32) NOT NULL,
-              `sender_name` VARCHAR(128) NOT NULL,
-              `message_text` TEXT NOT NULL,
-              `code` VARCHAR(64) DEFAULT '',
-              `status` VARCHAR(32) NOT NULL DEFAULT 'delivered',
-              `gateway` VARCHAR(64) NOT NULL DEFAULT 'WhatsApp Cloud API',
-              `sent_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-        } catch (Exception $e) {}
-
-        $stmt = $pdo->query("SELECT id, to_phone as toPhone, intl_phone as intlPhone, sender_name as senderName, message_text as messageText, code, status, gateway, sent_at as sentAt FROM whatsapp_dispatch_logs ORDER BY sent_at DESC LIMIT 100");
-        jsonResponse(['success' => true, 'logs' => $stmt->fetchAll()]);
+    // سجل الإشعارات (sms-gateway/logs)
+    if ( === 'sms-gateway' && ([2] ?? '') === 'logs' &&  === 'GET') {
+         = ->query("SELECT id, to_phone as toPhone, intl_phone as intlPhone, sender_name as senderName, message_text as messageText, code, status, gateway, sent_at as sentAt FROM whatsapp_dispatch_logs ORDER BY sent_at DESC LIMIT 100");
+         = ->fetchAll();
+        jsonResponse(['success' => true, 'logs' => ]);
     }
 
-    // البحث عن معلومات ولي الأمر
-    if ($sub === 'student-guardian-info') {
-        $massar = trim($_GET['massarNumber'] ?? '');
-        $stName = trim($_GET['studentName'] ?? '');
-        $info = null;
+    // معلومات التواصل للتلميذ
+    if ( === 'student-contact-info' &&  === 'GET') {
+         = trim(['massarNumber'] ?? '');
+         = trim(['studentName'] ?? '');
+         = null;
 
-        if ($massar) {
+        if () {
             try {
-                $stmt = $pdo->prepare("SELECT student_name, guardian_phone, photo_url FROM student_accounts WHERE massar_number = ? LIMIT 1");
-                $stmt->execute([$massar]);
-                $r = $stmt->fetch();
-                if ($r) {
-                    $info = [
-                        'studentName' => $r['student_name'],
-                        'guardianPhone' => $r['guardian_phone'],
-                        'photoUrl' => $r['photo_url']
+                 = ->prepare("SELECT student_name, guardian_phone, photo_url FROM student_accounts WHERE massar_number = ? LIMIT 1");
+                ->execute([]);
+                 = ->fetch();
+                if () {
+                     = [
+                        'studentName' => ['student_name'],
+                        'guardianPhone' => ['guardian_phone'],
+                        'photoUrl' => ['photo_url']
                     ];
                 }
-            } catch (Exception $e) {}
+            } catch (Exception ) {}
         }
-        if (!$info && ($massar || $stName)) {
-            $stmt = $pdo->prepare("SELECT student_name, guardian_phone, photo_url FROM seats WHERE (massar_number = ? OR student_name = ?) AND guardian_phone != '' LIMIT 1");
-            $stmt->execute([$massar, $stName]);
-            $r = $stmt->fetch();
-            if ($r) {
-                $info = [
-                    'studentName' => $r['student_name'],
-                    'guardianPhone' => $r['guardian_phone'],
-                    'photoUrl' => $r['photo_url'] ?? ''
+        if (! && ( || )) {
+             = ->prepare("SELECT student_name, guardian_phone, photo_url FROM seats WHERE (massar_number = ? OR student_name = ?) AND guardian_phone != '' LIMIT 1");
+            ->execute([, ]);
+             = ->fetch();
+            if () {
+                 = [
+                    'studentName' => ['student_name'],
+                    'guardianPhone' => ['guardian_phone'],
+                    'photoUrl' => ['photo_url'] ?? ''
                 ];
             }
         }
 
-        jsonResponse(['success' => true, 'info' => $info]);
+        jsonResponse(['success' => true, 'info' => ]);
     }
 
-    // إرسال إشعار لولي أمر (WhatsApp Cloud API أو رابط مباشر)
-    if ($sub === 'notify-guardian' && $method === 'POST') {
-        $input = getJsonInput();
-        $phone = trim($input['guardianPhone'] ?? $input['toPhone'] ?? '');
-        $studentName = trim($input['studentName'] ?? '');
-        $massarNumber = trim($input['massarNumber'] ?? '');
-        $notificationType = $input['notificationType'] ?? 'absence';
-        $customMessage = trim($input['customMessage'] ?? $input['messageText'] ?? '');
-
-        if (!$phone && $massarNumber) {
-            try {
-                $st = $pdo->prepare("SELECT guardian_phone FROM student_accounts WHERE massar_number = ? LIMIT 1");
-                $st->execute([$massarNumber]);
-                $row = $st->fetch();
-                if ($row) $phone = $row['guardian_phone'];
-            } catch (Exception $e) {}
+    // إرسال إشعار لولي أمر (حصري لمدير المؤسسة: واتساب عادي أو textbee.dev)
+    if ( === 'notify-guardian' &&  === 'POST') {
+        if ( !== 'director' &&  !== 'admin') {
+            http_response_code(403);
+            jsonResponse([
+                'success' => false,
+                'error' => 'غير مصرح لك: إرسال الإشعارات لأولياء الأمور موكول حصرياً لمدير المؤسسة.'
+            ], 403);
         }
-        if (!$phone) {
+
+         = getJsonInput();
+         = trim(['guardianPhone'] ?? ['toPhone'] ?? '');
+         = trim(['studentName'] ?? '');
+         = trim(['massarNumber'] ?? '');
+         = ['notificationType'] ?? 'absence';
+         = trim(['customMessage'] ?? ['messageText'] ?? '');
+         = ['channel'] ?? 'whatsapp';
+
+        if (! && ) {
+            try {
+                 = ->prepare("SELECT guardian_phone FROM student_accounts WHERE massar_number = ? LIMIT 1");
+                ->execute([]);
+                 = ->fetch();
+                if ()  = ['guardian_phone'];
+            } catch (Exception ) {}
+        }
+        if (!) {
             jsonResponse(['success' => false, 'error' => 'رقم هاتف ولي الأمر غير متوفر لهذا التلميذ.'], 400);
         }
 
-        if (!empty($input['guardianPhone']) && $massarNumber) {
-            try {
-                $pdo->prepare("UPDATE student_accounts SET guardian_phone = ?, guardian_phone_verified = 1 WHERE massar_number = ?")->execute([$phone, $massarNumber]);
-                $pdo->prepare("UPDATE seats SET guardian_phone = ? WHERE massar_number = ?")->execute([$phone, $massarNumber]);
-            } catch (Exception $e) {}
-        }
+         = preg_replace('/[\s\-\.\(\)]/', '', );
+        if (strpos(, '0') === 0)  = '212' . substr(, 1);
+        if (strpos(, '+212') === 0)  = substr(, 1);
 
-        $intlPhone = preg_replace('/[\s\-\.\(\)]/', '', $phone);
-        if (strpos($intlPhone, '0') === 0) $intlPhone = '212' . substr($intlPhone, 1);
-        if (strpos($intlPhone, '+212') === 0) $intlPhone = substr($intlPhone, 1);
+         = ->query("SELECT value FROM app_settings WHERE key_name = 'institution' LIMIT 1");
+         = ->fetch();
+         =  ? ['value'] : (defined('INSTITUTION_NAME') ? INSTITUTION_NAME : 'المؤسسة التعليمية');
 
-        $instStmt = $pdo->query("SELECT value FROM app_settings WHERE key_name = 'institution' LIMIT 1");
-        $instRow = $instStmt->fetch();
-        $institutionName = $instRow ? $instRow['value'] : 'المدرسة الإلكترونية';
-
-        $messageText = $customMessage;
-        if (!$messageText) {
-            $d = $input['details']['date'] ?? date('Y-m-d');
-            $sName = $studentName ? "ابنكم/ابنتكم ({$studentName})" : 'ابنكم/ابنتكم';
-            if ($notificationType === 'absence') {
-                $messageText = "المملكة المغربية • {$institutionName}\nنحيطكم علماً بأن {$sName} قد سجل(ت) غياباً عن الدراسة بتاريخ {$d}.\nيرجى موافاة الإدارة بمبرر الغياب القانوني.";
+         = ;
+        if (!) {
+             = ['details']['date'] ?? date('Y-m-d');
+             =  ? "ابنكم/ابنتكم ({})" : 'ابنكم/ابنتكم';
+            if ( === 'absence') {
+                 = "المملكة المغربية • {}
+نحيطكم علماً بأن {} قد سجل(ت) غياباً عن الدراسة بتاريخ {}.
+يرجى موافاة إدارة المؤسسة بمبرر الغياب القانوني.";
             } else {
-                $vReason = $input['details']['reason'] ?? 'مخالفة انضباطية داخل الحصة';
-                $messageText = "المملكة المغربية • {$institutionName}\nنحيطكم علماً بأن {$sName} قد ارتكب(ت) مخالفة انضباطية: ({$vReason}) بتاريخ {$d}.\nيرجى التواصل مع إدارة المؤسسة.";
+                 = ['details']['reason'] ?? 'مخالفة انضباطية داخل الحصة';
+                 = "المملكة المغربية • {}
+نحيطكم علماً بأن {} قد ارتكب(ت) مخالفة انضباطية: ({}) بتاريخ {}.
+يرجى التواصل مع إدارة المؤسسة.";
             }
         }
 
-        $whatsappUrl = "https://api.whatsapp.com/send?phone=" . $intlPhone . "&text=" . urlencode($messageText);
+         = '+' . ;
+         = "https://wa.me/" .  . "?text=" . urlencode();
 
-        $phoneId = '';
-        $token = '';
-        $tpl = '';
-        $stCfg = $pdo->query("SELECT key_name, value FROM app_settings WHERE key_name IN ('whatsapp_phone_number_id', 'whatsapp_access_token', 'whatsapp_template_name')");
-        while ($r = $stCfg->fetch()) {
-            if ($r['key_name'] === 'whatsapp_phone_number_id') $phoneId = $r['value'];
-            if ($r['key_name'] === 'whatsapp_access_token') $token = $r['value'];
-            if ($r['key_name'] === 'whatsapp_template_name') $tpl = $r['value'];
-        }
+         = false;
+         = 'واتساب عادي (WhatsApp Standard)';
 
-        $cloudSuccess = false;
-        $statusMsg = '';
-        $gatewayUsed = 'WhatsApp Web / App Direct';
+        if ( === 'textbee') {
+             = '';
+             = '';
+             = ->query("SELECT key_name, value FROM app_settings WHERE key_name IN ('textbee_api_key', 'textbee_device_id')");
+            while ( = ->fetch()) {
+                if (['key_name'] === 'textbee_api_key')  = ['value'];
+                if (['key_name'] === 'textbee_device_id')  = ['value'];
+            }
 
-        if ($phoneId && $token) {
-            $url = "https://graph.facebook.com/v21.0/" . $phoneId . "/messages";
-            $payload = [
-                'messaging_product' => 'whatsapp',
-                'recipient_type' => 'individual',
-                'to' => $intlPhone,
-                'type' => 'text',
-                'text' => ['preview_url' => false, 'body' => $messageText]
-            ];
+            if ( && ) {
+                 = "https://api.textbee.dev/api/v1/gateway/devices/" . urlencode() . "/send-sms";
+                 = ['recipients' => [], 'message' => ];
 
-            $ch = curl_init($url);
-            curl_setopt($ch, CURLOPT_POST, 1);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Authorization: Bearer ' . $token,
-                'Content-Type: application/json'
-            ]);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-            $res = curl_exec($ch);
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
+                 = curl_init();
+                curl_setopt(, CURLOPT_POST, 1);
+                curl_setopt(, CURLOPT_POSTFIELDS, json_encode());
+                curl_setopt(, CURLOPT_HTTPHEADER, ['x-api-key: ' . , 'Content-Type: application/json']);
+                curl_setopt(, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt(, CURLOPT_TIMEOUT, 12);
+                 = curl_exec();
+                 = curl_getinfo(, CURLINFO_HTTP_CODE);
+                curl_close();
 
-            $data = json_decode($res, true);
-            if ($httpCode >= 200 && $httpCode < 300 && !empty($data['messages'])) {
-                $cloudSuccess = true;
-                $gatewayUsed = 'WhatsApp Cloud API (Meta)';
-                $statusMsg = 'تم الإرسال سحابياً بنجاح';
-            } else {
-                $statusMsg = $data['error']['message'] ?? 'فشل الإرسال عبر السحابة';
+                if ( >= 200 &&  < 300) {
+                     = true;
+                     = 'textbee.dev SMS Gateway';
+                }
             }
         }
 
         try {
-            $logId = 'notif_' . bin2hex(random_bytes(6));
-            $pdo->prepare("INSERT INTO whatsapp_dispatch_logs (id, to_phone, intl_phone, sender_name, message_text, code, status, gateway, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
-                ->execute([$logId, $phone, '+' . $intlPhone, $institutionName, $messageText, $notificationType, $cloudSuccess ? 'delivered' : 'pending', $gatewayUsed]);
-        } catch (Exception $e) {}
+             = 'notif_' . bin2hex(random_bytes(6));
+            ->prepare("INSERT INTO whatsapp_dispatch_logs (id, to_phone, intl_phone, sender_name, message_text, code, status, gateway, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
+                ->execute([, , , , , ,  ? 'delivered' : 'pending', ]);
+        } catch (Exception ) {}
 
         jsonResponse([
             'success' => true,
-            'smsSuccess' => false,
-            'whatsappCloudSuccess' => $cloudSuccess,
-            'message' => $cloudSuccess 
-                ? "تم إرسال إشعار {$notificationType} تلقائياً لولي أمر ({$studentName}) عبر WhatsApp Cloud API ✓"
-                : "تم تجهيز الإشعار لولي أمر ({$studentName}) بنجاح. يمكنك إرساله بنقرة واحدة عبر واتساب.",
-            'gatewayUsed' => $gatewayUsed,
-            'whatsappUrl' => $whatsappUrl,
-            'toPhone' => $phone,
-            'intlPhone' => '+' . $intlPhone
+            'channel' => ,
+            'textbeeSuccess' => ,
+            'whatsappUrl' => ,
+            'message' => 
+                ? "تم إرسال الإشعار لولي أمر ({}) تلقائياً عبر بوابة textbee.dev بنجاح ✓"
+                : "تم تجهيز الإشعار لولي أمر ({}) بنجاح عبر واتساب.",
+            'gatewayUsed' => ,
+            'toPhone' => ,
+            'intlPhone' => 
+        ]);
+    }
+
+    // إرسال إشعارات جماعية دفعة واحدة (حصري لمدير المؤسسة)
+    if ( === 'notify-guardians-batch' &&  === 'POST') {
+        if ( !== 'director' &&  !== 'admin') {
+            http_response_code(403);
+            jsonResponse(['success' => false, 'error' => 'إرسال الإشعارات موكول حصرياً لمدير المؤسسة.'], 403);
+        }
+
+         = getJsonInput();
+         = ['recipients'] ?? [];
+         = ['channel'] ?? 'whatsapp';
+         = [];
+
+        foreach ( as ) {
+             = trim(['guardianPhone'] ?? '');
+            if (!) continue;
+
+             = preg_replace('/[\s\-\.\(\)]/', '', );
+            if (strpos(, '0') === 0)  = '212' . substr(, 1);
+             = trim(['customMessage'] ?? '');
+             = "https://wa.me/" .  . "?text=" . urlencode();
+
+            [] = [
+                'studentName' => ['studentName'] ?? '',
+                'guardianPhone' => ,
+                'whatsappUrl' => ,
+                'status' => 'ready'
+            ];
+        }
+
+         = count();
+        jsonResponse([
+            'success' => true,
+            'channel' => ,
+            'count' => ,
+            'results' => ,
+            'message' => "تم تجهيز إشعارات الدفعة بنجاح ({} ولي أمر) للمدير ✓"
         ]);
     }
 }
+
 
 // -------------------------------------------------------------
 // 12. بوابة التلاميذ وأولياء الأمور (Student Portal & Profile)
@@ -1661,6 +1832,328 @@ if (isset($segments[0]) && $segments[0] === 'activities') {
         } catch (Exception $e) {
             jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
         }
+    }
+}
+
+// -------------------------------------------------------------
+// سجل المخالفات العام والمستقل (Independent Violations API)
+// -------------------------------------------------------------
+if ($segments[0] === 'violations') {
+    $vId = $segments[1] ?? '';
+    $subAction = $segments[2] ?? '';
+
+    // 1. جلب المخالفات مع الفلترة
+    if ($method === 'GET' && empty($vId)) {
+        $secFilter = $_GET['sectionId'] ?? '';
+        $tIdFilter = $_GET['teacherId'] ?? '';
+        $tNameFilter = trim($_GET['teacherName'] ?? '');
+        $scope = $_GET['scope'] ?? 'all';
+
+        $where = "1=1";
+        $params = [];
+
+        if ($secFilter && $secFilter !== 'all') {
+            $where .= " AND v.section_id = ?";
+            $params[] = $secFilter;
+        }
+
+        if ($userRole === 'teacher' && ($scope === 'my_only' || $tIdFilter)) {
+            $where .= " AND (v.teacher_id = ? OR v.teacher_name = ?)";
+            $params[] = $tIdFilter ?: $userId;
+            $params[] = $tNameFilter;
+        }
+
+        $sql = "
+            SELECT v.*, sec.level as section_level, sec.class_number as section_class
+            FROM daily_violations v
+            LEFT JOIN sections sec ON v.section_id = sec.id
+            WHERE {$where}
+            ORDER BY v.recorded_date DESC, v.recorded_time DESC, v.created_at DESC
+        ";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+
+        $formatted = array_map(function($r) {
+            $secTitle = ($r['section_level'] && $r['section_class']) ? ($r['section_level'] . '/' . $r['section_class']) : '';
+            return [
+                'id' => $r['id'],
+                'sectionId' => $r['section_id'],
+                'section_id' => $r['section_id'],
+                'sectionTitle' => $secTitle,
+                'seatNum' => (int)($r['seat_num'] ?? 0),
+                'seat_num' => (int)($r['seat_num'] ?? 0),
+                'studentName' => $r['student_name'],
+                'student_name' => $r['student_name'],
+                'studentNumber' => $r['student_number'] ?? '',
+                'student_number' => $r['student_number'] ?? '',
+                'massarNumber' => $r['massar_number'] ?? '',
+                'massar_number' => $r['massar_number'] ?? '',
+                'violationType' => $r['violation_type'],
+                'violation_type' => $r['violation_type'],
+                'description' => $r['description'] ?: $r['violation_type'],
+                'actionTaken' => $r['action_taken'] ?: 'تنبيه شفهي',
+                'action_taken' => $r['action_taken'] ?: 'تنبيه شفهي',
+                'teacherName' => $r['teacher_name'] ?: 'الأستاذ',
+                'teacher_name' => $r['teacher_name'] ?: 'الأستاذ',
+                'teacherSubject' => $r['teacher_subject'] ?: '',
+                'teacher_subject' => $r['teacher_subject'] ?: '',
+                'teacherId' => $r['teacher_id'] ?? '',
+                'teacher_id' => $r['teacher_id'] ?? '',
+                'recordedDate' => $r['recorded_date'],
+                'recorded_date' => $r['recorded_date'],
+                'recordedTime' => $r['recorded_time'],
+                'recorded_time' => $r['recorded_time'],
+                'createdAt' => $r['created_at']
+            ];
+        }, $rows);
+
+        jsonResponse(['success' => true, 'violations' => $formatted]);
+    }
+
+    // 2. تسجيل مخالفة جديدة
+    if ($method === 'POST' && empty($vId)) {
+        $input = getJsonInput();
+        $secId = $input['sectionId'] ?? '';
+        $studentName = trim($input['studentName'] ?? '');
+        $violationType = trim($input['violationType'] ?? 'مخالفة سلوكية');
+        $description = trim($input['description'] ?? $violationType);
+        $actionTaken = trim($input['actionTaken'] ?? 'تنبيه شفهي');
+        $seatNum = !empty($input['seatNum']) ? (int)$input['seatNum'] : null;
+        $studentNumber = trim($input['studentNumber'] ?? '');
+        $massarNumber = trim($input['massarNumber'] ?? '');
+        $teacherName = trim($input['teacherName'] ?? '');
+        $teacherSubject = trim($input['teacherSubject'] ?? '');
+        $teacherId = trim($input['teacherId'] ?? $userId);
+        $recordedDate = trim($input['recordedDate'] ?? date('Y-m-d'));
+        $recordedTime = trim($input['recordedTime'] ?? date('H:i'));
+        $issueSummons = !empty($input['issueParentSummons']);
+        $summonsDate = trim($input['summonsDate'] ?? date('Y-m-d'));
+        $appointmentTime = trim($input['appointmentTime'] ?? '10:00');
+
+        if (!$secId || !$studentName) {
+            jsonResponse(['success' => false, 'error' => 'القسم واسم التلميذ مطلوبان لتسجيل المخالفة'], 400);
+        }
+
+        $id = 'v_' . round(microtime(true) * 1000) . '_' . bin2hex(random_bytes(3));
+
+        $stmt = $pdo->prepare("
+            INSERT INTO daily_violations (
+                id, section_id, seat_num, student_name, student_number, massar_number,
+                violation_type, description, action_taken, teacher_name, teacher_subject,
+                teacher_id, recorded_date, recorded_time, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+        ");
+        $stmt->execute([
+            $id, $secId, $seatNum, $studentName, $studentNumber, $massarNumber,
+            $violationType, $description, $actionTaken, $teacherName, $teacherSubject,
+            $teacherId, $recordedDate, $recordedTime
+        ]);
+
+        try {
+            $nStmt = $pdo->prepare("INSERT INTO notes (id, section_id, seat_num, note_text, note_date, note_time, created_at, teacher_id) VALUES (?, ?, ?, ?, ?, ?, NOW(), ?)");
+            $nStmt->execute([$id, $secId, $seatNum, $violationType, $recordedDate, $recordedTime, $teacherId]);
+        } catch (Exception $e) {}
+
+        // إصدار استدعاء لولي الأمر إذا تم طلب ذلك
+        $summonsId = null;
+        if ($issueSummons) {
+            try {
+                $pdo->exec("
+                    CREATE TABLE IF NOT EXISTS `parent_summons` (
+                        `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                        `section_id` VARCHAR(64) NOT NULL,
+                        `student_name` VARCHAR(128) NOT NULL,
+                        `student_number` VARCHAR(32) DEFAULT '',
+                        `massar_number` VARCHAR(64) DEFAULT '',
+                        `reason` TEXT NOT NULL,
+                        `summons_date` DATE NOT NULL,
+                        `appointment_time` VARCHAR(16) DEFAULT '10:00',
+                        `status` VARCHAR(32) NOT NULL DEFAULT 'pending',
+                        `created_by` VARCHAR(128) DEFAULT '',
+                        `notes` TEXT DEFAULT NULL,
+                        `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+                ");
+                $summonsId = 'sum_' . round(microtime(true) * 1000) . '_' . bin2hex(random_bytes(3));
+                $sIns = $pdo->prepare("INSERT INTO parent_summons (id, section_id, student_name, student_number, massar_number, reason, summons_date, appointment_time, status, created_by, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NOW())");
+                $sIns->execute([$summonsId, $secId, $studentName, $studentNumber, $massarNumber, "مخالفة تربوية: {$violationType} ({$description})", $summonsDate, $appointmentTime, $teacherName, "مسجل تلقائياً بناءً على مخالفة: {$description}"]);
+            } catch (Exception $e) {}
+        }
+
+        jsonResponse([
+            'success' => true,
+            'id' => $id,
+            'summonsId' => $summonsId,
+            'message' => $issueSummons ? 'تم تسجيل المخالفة وإصدار استدعاء رسمي لولي الأمر بنجاح' : 'تم تسجيل المخالفة بنجاح'
+        ]);
+    }
+
+    // 3. تعديل مخالفة
+    if ($method === 'PUT' && !empty($vId)) {
+        $input = getJsonInput();
+        $violationType = trim($input['violationType'] ?? '');
+        $description = trim($input['description'] ?? '');
+        $actionTaken = trim($input['actionTaken'] ?? '');
+        $recordedDate = trim($input['recordedDate'] ?? '');
+        $recordedTime = trim($input['recordedTime'] ?? '');
+
+        $stmt = $pdo->prepare("
+            UPDATE daily_violations SET
+                violation_type = COALESCE(NULLIF(?, ''), violation_type),
+                description = COALESCE(NULLIF(?, ''), description),
+                action_taken = COALESCE(NULLIF(?, ''), action_taken),
+                recorded_date = COALESCE(NULLIF(?, ''), recorded_date),
+                recorded_time = COALESCE(NULLIF(?, ''), recorded_time)
+            WHERE id = ?
+        ");
+        $stmt->execute([$violationType, $description, $actionTaken, $recordedDate, $recordedTime, $vId]);
+        jsonResponse(['success' => true, 'message' => 'تم تحديث سجل المخالفة بنجاح']);
+    }
+
+    // 4. حذف مخالفة
+    if ($method === 'DELETE' && !empty($vId)) {
+        $stmt = $pdo->prepare("DELETE FROM daily_violations WHERE id = ?");
+        $stmt->execute([$vId]);
+        try {
+            $pdo->prepare("DELETE FROM notes WHERE id = ?")->execute([$vId]);
+        } catch (Exception $e) {}
+        jsonResponse(['success' => true, 'message' => 'تم حذف سجل المخالفة بنجاح']);
+    }
+
+    // 5. تحويل مخالفة لاستدعاء ولي الأمر
+    if ($method === 'POST' && !empty($vId) && $subAction === 'summons') {
+        $input = getJsonInput();
+        $secId = $input['sectionId'] ?? '';
+        $studentName = trim($input['studentName'] ?? '');
+        $studentNumber = trim($input['studentNumber'] ?? '');
+        $massarNumber = trim($input['massarNumber'] ?? '');
+        $reason = trim($input['reason'] ?? 'استدعاء بسبب مخالفة انضباطية');
+        $summonsDate = trim($input['summonsDate'] ?? date('Y-m-d'));
+        $appointmentTime = trim($input['appointmentTime'] ?? '10:00');
+        $notes = trim($input['notes'] ?? '');
+        $createdBy = trim($input['createdBy'] ?? ($userRole === 'director' ? 'إدارة المؤسسة' : 'الأستاذ'));
+
+        try {
+            $pdo->exec("
+                CREATE TABLE IF NOT EXISTS `parent_summons` (
+                    `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                    `section_id` VARCHAR(64) NOT NULL,
+                    `student_name` VARCHAR(128) NOT NULL,
+                    `student_number` VARCHAR(32) DEFAULT '',
+                    `massar_number` VARCHAR(64) DEFAULT '',
+                    `reason` TEXT NOT NULL,
+                    `summons_date` DATE NOT NULL,
+                    `appointment_time` VARCHAR(16) DEFAULT '10:00',
+                    `status` VARCHAR(32) NOT NULL DEFAULT 'pending',
+                    `created_by` VARCHAR(128) DEFAULT '',
+                    `notes` TEXT DEFAULT NULL,
+                    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+            ");
+            $sumId = 'sum_' . round(microtime(true) * 1000) . '_' . bin2hex(random_bytes(3));
+            $sIns = $pdo->prepare("INSERT INTO parent_summons (id, section_id, student_name, student_number, massar_number, reason, summons_date, appointment_time, status, created_by, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NOW())");
+            $sIns->execute([$sumId, $secId, $studentName, $studentNumber, $massarNumber, $reason, $summonsDate, $appointmentTime, $createdBy, $notes]);
+
+            $pdo->prepare("UPDATE daily_violations SET action_taken = 'استدعاء ولي الأمر' WHERE id = ?")->execute([$vId]);
+
+            jsonResponse(['success' => true, 'id' => $sumId, 'message' => 'تم إنشاء الاستدعاء الرسمي لولي الأمر بنجاح']);
+        } catch (Exception $e) {
+            jsonResponse(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+}
+
+// -------------------------------------------------------------
+// استدعاءات أولياء الأمور (Parent Summons API)
+// -------------------------------------------------------------
+if ($segments[0] === 'parent-summons') {
+    try {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS `parent_summons` (
+                `id` VARCHAR(64) NOT NULL PRIMARY KEY,
+                `section_id` VARCHAR(64) NOT NULL,
+                `student_name` VARCHAR(128) NOT NULL,
+                `student_number` VARCHAR(32) DEFAULT '',
+                `massar_number` VARCHAR(64) DEFAULT '',
+                `reason` TEXT NOT NULL,
+                `summons_date` DATE NOT NULL,
+                `appointment_time` VARCHAR(16) DEFAULT '10:00',
+                `status` VARCHAR(32) NOT NULL DEFAULT 'pending',
+                `created_by` VARCHAR(128) DEFAULT '',
+                `notes` TEXT DEFAULT NULL,
+                `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+        ");
+    } catch (Exception $e) {}
+
+    $sumId = $segments[1] ?? '';
+
+    if ($method === 'GET') {
+        $secId = $_GET['sectionId'] ?? '';
+        $sql = "SELECT ps.*, sec.level, sec.class_number FROM parent_summons ps LEFT JOIN sections sec ON ps.section_id = sec.id";
+        $params = [];
+        if ($secId) {
+            $sql .= " WHERE ps.section_id = ?";
+            $params[] = $secId;
+        }
+        $sql .= " ORDER BY ps.summons_date DESC, ps.created_at DESC";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        $formatted = array_map(function($r) {
+            return [
+                'id' => $r['id'],
+                'sectionId' => $r['section_id'],
+                'sectionTitle' => ($r['level'] && $r['class_number']) ? ($r['level'] . '/' . $r['class_number']) : '',
+                'studentName' => $r['student_name'],
+                'studentNumber' => $r['student_number'],
+                'massarNumber' => $r['massar_number'],
+                'reason' => $r['reason'],
+                'summonsDate' => $r['summons_date'],
+                'appointmentTime' => $r['appointment_time'],
+                'status' => $r['status'],
+                'createdBy' => $r['created_by'],
+                'notes' => $r['notes'],
+                'createdAt' => $r['created_at']
+            ];
+        }, $rows);
+        jsonResponse(['success' => true, 'summons' => $formatted]);
+    }
+
+    if ($method === 'POST') {
+        $input = getJsonInput();
+        $newId = 'sum_' . round(microtime(true) * 1000) . '_' . bin2hex(random_bytes(3));
+        $secId = $input['sectionId'] ?? '';
+        $stName = trim($input['studentName'] ?? '');
+        $stNum = trim($input['studentNumber'] ?? '');
+        $massar = trim($input['massarNumber'] ?? '');
+        $reason = trim($input['reason'] ?? '');
+        $sDate = trim($input['summonsDate'] ?? date('Y-m-d'));
+        $appTime = trim($input['appointmentTime'] ?? '10:00');
+        $creator = trim($input['createdBy'] ?? ($userRole === 'director' ? 'إدارة المؤسسة' : 'الأستاذ'));
+        $notes = trim($input['notes'] ?? '');
+
+        if (!$secId || !$stName || !$reason) {
+            jsonResponse(['success' => false, 'error' => 'بيانات الاستدعاء غير مكتملة'], 400);
+        }
+
+        $stmt = $pdo->prepare("INSERT INTO parent_summons (id, section_id, student_name, student_number, massar_number, reason, summons_date, appointment_time, status, created_by, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NOW())");
+        $stmt->execute([$newId, $secId, $stName, $stNum, $massar, $reason, $sDate, $appTime, $creator, $notes]);
+
+        jsonResponse(['success' => true, 'id' => $newId, 'message' => 'تم إنشاء الاستدعاء بنجاح']);
+    }
+
+    if ($method === 'PUT' && !empty($sumId)) {
+        $input = getJsonInput();
+        $status = $input['status'] ?? 'completed';
+        $pdo->prepare("UPDATE parent_summons SET status = ? WHERE id = ?")->execute([$status, $sumId]);
+        jsonResponse(['success' => true, 'message' => 'تم تحديث حالة الاستدعاء بنجاح']);
+    }
+
+    if ($method === 'DELETE' && !empty($sumId)) {
+        $pdo->prepare("DELETE FROM parent_summons WHERE id = ?")->execute([$sumId]);
+        jsonResponse(['success' => true, 'message' => 'تم حذف الاستدعاء بنجاح']);
     }
 }
 

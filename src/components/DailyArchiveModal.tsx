@@ -102,6 +102,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   onRefreshSections
 }) => {
   // Current selected date (YYYY-MM-DD)
+  const isDirector = currentUser?.role === 'director' || currentUser?.role === 'admin';
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [selectedSectionFilter, setSelectedSectionFilter] = useState<string>('all');
@@ -111,6 +112,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const [absences, setAbsences] = useState<DailyAbsenceItem[]>([]);
   const [activeAbsences, setActiveAbsences] = useState<DailyAbsenceItem[]>([]);
   const [violations, setViolations] = useState<DailyViolationItem[]>([]);
+  const [allViolations, setAllViolations] = useState<DailyViolationItem[]>([]);
   const [repeatedStudents, setRepeatedStudents] = useState<any[]>([]);
   const [monthlySectionsSummary, setMonthlySectionsSummary] = useState<any[]>([]);
 
@@ -148,6 +150,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const isTeacher = currentUser?.role === 'teacher';
   const [searchQuery, setSearchQuery] = useState('');
   const [absenceScope, setAbsenceScope] = useState<'current_active' | 'all_archive'>('current_active');
+  const [violationScope, setViolationScope] = useState<'all_archive' | 'date_only'>('all_archive');
   const [absenceStatusFilter, setAbsenceStatusFilter] = useState<'all' | 'absent' | 'late' | 'justified' | 'unjustified'>('all');
   const [violationCategoryFilter, setViolationCategoryFilter] = useState<string>('all');
 
@@ -217,6 +220,11 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         setAbsences(json.absences || []);
         setActiveAbsences(json.activeAbsences || []);
         setViolations(json.violations || []);
+        if (json.allViolations && Array.isArray(json.allViolations)) {
+          setAllViolations(json.allViolations);
+        } else {
+          setAllViolations(json.violations || []);
+        }
         setStats(json.stats || {
           totalAbsences: 0,
           totalLates: 0,
@@ -360,6 +368,18 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
     setIsSubmittingViolation(true);
     try {
+      // Auto-resolve seat number and student number if left blank
+      let resolvedSeat = newViolSeatNum ? Number(newViolSeatNum) : undefined;
+      let resolvedNum = newViolStudentNumber.trim();
+      const secObj = sections.find(s => s.id === newViolSectionId);
+      if (secObj && secObj.seats) {
+        const foundSeat = secObj.seats.find(st => st.name && st.name.trim() === newViolStudentName.trim());
+        if (foundSeat) {
+          if (!resolvedSeat && foundSeat.seat > 0) resolvedSeat = foundSeat.seat;
+          if (!resolvedNum && foundSeat.number) resolvedNum = foundSeat.number;
+        }
+      }
+
       const res = await fetch('/api/daily-archive/violations', {
         method: 'POST',
         headers: {
@@ -368,9 +388,9 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         },
         body: JSON.stringify({
           sectionId: newViolSectionId,
-          seatNum: newViolSeatNum ? Number(newViolSeatNum) : undefined,
+          seatNum: resolvedSeat,
           studentName: newViolStudentName.trim(),
-          studentNumber: newViolStudentNumber.trim(),
+          studentNumber: resolvedNum,
           violationType: newViolType,
           description: newViolDesc.trim(),
           actionTaken: newViolAction,
@@ -388,6 +408,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         setNewViolStudentNumber('');
         setNewViolDesc('');
         fetchArchiveData(selectedDate);
+        onRefreshSections?.();
       } else {
         alert(data.error || 'تعذر تسجيل المخالفة');
       }
@@ -492,15 +513,17 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   };
 
   const [isResettingActive, setIsResettingActive] = useState(false);
+  const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
 
   // Handle Reset / Zero Active Absences Counter
-  const handleResetActiveAbsences = async () => {
-    const confirmed = window.confirm(
-      'هل تريد تصفير عداد حالات الغياب وتسوية جميع الحالات الحالية؟\n\nسيتم توثيق الغيابات كمسوّاة في الأرشيف اليومي لكي يبدأ العداد من جديد (0).'
-    );
-    if (!confirmed) return;
+  const handleResetActiveAbsences = () => {
+    setShowResetConfirmModal(true);
+  };
 
+  const executeResetActiveAbsences = async () => {
     setIsResettingActive(true);
+    setShowResetConfirmModal(false);
+    setErrorMsg(null);
     try {
       const res = await fetch('/api/daily-archive/absences/reset-active', {
         method: 'POST',
@@ -520,11 +543,12 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
       if (data.success) {
         setSuccessMsg(data.message || 'تم تصفير عداد الغيابات وتسوية الحالات بنجاح');
         fetchArchiveData(selectedDate);
+        onRefreshSections?.();
       } else {
-        alert(data.error || 'تعذر تصفير العداد');
+        setErrorMsg(data.error || 'تعذر تصفير العداد');
       }
     } catch (err: any) {
-      alert(err.message || 'خطأ في الاتصال بالخادم');
+      setErrorMsg(err.message || 'خطأ في الاتصال بالخادم');
     } finally {
       setIsResettingActive(false);
     }
@@ -570,9 +594,17 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
   const activeAbsencesCount = useMemo(() => activeAbsences.filter(a => !a.removedAt).length, [activeAbsences]);
   const resolvedAbsencesCount = useMemo(() => absences.filter(a => !!a.removedAt).length, [absences]);
 
+  // Determine violations list source based on scope (all vs date_only)
+  const currentViolationsList = useMemo(() => {
+    if (violationScope === 'all_archive') {
+      return allViolations.length > 0 ? allViolations : violations;
+    }
+    return violations;
+  }, [violationScope, allViolations, violations]);
+
   // Filtered Violations
   const filteredViolations = useMemo(() => {
-    return violations.filter(item => {
+    return currentViolationsList.filter(item => {
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
         const matchesName = item.studentName.toLowerCase().includes(q);
@@ -587,7 +619,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
 
       return true;
     });
-  }, [violations, searchQuery, violationCategoryFilter]);
+  }, [currentViolationsList, searchQuery, violationCategoryFilter]);
 
   // Dedicated Print Function using Isolated Iframe
   const handlePrintDailyArchive = () => {
@@ -1054,7 +1086,7 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                   </button>
                 )}
 
-                {!isTeacher && filteredAbsences.length > 0 && (
+                {isDirector && filteredAbsences.length > 0 && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1076,10 +1108,10 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                       setIsNotifyModalOpen(true);
                     }}
                     className="mr-2 px-3 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs transition-colors shrink-0 cursor-pointer"
-                    title="إرسال إشعار غياب فوري لجميع أولياء أمور التلاميذ الغائبين اليوم عبر واتساب"
+                    title="إرسال إشعار غياب فوري لأولياء أمور التلاميذ الغائبين (واتساب عادي / textbee.dev) - خاص بالمدير"
                   >
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-200" />
-                    <span>إشعار أولياء الغائبين عبر واتساب ({filteredAbsences.length}) 💬</span>
+                    <MessageSquare className="w-3.5 h-3.5 text-amber-300" />
+                    <span>إشعار أولياء الغائبين (واتساب / textbee.dev) ({filteredAbsences.length}) 💬</span>
                   </button>
                 )}
               </div>
@@ -1255,32 +1287,34 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                           <span>كشف / إشعار</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNotifyTargetStudent({
-                              studentName: ab.studentName,
-                              massarNumber: ab.massarNumber,
-                              sectionId: ab.sectionId,
-                              sectionLevel: ab.sectionLevel,
-                              sectionClass: String(ab.sectionClass),
-                              type: 'absence',
-                              details: {
-                                date: ab.recordedDate || selectedDate,
-                                time: ab.sessionPeriod || '',
-                                subject: ab.teacherSubject,
-                                reason: ab.notes || ab.justificationReason
-                              }
-                            });
-                            setNotifyBatchStudents(undefined);
-                            setIsNotifyModalOpen(true);
-                          }}
-                          className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs flex items-center justify-center gap-1 border border-emerald-300 cursor-pointer shadow-2xs"
-                          title="إشعار ولي الأمر فوراً عبر واتساب"
-                        >
-                          <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
-                          <span>إشعار واتساب 💬</span>
-                        </button>
+                        {isDirector && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNotifyTargetStudent({
+                                studentName: ab.studentName,
+                                massarNumber: ab.massarNumber,
+                                sectionId: ab.sectionId,
+                                sectionLevel: ab.sectionLevel,
+                                sectionClass: String(ab.sectionClass),
+                                type: 'absence',
+                                details: {
+                                  date: ab.recordedDate || selectedDate,
+                                  time: ab.sessionPeriod || '',
+                                  subject: ab.teacherSubject,
+                                  reason: ab.notes || ab.justificationReason
+                                }
+                              });
+                              setNotifyBatchStudents(undefined);
+                              setIsNotifyModalOpen(true);
+                            }}
+                            className="flex-1 py-1.5 px-2 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-900 font-bold text-xs flex items-center justify-center gap-1 border border-emerald-300 cursor-pointer shadow-2xs"
+                            title="إشعار ولي الأمر فوراً (واتساب عادي / textbee.dev) - خاص بالمدير"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>إشعار ولي الأمر 💬</span>
+                          </button>
+                        )}
 
                         {!ab.removedAt && (
                           <button
@@ -1478,32 +1512,34 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                                 <span>كشف / إشعار</span>
                               </button>
 
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setNotifyTargetStudent({
-                                    studentName: ab.studentName,
-                                    massarNumber: ab.massarNumber,
-                                    sectionId: ab.sectionId,
-                                    sectionLevel: ab.sectionLevel,
-                                    sectionClass: String(ab.sectionClass),
-                                    type: 'absence',
-                                    details: {
-                                      date: ab.recordedDate || selectedDate,
-                                      time: ab.sessionPeriod || '',
-                                      subject: ab.teacherSubject,
-                                      reason: ab.notes || ab.justificationReason
-                                    }
-                                  });
-                                  setNotifyBatchStudents(undefined);
-                                  setIsNotifyModalOpen(true);
-                                }}
-                                className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-emerald-300 cursor-pointer shadow-2xs"
-                                title="إرسال إشعار غياب فوري لولي الأمر عبر واتساب"
-                              >
-                                <MessageSquare className="w-3 h-3 text-emerald-700" />
-                                <span>إشعار واتساب 💬</span>
-                              </button>
+                              {isDirector && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNotifyTargetStudent({
+                                      studentName: ab.studentName,
+                                      massarNumber: ab.massarNumber,
+                                      sectionId: ab.sectionId,
+                                      sectionLevel: ab.sectionLevel,
+                                      sectionClass: String(ab.sectionClass),
+                                      type: 'absence',
+                                      details: {
+                                        date: ab.recordedDate || selectedDate,
+                                        time: ab.sessionPeriod || '',
+                                        subject: ab.teacherSubject,
+                                        reason: ab.notes || ab.justificationReason
+                                      }
+                                    });
+                                    setNotifyBatchStudents(undefined);
+                                    setIsNotifyModalOpen(true);
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-emerald-300 cursor-pointer shadow-2xs"
+                                  title="إرسال إشعار غياب فوري لولي الأمر (واتساب عادي / textbee.dev) - خاص بالمدير"
+                                >
+                                  <MessageSquare className="w-3 h-3 text-emerald-700" />
+                                  <span>إشعار ولي الأمر 💬</span>
+                                </button>
+                              )}
                               {!ab.removedAt && (
                                 <button
                                   type="button"
@@ -1537,6 +1573,55 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
         {/* Tab 2: Violations Table */}
         {activeTab === 'violations' && (
           <div className="p-5 space-y-4">
+            {/* Violation Scope Selector: عرض كافة المخالفات المسجلة vs أرشيف اليوم المحدد */}
+            <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 p-3.5 bg-slate-100/90 rounded-2xl border border-slate-200">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setViolationScope('all_archive')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                    violationScope === 'all_archive'
+                      ? 'bg-purple-700 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-300"></span>
+                  <span>سجل كافة المخالفات الموثقة بالمؤسسة (الكل)</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    violationScope === 'all_archive' ? 'bg-white/20 text-white' : 'bg-purple-100 text-purple-800'
+                  }`}>
+                    {allViolations.length || violations.length}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setViolationScope('date_only')}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+                    violationScope === 'date_only'
+                      ? 'bg-slate-800 text-white shadow-xs'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+                  }`}
+                >
+                  <span>مخالفات اليوم المحدد فقط ({selectedDate})</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                    violationScope === 'date_only' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-800'
+                  }`}>
+                    {violations.length}
+                  </span>
+                </button>
+              </div>
+
+              <div className="text-xs text-purple-800 bg-purple-50 px-3 py-1.5 rounded-xl border border-purple-200 font-medium flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-purple-600"></span>
+                <span>
+                  {violationScope === 'all_archive'
+                    ? `عرض شامل ومستمر لكافة المخالفات الموثقة بالمؤسسة (${allViolations.length || violations.length} مخالفة)`
+                    : `عرض المخالفات الموثقة ليوم ${selectedDate} (${violations.length} مخالفة)`}
+                </span>
+              </div>
+            </div>
+
             {/* Search & Category Filter */}
             <div className="flex flex-col md:flex-row items-center justify-between gap-3">
               <div className="relative w-full md:w-80">
@@ -1734,31 +1819,33 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
                           </td>
                           <td className="py-3 px-3 text-center">
                             <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setNotifyTargetStudent({
-                                    studentName: v.studentName,
-                                    massarNumber: v.massarNumber,
-                                    sectionId: v.sectionId,
-                                    sectionLevel: v.sectionLevel,
-                                    sectionClass: String(v.sectionClass),
-                                    type: 'violation',
-                                    details: {
-                                      date: selectedDate,
-                                      time: v.recordedTime,
-                                      reason: `${v.violationType} - ${v.description || ''}`
-                                    }
-                                  });
-                                  setNotifyBatchStudents(undefined);
-                                  setIsNotifyModalOpen(true);
-                                }}
-                                className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-rose-200 cursor-pointer shadow-2xs"
-                                title="إرسال إشعار بالمخالفة لولي الأمر عبر واتساب"
-                              >
-                                <MessageSquare className="w-3 h-3 text-rose-700" />
-                                <span>إشعار واتساب 💬</span>
-                              </button>
+                              {isDirector && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNotifyTargetStudent({
+                                      studentName: v.studentName,
+                                      massarNumber: v.massarNumber,
+                                      sectionId: v.sectionId,
+                                      sectionLevel: v.sectionLevel,
+                                      sectionClass: String(v.sectionClass),
+                                      type: 'violation',
+                                      details: {
+                                        date: selectedDate,
+                                        time: v.recordedTime,
+                                        reason: `${v.violationType} - ${v.description || ''}`
+                                      }
+                                    });
+                                    setNotifyBatchStudents(undefined);
+                                    setIsNotifyModalOpen(true);
+                                  }}
+                                  className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 text-[11px] font-bold inline-flex items-center gap-1 transition-colors border border-rose-200 cursor-pointer shadow-2xs"
+                                  title="إرسال إشعار بالمخالفة لولي الأمر (واتساب عادي / textbee.dev) - خاص بالمدير"
+                                >
+                                  <MessageSquare className="w-3 h-3 text-rose-700" />
+                                  <span>إشعار ولي الأمر 💬</span>
+                                </button>
+                              )}
                               <button
                                 onClick={() => handleDeleteViolation(v.id, v.studentName)}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
@@ -2570,6 +2657,42 @@ export const DailyArchiveModal: React.FC<DailyArchiveModalProps> = ({
           fetchArchiveData(selectedDate, selectedSectionFilter);
         }}
       />
+
+      {/* Reset Active Absences Confirmation Modal */}
+      {showResetConfirmModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-amber-200 animate-in fade-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-4">
+              <RotateCcw className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 text-center mb-2">تأكيد تصفير عداد الغياب</h3>
+            <p className="text-sm text-slate-600 text-center mb-6 leading-relaxed">
+              هل أنت متأكد من تصفير عداد حالات الغياب الحالية؟
+              <br />
+              <span className="text-xs text-amber-750 font-semibold block mt-1.5 text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                سيتم تصفير العداد ليعود إلى (0) وتوثيق كافة الحالات النشطة كمسوّاة في الأرشيف دون ضياع تاريخها.
+              </span>
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowResetConfirmModal(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50 transition-colors cursor-pointer"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={executeResetActiveAbsences}
+                disabled={isResettingActive}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-sm font-bold shadow-md transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isResettingActive ? 'جارٍ التصفير...' : 'تأكيد التصفير الآن'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 

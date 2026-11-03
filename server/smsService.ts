@@ -56,7 +56,137 @@ export function formatToMoroccanLocalPhone(rawPhone: string): string {
   return clean;
 }
 
-// ---------------- WhatsApp Cloud API (Meta Official) ----------------
+// ---------------- Textbee.dev SMS Gateway API ----------------
+
+export interface TextbeeSendOptions {
+  apiKey: string;
+  deviceId: string;
+  toPhone: string;
+  messageText: string;
+}
+
+export async function sendViaTextbeeApi(options: TextbeeSendOptions): Promise<{
+  success: boolean;
+  message: string;
+  messageId?: string;
+  errorDetails?: any;
+}> {
+  const { apiKey, deviceId, toPhone, messageText } = options;
+
+  if (!apiKey || !apiKey.trim() || !deviceId || !deviceId.trim()) {
+    return {
+      success: false,
+      message: 'إعدادات بوابة textbee.dev غير مكتملة (يرجى إدخال API Key و Device ID في إعدادات مدير المؤسسة)'
+    };
+  }
+
+  const intlPhone = formatToInternationalPhone(toPhone);
+  // textbee supports +212XXXXXXXXX or local phone number format
+  const recipient = '+' + intlPhone;
+  const cleanDeviceId = deviceId.trim();
+  const url = `https://api.textbee.dev/api/v1/gateway/devices/${encodeURIComponent(cleanDeviceId)}/send-sms`;
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey.trim(),
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        recipients: [recipient],
+        message: messageText
+      })
+    });
+
+    const data: any = await res.json().catch(() => ({}));
+
+    if (res.ok && data.success !== false) {
+      return {
+        success: true,
+        message: 'تم إرسال رسالة SMS بنجاح وبشكل آلي عبر بوابة textbee.dev ✓',
+        messageId: data.data?.id || data.id || ('tb_' + Date.now().toString(36))
+      };
+    } else {
+      let friendlyMessage = data.message || data.error;
+      if (res.status === 401) {
+        friendlyMessage = 'مفتاح API Key غير صحيح أو غير مفعل في منصة textbee.dev.';
+      } else if (res.status === 404) {
+        friendlyMessage = 'معرف الجهاز (Device ID) غير موجود أو محذوف في textbee.dev.';
+      } else if (!friendlyMessage) {
+        friendlyMessage = `تعذر إرسال SMS عبر بوابة textbee.dev (رمز الاستجابة: ${res.status})`;
+      }
+
+      return {
+        success: false,
+        message: friendlyMessage,
+        errorDetails: data
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `خطأ في الاتصال بخوادم textbee.dev: ${err.message}`
+    };
+  }
+}
+
+export async function testTextbeeConnection(options: {
+  apiKey: string;
+  deviceId: string;
+  testPhone?: string;
+}): Promise<{ success: boolean; message: string; messageId?: string; errorDetails?: any }> {
+  const { apiKey, deviceId, testPhone } = options;
+
+  if (!apiKey || !apiKey.trim() || !deviceId || !deviceId.trim()) {
+    return {
+      success: false,
+      message: 'يرجى إدخال كل من API Key و Device ID لاختبار الاتصال ببوابة textbee.dev'
+    };
+  }
+
+  // If a test phone is provided, send a lightweight test SMS
+  if (testPhone && testPhone.trim().length >= 8) {
+    const testMessage = `المملكة المغربية 🇲🇦\nمنظومة الإدارة التربوية\nرسالة اختبار ناجحة لبوابة textbee.dev ✓\nالتاريخ: ${new Date().toLocaleDateString('ar-MA')} ${new Date().toLocaleTimeString('ar-FR', { hour: '2-digit', minute: '2-digit' })}`;
+    return await sendViaTextbeeApi({
+      apiKey,
+      deviceId,
+      toPhone: testPhone,
+      messageText: testMessage
+    });
+  }
+
+  // Otherwise check device info via textbee device status endpoint
+  try {
+    const url = `https://api.textbee.dev/api/v1/gateway/devices/${encodeURIComponent(deviceId.trim())}`;
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'x-api-key': apiKey.trim()
+      }
+    });
+
+    const data: any = await res.json().catch(() => ({}));
+    if (res.ok && data.success !== false) {
+      return {
+        success: true,
+        message: `تم التحقق من ربط جهاز أندرويد بنجاح في textbee.dev ✓`
+      };
+    } else {
+      return {
+        success: false,
+        message: data.message || `تعذر التحقق من جهاز textbee.dev (رمز: ${res.status})`
+      };
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      message: `خطأ في الاتصال ببوابة textbee.dev: ${err.message}`
+    };
+  }
+}
+
+// ---------------- WhatsApp Cloud API (Meta Official - Optional) ----------------
 
 export interface WhatsAppCloudSendOptions {
   phoneNumberId: string;
@@ -299,14 +429,14 @@ export interface GuardianNotificationOptions {
   sectionName?: string;
   notificationType: 'absence' | 'violation' | 'summons' | 'custom';
   messageText: string;
-  channel?: 'whatsapp' | 'whatsapp_cloud' | 'sms' | 'both';
+  channel?: 'whatsapp' | 'textbee' | 'whatsapp_cloud' | 'sms' | 'both';
   institutionName?: string;
   directorName?: string;
   smsConfig?: any;
 }
 
 /**
- * Unified Guardian Notification Dispatcher (Exclusively WhatsApp Cloud API & Direct WhatsApp)
+ * Unified Guardian Notification Dispatcher (Exclusively Director Controlled: WhatsApp Standard & textbee.dev)
  */
 export async function sendGuardianNotification(options: GuardianNotificationOptions): Promise<{
   success: boolean;
@@ -325,6 +455,7 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
     studentName,
     notificationType,
     messageText,
+    channel = 'whatsapp',
     institutionName = 'المدرسة الإلكترونية',
     smsConfig
   } = options;
@@ -334,58 +465,67 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
   const dispatchId = 'notif_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const now = new Date().toISOString();
 
+  // Standard WhatsApp Direct URL
   const whatsappUrl = `https://api.whatsapp.com/send?phone=${intlPhone}&text=${encodeURIComponent(messageText)}`;
 
-  let whatsappCloudSuccess = false;
-  let gatewayUsed = 'WhatsApp Web / App Direct (مباشر عبر واتساب)';
-  let statusMessage = '';
+  // Choice 1: textbee.dev (SMS Gateway via Android Device)
+  if (channel === 'textbee' || channel === 'sms') {
+    const hasTextbeeCreds = Boolean(smsConfig?.textbeeApiKey && smsConfig?.textbeeDeviceId);
 
-  const isWhatsAppCloudEligible = Boolean(
-    smsConfig?.whatsappPhoneNumberId &&
-    smsConfig?.whatsappAccessToken
-  );
+    if (hasTextbeeCreds) {
+      const tbRes = await sendViaTextbeeApi({
+        apiKey: smsConfig.textbeeApiKey,
+        deviceId: smsConfig.textbeeDeviceId,
+        toPhone: intlPhone,
+        messageText
+      });
 
-  // 1. Dispatch via WhatsApp Cloud API if credentials exist
-  if (isWhatsAppCloudEligible) {
-    gatewayUsed = 'WhatsApp Cloud API (Meta Official)';
-    const cloudRes = await sendViaWhatsAppCloudApi({
-      phoneNumberId: smsConfig.whatsappPhoneNumberId,
-      accessToken: smsConfig.whatsappAccessToken,
-      toPhone: intlPhone,
-      messageText,
-      templateName: smsConfig.whatsappTemplateName,
-      studentName,
-      notificationType,
-      institutionName
-    });
+      const gatewayUsed = 'بوابة SMS (textbee.dev)';
+      dispatchHistory.unshift({
+        id: dispatchId,
+        toPhone: localPhone,
+        intlPhone: '+' + intlPhone,
+        senderName: institutionName,
+        messageText,
+        code: notificationType,
+        status: tbRes.success ? 'delivered' : 'failed',
+        gateway: gatewayUsed,
+        sentAt: now
+      });
+      if (dispatchHistory.length > 100) dispatchHistory.pop();
 
-    whatsappCloudSuccess = cloudRes.success;
-    statusMessage = cloudRes.message;
-
-    // Log to history
-    dispatchHistory.unshift({
-      id: dispatchId,
-      toPhone: localPhone,
-      intlPhone: '+' + intlPhone,
-      senderName: institutionName,
-      messageText,
-      code: notificationType,
-      status: whatsappCloudSuccess ? 'delivered' : 'failed',
-      gateway: gatewayUsed,
-      sentAt: now
-    });
-    if (dispatchHistory.length > 100) {
-      dispatchHistory.pop();
-    }
-
-    if (whatsappCloudSuccess) {
+      if (tbRes.success) {
+        return {
+          success: true,
+          smsSuccess: true,
+          message: `تم إرسال رسالة SMS بنجاح لولي أمر (${studentName}) عبر بوابة textbee.dev ✓`,
+          smsStatus: 'تم التسليم عبر textbee.dev',
+          gatewayUsed,
+          whatsappUrl,
+          toPhone: localPhone,
+          intlPhone: '+' + intlPhone,
+          dispatchId
+        };
+      } else {
+        return {
+          success: false,
+          smsSuccess: false,
+          message: `فشل الإرسال عبر textbee.dev: ${tbRes.message}. يمكنك استخدام رابط واتساب العادي كبديل فوري.`,
+          smsStatus: tbRes.message,
+          gatewayUsed,
+          whatsappUrl,
+          toPhone: localPhone,
+          intlPhone: '+' + intlPhone,
+          dispatchId
+        };
+      }
+    } else {
       return {
-        success: true,
+        success: false,
         smsSuccess: false,
-        whatsappCloudSuccess: true,
-        message: `تم إرسال إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} تلقائياً لولي أمر (${studentName}) عبر WhatsApp Cloud API ✓`,
-        smsStatus: statusMessage,
-        gatewayUsed,
+        message: 'إعدادات بوابة textbee.dev غير مكتملة (يرجى إدخال API Key و Device ID في إعدادات المدير)',
+        smsStatus: 'غير مهيأ',
+        gatewayUsed: 'بوابة SMS (textbee.dev)',
         whatsappUrl,
         toPhone: localPhone,
         intlPhone: '+' + intlPhone,
@@ -394,7 +534,54 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
     }
   }
 
-  // 2. Direct WhatsApp link fallback (instant, 100% free, opens WhatsApp with pre-filled message)
+  // Choice 2: WhatsApp Cloud API (if specifically requested)
+  if (channel === 'whatsapp_cloud') {
+    const isWhatsAppCloudEligible = Boolean(smsConfig?.whatsappPhoneNumberId && smsConfig?.whatsappAccessToken);
+    if (isWhatsAppCloudEligible) {
+      const gatewayUsed = 'WhatsApp Cloud API (Meta Official)';
+      const cloudRes = await sendViaWhatsAppCloudApi({
+        phoneNumberId: smsConfig.whatsappPhoneNumberId,
+        accessToken: smsConfig.whatsappAccessToken,
+        toPhone: intlPhone,
+        messageText,
+        templateName: smsConfig.whatsappTemplateName,
+        studentName,
+        notificationType,
+        institutionName
+      });
+
+      dispatchHistory.unshift({
+        id: dispatchId,
+        toPhone: localPhone,
+        intlPhone: '+' + intlPhone,
+        senderName: institutionName,
+        messageText,
+        code: notificationType,
+        status: cloudRes.success ? 'delivered' : 'failed',
+        gateway: gatewayUsed,
+        sentAt: now
+      });
+      if (dispatchHistory.length > 100) dispatchHistory.pop();
+
+      if (cloudRes.success) {
+        return {
+          success: true,
+          smsSuccess: false,
+          whatsappCloudSuccess: true,
+          message: `تم إرسال الإشعار لولي أمر (${studentName}) عبر WhatsApp Cloud API ✓`,
+          smsStatus: cloudRes.message,
+          gatewayUsed,
+          whatsappUrl,
+          toPhone: localPhone,
+          intlPhone: '+' + intlPhone,
+          dispatchId
+        };
+      }
+    }
+  }
+
+  // Default Choice: واتساب عادي (Standard WhatsApp - Direct wa.me link)
+  const gatewayUsed = 'واتساب عادي (WhatsApp Direct)';
   dispatchHistory.unshift({
     id: dispatchId,
     toPhone: localPhone,
@@ -406,20 +593,14 @@ export async function sendGuardianNotification(options: GuardianNotificationOpti
     gateway: gatewayUsed,
     sentAt: now
   });
-  if (dispatchHistory.length > 100) {
-    dispatchHistory.pop();
-  }
-
-  const message = isWhatsAppCloudEligible
-    ? `تعذر الإرسال السحابي الآلي: ${statusMessage}. يمكنك المراسلة الفورية عبر رابط واتساب المباشر.`
-    : `تم تجهيز إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} لولي أمر التلميذ (${studentName}) للإرسال الفوري عبر واتساب.`;
+  if (dispatchHistory.length > 100) dispatchHistory.pop();
 
   return {
     success: true,
     smsSuccess: false,
     whatsappCloudSuccess: false,
-    message,
-    smsStatus: statusMessage || 'جاهز للإرسال المباشر عبر واتساب',
+    message: `تم تجهيز إشعار ${notificationType === 'absence' ? 'الغياب' : notificationType === 'violation' ? 'المخالفة' : 'الإشعار'} لولي أمر (${studentName}) للإرسال المباشر عبر واتساب العادي.`,
+    smsStatus: 'جاهز للإرسال المباشر عبر واتساب العادي',
     gatewayUsed,
     whatsappUrl,
     toPhone: localPhone,

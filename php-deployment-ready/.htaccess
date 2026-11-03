@@ -1,23 +1,29 @@
+# ==============================================================================
+# إعدادات خادم Apache لـ منظومة تدبير الأقسام والغياب والسلوك
+# مهيأ تماماً ليعمل كمنصة CMS مثل WordPress على أي استضافة (cPanel / Apache / LiteSpeed)
+# ==============================================================================
+
+# إجبار الخادم على تشغيل index.php كفهرس أولي لمنع تجاوز معالج التثبيت
+DirectoryIndex index.php app.html index.html
+
 <IfModule mod_rewrite.c>
   RewriteEngine On
-  RewriteBase /
 
-  # 1. التوجيه لمعالج التثبيت فقط في حال لم يتم إعداد ملف config.php بعد
-  RewriteCond %{REQUEST_URI} !^/install\.php
-  RewriteCond %{REQUEST_URI} !^/api
-  RewriteCond %{REQUEST_URI} !\.(css|js|png|jpg|jpeg|svg|ico|woff|woff2|json)$ [NC]
-  RewriteCond %{DOCUMENT_ROOT}/config.php !-f
-  RewriteRule ^$ install.php [R=302,L]
-
-  # 2. توجيه جميع طلبات API إلى سكربت PHP
+  # 1. توجيه جميع طلبات API إلى سكربت PHP الموحد
   RewriteRule ^api/(.*)$ api/index.php [QSA,L]
   RewriteRule ^api$ api/index.php [QSA,L]
 
-  # 3. السماح للملفات والمجلدات الثابتة بالمرور المباشر (CSS, JS, Images)
+  # 3. السماح بمرور الملفات الثابتة والمجلدات الموجودة فعلياً
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
-  # 4. توجيه جميع صفحات الواجهة الأمامية React إلى index.html
-  RewriteRule ^ index.html [L]
+  # 4. توجيه كافة المسارات المتبقية إلى المتحكم index.php
+  RewriteRule ^ index.php [L]
 </IfModule>
+
+# حماية ملفات الإعدادات والبيانات الحساسة
+<FilesMatch "^(config\.php|database\.sql|installed\.lock|\.env.*)$">
+  Order allow,deny
+  Deny from all
+</FilesMatch>

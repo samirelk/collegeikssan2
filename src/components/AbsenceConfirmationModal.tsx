@@ -13,7 +13,8 @@ import {
   Smartphone,
   MessageSquare,
   Sparkles,
-  Info
+  Info,
+  ShieldCheck
 } from 'lucide-react';
 
 interface AbsenceConfirmationModalProps {
@@ -32,6 +33,7 @@ interface AbsenceConfirmationModalProps {
   guardianPhone?: string;
   guardianPhoneVerified?: boolean;
   institutionName?: string;
+  isDirector?: boolean;
   onConfirm: (options: {
     sendNotification: boolean;
     guardianPhone: string;
@@ -55,10 +57,11 @@ export const AbsenceConfirmationModal: React.FC<AbsenceConfirmationModalProps> =
   guardianPhone = '',
   guardianPhoneVerified = false,
   institutionName = 'الثانوية الإعدادية ايكسان',
+  isDirector = false,
   onConfirm
 }) => {
   const [phone, setPhone] = useState(guardianPhone);
-  const [sendNotification, setSendNotification] = useState(true);
+  const [sendNotification, setSendNotification] = useState(isDirector);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isEditingPhone, setIsEditingPhone] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -75,7 +78,7 @@ export const AbsenceConfirmationModal: React.FC<AbsenceConfirmationModalProps> =
 
     setPhone(guardianPhone || '');
     setIsEditingPhone(!guardianPhone);
-    setSendNotification(true);
+    setSendNotification(Boolean(isDirector));
     setIsSubmitting(false);
 
     // If phone is missing, try to lookup dynamically from student accounts
@@ -270,29 +273,38 @@ export const AbsenceConfirmationModal: React.FC<AbsenceConfirmationModalProps> =
               </div>
             )}
 
-            {/* Checkbox: Dispatch notification */}
-            <label className="flex items-center gap-2.5 cursor-pointer pt-1">
-              <input
-                type="checkbox"
-                checked={sendNotification}
-                onChange={(e) => setSendNotification(e.target.checked)}
-                className="w-4 h-4 rounded text-rose-600 focus:ring-rose-500 bg-black/40 border-white/20 cursor-pointer"
-              />
-              <span className="text-xs text-[rgba(242,239,227,0.9)] select-none">
-                إرسال إشعار فوري لولي الأمر الآن عبر واتساب (WhatsApp Cloud / واتساب المباشر) بكون التلميذ غائب
-              </span>
-            </label>
+            {/* Notification Section: Director only */}
+            {isDirector ? (
+              <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={sendNotification}
+                  onChange={(e) => setSendNotification(e.target.checked)}
+                  className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 bg-black/40 border-white/20 cursor-pointer"
+                />
+                <span className="text-xs text-[rgba(242,239,227,0.9)] select-none font-bold">
+                  إرسال إشعار فوري لولي الأمر الآن (واتساب عادي / textbee.dev)
+                </span>
+              </label>
+            ) : (
+              <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-xl p-2.5 text-xs text-emerald-200 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                <span className="text-[11px] leading-relaxed">
+                  سيتم تسجيل الغياب في سجل القسم والمنظومة التربوية. (إرسال الإشعارات لأولياء الأمور موكول حصرياً لمدير المؤسسة عبر واتساب أو textbee.dev).
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Message Preview Box */}
-          {sendNotification && (
+          {/* Message Preview Box (Director only) */}
+          {sendNotification && isDirector && (
             <div className="bg-black/30 border border-white/10 rounded-2xl p-3.5 space-y-1.5">
               <div className="flex items-center justify-between text-[11px] text-[rgba(242,239,227,0.7)] font-bold">
                 <span className="flex items-center gap-1.5">
                   <MessageSquare className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>معاينة إشعار واتساب الصادر لولي الأمر:</span>
+                  <span>معاينة إشعار ولي الأمر:</span>
                 </span>
-                <span className="text-emerald-400 text-[10px]">واتساب رسمي فوري</span>
+                <span className="text-emerald-400 text-[10px]">إشعار إدارة المؤسسة</span>
               </div>
               <div className="bg-white/5 border border-white/5 rounded-xl p-2.5 text-xs text-amber-100/90 whitespace-pre-line leading-relaxed font-sans">
                 {messagePreview}
@@ -321,12 +333,12 @@ export const AbsenceConfirmationModal: React.FC<AbsenceConfirmationModalProps> =
             {isSubmitting ? (
               <>
                 <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
-                <span>جاري التسجيل والإرسال عبر واتساب...</span>
+                <span>جاري تأكيد الغياب...</span>
               </>
             ) : (
               <>
                 <Send className="w-4 h-4" />
-                <span>تأكيد تسجيل الغياب وإشعار ولي الأمر عبر واتساب</span>
+                <span>{sendNotification && isDirector ? 'تأكيد تسجيل الغياب وإشعار ولي الأمر' : 'تأكيد تسجيل الغياب في المنظومة'}</span>
               </>
             )}
           </button>

@@ -15,21 +15,24 @@ import {
   Zap,
   Key,
   Layers,
+  Smartphone,
+  Phone,
+  Radio,
   Info
 } from 'lucide-react';
 
-interface WhatsAppGatewayConfig {
-  provider: 'whatsapp_cloud';
-  whatsappCloudEnabled: boolean;
-  whatsappPhoneNumberId: string;
-  whatsappAccessToken: string;
-  whatsappBusinessAccountId?: string;
-  whatsappTemplateName?: string;
-  schoolPhone?: string;
-  defaultChannel: 'whatsapp_cloud';
+interface NotificationGatewayConfig {
+  provider: 'whatsapp' | 'textbee';
+  // Textbee.dev Android Gateway
+  textbeeApiKey: string;
+  textbeeDeviceId: string;
+  textbeeEnabled: boolean;
+  // WhatsApp Standard
+  whatsappEnabled: boolean;
+  defaultChannel: 'whatsapp' | 'textbee';
 }
 
-interface WhatsAppLog {
+interface DispatchLog {
   id: string;
   toPhone: string;
   intlPhone: string;
@@ -42,15 +45,13 @@ interface WhatsAppLog {
 }
 
 export const AndroidSmsGatewayManagement: React.FC = () => {
-  const [config, setConfig] = useState<WhatsAppGatewayConfig>({
-    provider: 'whatsapp_cloud',
-    whatsappCloudEnabled: true,
-    whatsappPhoneNumberId: '',
-    whatsappAccessToken: '',
-    whatsappBusinessAccountId: '',
-    whatsappTemplateName: '',
-    schoolPhone: '',
-    defaultChannel: 'whatsapp_cloud'
+  const [config, setConfig] = useState<NotificationGatewayConfig>({
+    provider: 'whatsapp',
+    textbeeApiKey: '',
+    textbeeDeviceId: '',
+    textbeeEnabled: true,
+    whatsappEnabled: true,
+    defaultChannel: 'whatsapp'
   });
 
   const [isLoading, setIsLoading] = useState(true);
@@ -58,13 +59,13 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Test send state
+  // Test state
   const [testPhone, setTestPhone] = useState('');
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string; error?: string; messageId?: string } | null>(null);
 
   // Logs state
-  const [logs, setLogs] = useState<WhatsAppLog[]>([]);
+  const [logs, setLogs] = useState<DispatchLog[]>([]);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
 
   // Fetch current config
@@ -76,18 +77,16 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
       const data = await res.json();
       if (data.success && data.config) {
         setConfig({
-          provider: 'whatsapp_cloud',
-          whatsappCloudEnabled: true,
-          whatsappPhoneNumberId: data.config.whatsappPhoneNumberId || '',
-          whatsappAccessToken: data.config.whatsappAccessToken || '',
-          whatsappBusinessAccountId: data.config.whatsappBusinessAccountId || '',
-          whatsappTemplateName: data.config.whatsappTemplateName || '',
-          schoolPhone: data.config.schoolPhone || '',
-          defaultChannel: 'whatsapp_cloud'
+          provider: data.config.provider === 'textbee' ? 'textbee' : 'whatsapp',
+          textbeeApiKey: data.config.textbeeApiKey || '',
+          textbeeDeviceId: data.config.textbeeDeviceId || '',
+          textbeeEnabled: data.config.textbeeEnabled !== false,
+          whatsappEnabled: data.config.whatsappEnabled !== false,
+          defaultChannel: data.config.defaultChannel === 'textbee' ? 'textbee' : 'whatsapp'
         });
       }
     } catch (err: any) {
-      setErrorMsg(err.message || 'تعذر تحميل إعدادات بوابة واتساب');
+      setErrorMsg(err.message || 'تعذر تحميل إعدادات بوابات الإشعارات');
     } finally {
       setIsLoading(false);
     }
@@ -126,13 +125,15 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': 'admin'
+          'x-user-role': 'director'
         },
         body: JSON.stringify({
-          ...config,
-          provider: 'whatsapp_cloud',
-          whatsappCloudEnabled: true,
-          defaultChannel: 'whatsapp_cloud'
+          provider: config.defaultChannel,
+          defaultChannel: config.defaultChannel,
+          textbeeApiKey: config.textbeeApiKey,
+          textbeeDeviceId: config.textbeeDeviceId,
+          textbeeEnabled: config.textbeeEnabled,
+          whatsappEnabled: config.whatsappEnabled
         })
       });
 
@@ -141,7 +142,7 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
         throw new Error(data.error || 'تعذر حفظ الإعدادات');
       }
 
-      setSaveSuccess('تم حفظ إعدادات بوابة WhatsApp Cloud API بنجاح ✓');
+      setSaveSuccess('تم حفظ إعدادات قنوات الإشعارات بنجاح ✓');
       setTimeout(() => setSaveSuccess(null), 4000);
     } catch (err: any) {
       setErrorMsg(err.message || 'حدث خطأ أثناء الحفظ');
@@ -150,10 +151,10 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
     }
   };
 
-  // Test send
-  const handleTestSend = async () => {
-    if (!testPhone.trim()) {
-      setErrorMsg('يرجى كتابة رقم هاتف مغربي لإرسال رسالة الاختبار إليه (مثال: 0612345678 أو 0712345678)');
+  // Test Textbee Connection & SMS
+  const handleTestTextbee = async () => {
+    if (!config.textbeeApiKey.trim() || !config.textbeeDeviceId.trim()) {
+      setErrorMsg('يرجى إدخال كل من API Key و Device ID أولاً لاختبار بوابة textbee.dev');
       return;
     }
 
@@ -162,18 +163,16 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
       setTestResult(null);
       setErrorMsg(null);
 
-      const res = await fetch('/api/admin/sms-gateway/test', {
+      const res = await fetch('/api/admin/sms-gateway/test-textbee', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-user-role': 'admin'
+          'x-user-role': 'director'
         },
         body: JSON.stringify({
-          provider: 'whatsapp_cloud',
-          phoneNumberId: config.whatsappPhoneNumberId,
-          accessToken: config.whatsappAccessToken,
-          templateName: config.whatsappTemplateName,
-          testPhone: testPhone.trim()
+          apiKey: config.textbeeApiKey.trim(),
+          deviceId: config.textbeeDeviceId.trim(),
+          testPhone: testPhone.trim() || undefined
         })
       });
 
@@ -183,7 +182,7 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
     } catch (err: any) {
       setTestResult({
         success: false,
-        message: err.message || 'فشل الاتصال بخوادم WhatsApp Cloud'
+        message: err.message || 'فشل الاتصال بخوادم textbee.dev'
       });
     } finally {
       setIsTesting(false);
@@ -195,302 +194,324 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
       {/* Header Banner */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-[#1A4E47] via-[#143E38] to-[#1A4E47] text-white shadow-lg border border-emerald-500/40 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-emerald-950/80 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-inner shrink-0">
-            <MessageSquare className="w-8 h-8" />
+          <div className="w-14 h-14 rounded-2xl bg-black/40 border-2 border-emerald-400 flex items-center justify-center text-emerald-300 shadow-inner shrink-0">
+            <ShieldCheck className="w-8 h-8 text-amber-300" />
           </div>
           <div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h2 className="text-xl sm:text-2xl font-bold font-['Amiri',serif] m-0">
-                بوابة إشعارات WhatsApp Cloud API الرسمية (Meta)
-              </h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-xs font-bold">
-                1,000 محادثة شهرياً مجاناً 🚀
-              </span>
+            <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-amber-400/20 border border-amber-300/40 text-amber-200 text-xs font-bold mb-1.5">
+              <Zap className="w-3.5 h-3.5" />
+              <span>محرك إشعارات أولياء الأمور • خاص بمدير المؤسسة فقط</span>
             </div>
-            <p className="text-xs text-white/80 mt-1 max-w-2xl leading-relaxed">
-              تم إلغاء خيار الرسائل القصيرة SMS نظراً لارتفاع تكاليفها، والاعتماد رسمياً وحصرياً على <strong className="text-emerald-200 font-mono">WhatsApp Cloud API من شركة Meta</strong> لإرسال الإشعارات لأولياء الأمور آلياً وسحابياً وبأعلى سرعة.
+            <h2 className="text-xl font-bold font-serif text-white tracking-wide">
+              إعدادات قنوات إرسال الإشعارات (واتساب عادي / textbee.dev)
+            </h2>
+            <p className="text-xs text-[#F2EFE3]/80 mt-1 max-w-xl leading-relaxed">
+              يقوم مدير المؤسسة حصرياً بإرسال إشعارات الغياب والمخالفات والاستدعاءات لأولياء الأمور عبر خيارين: <b>واتساب عادي</b> أو <b>بوابة textbee.dev</b>.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <a
-            href="https://developers.facebook.com/apps"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-2.5 rounded-xl bg-emerald-600/30 hover:bg-emerald-600/50 text-white transition-colors cursor-pointer shrink-0 border border-emerald-400/30 flex items-center gap-1.5 text-xs font-bold no-underline"
-            title="فتح منصة Meta for Developers"
-          >
-            <ExternalLink className="w-4 h-4 text-emerald-300" />
-            <span>Meta Developers</span>
-          </a>
-
-          <button
-            type="button"
-            onClick={() => {
-              fetchConfig();
-              fetchLogs();
-            }}
-            className="p-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer shrink-0 border border-white/20 flex items-center gap-1.5 text-xs font-bold"
-            title="تحديث البيانات"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-            <span>تحديث</span>
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => {
+            fetchConfig();
+            fetchLogs();
+          }}
+          disabled={isLoading}
+          className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-bold text-white transition-all flex items-center gap-2 cursor-pointer shrink-0 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+          <span>تحديث الحالة</span>
+        </button>
       </div>
 
-      {/* Messages */}
-      {errorMsg && (
-        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5 shrink-0 text-rose-600" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
+      {/* Save Success / Error Messages */}
       {saveSuccess && (
-        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-center gap-2">
-          <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
+        <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-500/40 text-emerald-950 font-bold text-xs flex items-center gap-3 animate-in fade-in">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>{saveSuccess}</span>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: WhatsApp Cloud Configuration Form (2 cols) */}
-        <div className="lg:col-span-2 space-y-6">
-          <form onSubmit={handleSave} className="bg-white p-6 rounded-3xl border border-[#E5DFD4] shadow-xs space-y-6">
-            
-            <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                  WA
+      {errorMsg && (
+        <div className="p-4 rounded-2xl bg-rose-50 border border-rose-500/40 text-rose-950 font-bold text-xs flex items-center gap-3 animate-in fade-in">
+          <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Form Settings */}
+      <form onSubmit={handleSave} className="space-y-6">
+        {/* Channel Selection Card */}
+        <div className="bg-white rounded-3xl p-6 border border-[#E5DFD4] shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="w-5 h-5 text-[#1A4E47]" />
+              <h3 className="font-bold text-base text-[#1F2926]">
+                القناة الافتراضية المعتمدة للمؤسسة:
+              </h3>
+            </div>
+            <span className="text-xs text-gray-500 font-bold">
+              يمكنك التبديل بينهما في أي وقت عند إرسال أي إشعار
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* WhatsApp Standard */}
+            <label
+              className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3.5 ${
+                config.defaultChannel === 'whatsapp'
+                  ? 'border-emerald-600 bg-emerald-50/70 shadow-xs'
+                  : 'border-gray-200 bg-white hover:bg-gray-50'
+              }`}
+            >
+              <input
+                type="radio"
+                name="defaultChannel"
+                value="whatsapp"
+                checked={config.defaultChannel === 'whatsapp'}
+                onChange={() => setConfig({ ...config, defaultChannel: 'whatsapp' })}
+                className="mt-1 text-emerald-600 focus:ring-emerald-500"
+              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-emerald-700" />
+                  <span className="font-bold text-sm text-gray-900">واتساب عادي (WhatsApp Standard)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold">
+                    جاهز ومجاني
+                  </span>
                 </div>
-                <div>
-                  <h3 className="font-bold text-sm text-[#1F2926]">مفاتيح الاتصال بـ Meta WhatsApp Cloud API (Graph v21.0)</h3>
-                  <p className="text-[11px] text-[#6C6356]">ربط سحابي رسمي - 1,000 محادثة خدمة شهرية مجانية 100%</p>
-                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  يفتح محادثة واتساب الرسمية مع ولي الأمر بنقرة واحدة عبر الحاسوب أو الهاتف، مع رسالة تربوية مهيأة بالكامل.
+                </p>
               </div>
-              <span className="text-[11px] text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-full font-bold">
-                سحابي بدون هاتف مفتوح ✓
+            </label>
+
+            {/* textbee.dev SMS */}
+            <label
+              className={`p-4 rounded-2xl border-2 transition-all cursor-pointer flex items-start gap-3.5 ${
+                config.defaultChannel === 'textbee'
+                  ? 'border-sky-600 bg-sky-50/70 shadow-xs'
+                  : 'border-gray-200 bg-white hover:bg-gray-50'
+              }`}
+            >
+              <input
+                type="radio"
+                name="defaultChannel"
+                value="textbee"
+                checked={config.defaultChannel === 'textbee'}
+                onChange={() => setConfig({ ...config, defaultChannel: 'textbee' })}
+                className="mt-1 text-sky-600 focus:ring-sky-500"
+              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-sky-700" />
+                  <span className="font-bold text-sm text-gray-900">بوابة textbee.dev (SMS Gateway)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-100 text-sky-800 font-bold">
+                    رسائل SMS
+                  </span>
+                </div>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  إرسال رسائل SMS نصية مباشرة إلى هواتف أولياء الأمور عبر تطبيق هاتف أندرويد المؤسسة المرتبط بمنصة textbee.dev.
+                </p>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        {/* Textbee.dev Configuration Card */}
+        <div className="bg-white rounded-3xl p-6 border border-[#E5DFD4] shadow-xs space-y-5">
+          <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Smartphone className="w-5 h-5 text-sky-700" />
+              <div>
+                <h3 className="font-bold text-base text-[#1F2926]">
+                  إعدادات بوابة textbee.dev (SMS Gateway)
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  اربط هاتف أندرويد المؤسسة لإرسال رسائل SMS للأولياء عبر المنصة العالمية textbee.dev
+                </p>
+              </div>
+            </div>
+            <a
+              href="https://textbee.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-sky-700 hover:text-sky-800 font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <span>موقع textbee.dev الرسمي</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+
+          {/* Quick Setup Instructions */}
+          <div className="p-4 rounded-2xl bg-sky-50/70 border border-sky-200 text-xs text-sky-950 space-y-2">
+            <h4 className="font-bold flex items-center gap-1.5 text-sky-900">
+              <Info className="w-4 h-4 text-sky-700" />
+              <span>خطوات الربط السريع مع textbee.dev:</span>
+            </h4>
+            <ol className="list-decimal list-inside space-y-1 pr-1 text-[11px] text-sky-900/90 leading-relaxed">
+              <li>قم بإنشاء حساب مجاني على موقع <b>textbee.dev</b>.</li>
+              <li>قم بتحميل وتثبيت تطبيق Textbee على هاتف أندرويد المؤسسة (المزود ببطاقة SIM لإرسال SMS).</li>
+              <li>قم بتسجيل الدخول في التطبيق، وسيعطيك الـ <b>Device ID</b> الخاص بالجهاز.</li>
+              <li>انسخ كلاً من <b>API Key</b> و <b>Device ID</b> من لوحة تحكم textbee.dev وضعهما في الحقول أدناه.</li>
+            </ol>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                <Key className="w-4 h-4 text-sky-700" />
+                <span>مفتاح الـ API الخاص بالحساب (API Key):</span>
+              </label>
+              <input
+                type="password"
+                value={config.textbeeApiKey}
+                onChange={(e) => setConfig({ ...config, textbeeApiKey: e.target.value })}
+                placeholder="مثال: tb_api_live_xxxxxxxx..."
+                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-sky-600 focus:ring-2 focus:ring-sky-500/20 outline-none text-xs font-mono bg-white text-left dir-ltr"
+              />
+              <span className="text-[10px] text-gray-500">
+                يمكن العثور عليه في Dashboard → API Keys على منصة textbee.dev.
               </span>
             </div>
 
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-[#1F2926] mb-1">
-                  معرف رقم الهاتف (Phone Number ID) *
-                </label>
-                <input
-                  type="text"
-                  value={config.whatsappPhoneNumberId}
-                  onChange={(e) => setConfig({ ...config, whatsappPhoneNumberId: e.target.value })}
-                  placeholder="مثال: 104829104820194"
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D5CDC0] focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-mono bg-[#FAF8F5] text-left dir-ltr"
-                />
-                <p className="text-[11px] text-[#6C6356] mt-1">
-                  تجد هذا المعرف في لوحة <strong className="font-mono text-emerald-800">developers.facebook.com</strong> تحت: WhatsApp &gt; API Setup &gt; Phone number ID.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-[#1F2926] mb-1">
-                  رمز الوصول الدائم (Permanent System User Access Token) *
-                </label>
-                <input
-                  type="password"
-                  value={config.whatsappAccessToken}
-                  onChange={(e) => setConfig({ ...config, whatsappAccessToken: e.target.value })}
-                  placeholder="EAA..."
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#D5CDC0] focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-mono bg-[#FAF8F5] text-left dir-ltr"
-                />
-                <p className="text-[11px] text-[#6C6356] mt-1">
-                  الـ Token الممنوح لحساب النظام في Meta Business Manager مع صلاحية <code className="font-mono text-emerald-800 font-bold">whatsapp_business_messaging</code>.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-[#1F2926] mb-1">
-                    معرف الحساب التجاري (WABA ID - اختياري)
-                  </label>
-                  <input
-                    type="text"
-                    value={config.whatsappBusinessAccountId || ''}
-                    onChange={(e) => setConfig({ ...config, whatsappBusinessAccountId: e.target.value })}
-                    placeholder="مثال: 10839201948271"
-                    className="w-full px-4 py-2.5 rounded-xl border border-[#D5CDC0] focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-mono bg-[#FAF8F5] text-left dir-ltr"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-[#1F2926] mb-1">
-                    اسم القالب المعتمد (Template Name - اختياري)
-                  </label>
-                  <input
-                    type="text"
-                    value={config.whatsappTemplateName || ''}
-                    onChange={(e) => setConfig({ ...config, whatsappTemplateName: e.target.value })}
-                    placeholder="مثال: school_parent_notification"
-                    className="w-full px-4 py-2.5 rounded-xl border border-[#D5CDC0] focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-mono bg-[#FAF8F5] text-left dir-ltr"
-                  />
-                  <p className="text-[10px] text-[#6C6356] mt-0.5">
-                    لإرسال الرسائل خارج نافذة الـ 24 ساعة بدون انتظار تفاعل الولي أولاً.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Save Button */}
-            <div className="pt-3 border-t border-[#E5DFD4] flex items-center justify-end">
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="px-6 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center gap-2 disabled:opacity-50"
-              >
-                {isSaving ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>جاري الحفظ...</span>
-                  </>
-                ) : (
-                  <>
-                    <Save className="w-4 h-4 text-emerald-200" />
-                    <span>حفظ مفاتيح WhatsApp Cloud API</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-
-          {/* Test Dispatch Tool */}
-          <div className="bg-white p-6 rounded-3xl border border-[#E5DFD4] shadow-xs space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
-              <div className="flex items-center gap-2.5">
-                <Send className="w-5 h-5 text-emerald-700" />
-                <h3 className="font-bold text-base text-[#1F2926]">تجربة إرسال رسالة اختبار عبر WhatsApp Cloud</h3>
-              </div>
-              <span className="text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold">
-                فوري ومجاني
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-gray-800 flex items-center gap-1.5">
+                <Smartphone className="w-4 h-4 text-sky-700" />
+                <span>معرف جهاز أندرويد (Device ID):</span>
+              </label>
+              <input
+                type="text"
+                value={config.textbeeDeviceId}
+                onChange={(e) => setConfig({ ...config, textbeeDeviceId: e.target.value })}
+                placeholder="مثال: 64f8c2b7a9e1..."
+                className="w-full px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-sky-600 focus:ring-2 focus:ring-sky-500/20 outline-none text-xs font-mono bg-white text-left dir-ltr"
+              />
+              <span className="text-[10px] text-gray-500">
+                يظهر في تطبيق Textbee على الهاتف أو في صفحة Devices بالمنصة.
               </span>
             </div>
+          </div>
 
-            <p className="text-xs text-[#6C6356]">
-              أدخل رقم هاتفك المغربي (مثال: <strong className="font-mono text-[#1F2926]">0612345678</strong> أو <strong className="font-mono text-[#1F2926]">0712345678</strong>) واضغط إرسال لمعاينة رد خوادم واتساب فوراً:
-            </p>
-
-            <div className="flex flex-col sm:flex-row gap-2">
+          {/* Test Textbee Box */}
+          <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#FAF8F5] p-3.5 rounded-2xl">
+            <div className="flex-1 space-y-1">
+              <label className="text-xs font-bold text-gray-800 block">
+                اختبار الاتصال وإرسال SMS تجريبي:
+              </label>
               <input
                 type="tel"
                 value={testPhone}
                 onChange={(e) => setTestPhone(e.target.value)}
-                placeholder="06XXXXXXXX أو 07XXXXXXXX"
-                className="flex-1 px-4 py-2.5 rounded-xl border border-[#D5CDC0] focus:border-emerald-600 focus:ring-2 focus:ring-emerald-500/20 outline-none text-xs font-mono bg-[#FAF8F5] text-left dir-ltr"
+                placeholder="رقم الهاتف للاختبار: 06XXXXXXXX"
+                className="w-full sm:w-64 px-3 py-1.5 rounded-xl border border-gray-300 text-xs font-mono text-left dir-ltr bg-white"
               />
-
-              <button
-                type="button"
-                onClick={handleTestSend}
-                disabled={isTesting || !testPhone.trim()}
-                className="px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 shrink-0"
-              >
-                {isTesting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>جاري الاتصال بخوادم واتساب...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-4 h-4 text-emerald-200" />
-                    <span>إرسال رسالة تجريبية الآن 🚀</span>
-                  </>
-                )}
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={handleTestTextbee}
+              disabled={isTesting || !config.textbeeApiKey || !config.textbeeDeviceId}
+              className="px-5 py-2.5 rounded-xl bg-sky-700 hover:bg-sky-800 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+            >
+              {isTesting ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>جاري اختبار الاتصال...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-4 h-4" />
+                  <span>اختبار بوابة textbee.dev 🚀</span>
+                </>
+              )}
+            </button>
+          </div>
 
-            {testResult && (
-              <div
-                className={`p-4 rounded-2xl border text-xs flex items-start gap-3 animate-fadeIn ${
-                  testResult.success
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-950 font-semibold'
-                    : 'bg-amber-50 border-amber-300 text-amber-950 font-medium'
-                }`}
-              >
-                {testResult.success ? (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-                ) : (
-                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+          {testResult && (
+            <div
+              className={`p-3.5 rounded-2xl border text-xs font-bold flex items-start gap-2.5 animate-in fade-in ${
+                testResult.success
+                  ? 'bg-emerald-50 border-emerald-400 text-emerald-950'
+                  : 'bg-rose-50 border-rose-400 text-rose-950'
+              }`}
+            >
+              {testResult.success ? (
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+              ) : (
+                <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              )}
+              <div className="space-y-1 flex-1">
+                <span>{testResult.message}</span>
+                {testResult.messageId && (
+                  <span className="block font-mono text-[10px] text-gray-600">
+                    معرف الرسالة: {testResult.messageId}
+                  </span>
                 )}
-                <div className="space-y-1.5 flex-1">
-                  <div className="font-bold text-sm">
-                    {testResult.success ? 'نجح الاتصال والإرسال بنجاح! ✓' : 'نتيجة الاتصال بالبوابة:'}
-                  </div>
-                  <div className="text-xs leading-relaxed">{testResult.message}</div>
-
-                  {testResult.messageId && (
-                    <div className="text-[11px] font-mono text-emerald-800 bg-emerald-100/70 px-2 py-0.5 rounded w-fit">
-                      معرف الرسالة في واتساب: {testResult.messageId}
-                    </div>
-                  )}
-                </div>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* WhatsApp Standard Information Card */}
+        <div className="bg-white rounded-3xl p-6 border border-[#E5DFD4] shadow-xs space-y-3">
+          <div className="flex items-center gap-2.5 border-b border-gray-100 pb-3">
+            <MessageSquare className="w-5 h-5 text-emerald-700" />
+            <h3 className="font-bold text-base text-[#1F2926]">
+              واتساب عادي (WhatsApp Standard Direct)
+            </h3>
+          </div>
+          <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-950 space-y-1.5 leading-relaxed">
+            <p>
+              ✓ خدمة <b>واتساب عادي</b> مدمجة بالكامل وتعمل بشكل فوري بدون أي اشتراك أو تكلفة مالية أو متطلبات تقنية.
+            </p>
+            <p>
+              ✓ عند الضغط على إرسال إشعار، يقوم النظام بتجهيز النص الرسمي المعتمد وفتح تطبيق واتساب على جهاز المدير فوراً متضمناً رقم هاتف ولي الأمر والنص الكامل، ليرسله المدير بنقرة واحدة.
+            </p>
+          </div>
+        </div>
+
+        {/* Submit Actions */}
+        <div className="flex items-center justify-end gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={isSaving}
+            className="px-8 py-3 rounded-2xl bg-[#1A4E47] hover:bg-[#143E38] text-white font-bold text-sm shadow-md transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50"
+          >
+            {isSaving ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin text-white" />
+                <span>جاري حفظ الإعدادات...</span>
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 text-amber-300" />
+                <span>حفظ إعدادات بوابات الإشعارات ✓</span>
+              </>
             )}
-          </div>
+          </button>
         </div>
+      </form>
 
-        {/* Right Column: Guide & Quick Help */}
-        <div className="space-y-6">
-          {/* Zero Cost Benefit Card */}
-          <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-[#FAF8F5] p-5 rounded-3xl border border-emerald-300 space-y-3.5 shadow-xs">
-            <div className="flex items-center gap-2 text-emerald-950 font-bold text-sm">
-              <Sparkles className="w-5 h-5 text-emerald-700" />
-              <span>لماذا تم الاستغناء عن SMS نهائياً؟</span>
-            </div>
-
-            <ul className="space-y-2.5 text-xs text-emerald-950 pr-4 list-disc leading-relaxed">
-              <li>
-                <strong>تكاليف SMS المرتفعة:</strong> رسائل SMS تتطلب شحن رصيد مستمر وتكلف أموالاً باهظة شهرياً للمؤسسة.
-              </li>
-              <li>
-                <strong>1,000 محادثة شهرياً مجاناً من Meta:</strong> كل حساب WhatsApp Business يحصل على 1,000 محادثة خدمة مجانية كل شهر بتكلفة <strong>0 درهم</strong>.
-              </li>
-              <li>
-                <strong>بدون أجهزة في الإدارة:</strong> لا حاجة لشراء هواتف أندرويد مخصصة أو تركيب شرائح SIM وتشغيلها على مدار اليوم.
-              </li>
-              <li>
-                <strong>إرسال سحابي آلي فوري:</strong> الرسائل تصل لهواتف أولياء الأمور مباشرة وبشكل آلي وموثق دون الحاجة لأي تدخل يدوي.
-              </li>
-            </ul>
-          </div>
-
-          {/* Quick Setup Steps */}
-          <div className="bg-white p-5 rounded-3xl border border-[#E5DFD4] space-y-3">
-            <div className="flex items-center gap-2 text-[#1A4E47] font-bold text-sm">
-              <Layers className="w-5 h-5 text-emerald-700" />
-              <span>خطوات الحصول على بيانات Meta WhatsApp:</span>
-            </div>
-            <ol className="text-xs text-[#524B40] space-y-2 pr-4 list-decimal leading-relaxed">
-              <li>ادخل إلى <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 font-bold underline">developers.facebook.com</a> وسجل بحساب فيسبوك الإدارة.</li>
-              <li>أنشئ تطبيقاً جديداً واخر النوع <strong>Business</strong>.</li>
-              <li>أضف منتج <strong>WhatsApp</strong> للتطبيق.</li>
-              <li>في صفحة <strong>API Setup</strong>، انسخ <strong>Phone Number ID</strong> و <strong>Access Token</strong> والصقهما هنا.</li>
-              <li>اضغط حفظ، وجرب الإرسال لهاتفك للتأكد من نجاح الربط فوراً!</li>
-            </ol>
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom Section: Recent WhatsApp Dispatch Logs */}
-      <div className="bg-white p-6 rounded-3xl border border-[#E5DFD4] shadow-xs space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-[#E5DFD4]">
+      {/* Dispatch History Logs */}
+      <div className="bg-white rounded-3xl p-6 border border-[#E5DFD4] shadow-xs space-y-4">
+        <div className="flex items-center justify-between border-b border-gray-100 pb-3">
           <div className="flex items-center gap-2.5">
-            <FileText className="w-5 h-5 text-emerald-800" />
-            <h3 className="font-bold text-base text-[#1F2926]">سجل عمليات إرسال إشعارات واتساب</h3>
+            <FileText className="w-5 h-5 text-[#1A4E47]" />
+            <div>
+              <h3 className="font-bold text-base text-[#1F2926]">
+                سجل الإشعارات المرسلة لأولياء الأمور
+              </h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                تتبع العمليات الصادرة عبر واتساب عادي وبوابة textbee.dev
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={fetchLogs}
             disabled={isLoadingLogs}
-            className="text-xs font-bold text-emerald-800 hover:underline flex items-center gap-1 cursor-pointer"
+            className="text-xs text-[#1A4E47] hover:underline font-bold flex items-center gap-1 cursor-pointer"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLogs ? 'animate-spin' : ''}`} />
             <span>تحديث السجل</span>
@@ -498,48 +519,48 @@ export const AndroidSmsGatewayManagement: React.FC = () => {
         </div>
 
         {logs.length === 0 ? (
-          <div className="p-8 text-center text-xs text-[#6C6356] bg-[#FAF8F5] rounded-2xl">
-            لا توجد إشعارات واتساب مسجلة حتى الآن. عند إرسال أي إشعار لولي أمر، ستظهر العملية هنا مع حالتها وتفاصيلها.
+          <div className="py-8 text-center text-gray-400 text-xs">
+            لا توجد إشعارات مسجلة حديثاً في السجل.
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-right border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-[#E5DFD4] text-[#6C6356] bg-[#FAF8F5]">
-                  <th className="p-3 font-bold">رقم المستلم</th>
-                  <th className="p-3 font-bold">المرسل</th>
-                  <th className="p-3 font-bold">القناة المستخدمة</th>
-                  <th className="p-3 font-bold">الحالة</th>
-                  <th className="p-3 font-bold">الوقت</th>
+          <div className="overflow-x-auto max-h-64 overflow-y-auto">
+            <table className="w-full text-right text-xs">
+              <thead className="bg-[#FAF8F5] text-gray-700 sticky top-0">
+                <tr>
+                  <th className="p-2.5 font-bold">التوقيت</th>
+                  <th className="p-2.5 font-bold">هاتف ولي الأمر</th>
+                  <th className="p-2.5 font-bold">نوع الإشعار</th>
+                  <th className="p-2.5 font-bold">القناة المستخدمة</th>
+                  <th className="p-2.5 font-bold">الحالة</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E5DFD4]">
+              <tbody className="divide-y divide-gray-100">
                 {logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-[#FAF8F5] transition-colors">
-                    <td className="p-3 font-mono font-bold text-[#1F2926] dir-ltr text-right">
-                      {log.intlPhone || log.toPhone}
+                  <tr key={log.id} className="hover:bg-gray-50">
+                    <td className="p-2.5 text-gray-500 font-mono text-[11px]">
+                      {new Date(log.sentAt).toLocaleTimeString('ar-FR', { hour: '2-digit', minute: '2-digit' })} - {new Date(log.sentAt).toLocaleDateString('ar-MA')}
                     </td>
-                    <td className="p-3 font-medium text-emerald-900">{log.senderName}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                        WhatsApp Cloud API
+                    <td className="p-2.5 font-mono font-bold text-gray-800 dir-ltr text-right">
+                      {log.toPhone}
+                    </td>
+                    <td className="p-2.5 font-bold">
+                      <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-800 text-[10px]">
+                        {log.code === 'absence' ? 'غياب' : log.code === 'violation' ? 'مخالفة' : log.code === 'summons' ? 'استدعاء' : log.code}
                       </span>
                     </td>
-                    <td className="p-3">
-                      {log.status === 'delivered' ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                          <span>تم الإرسال ✓</span>
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-50 text-rose-800 border border-rose-200">
-                          <AlertTriangle className="w-3 h-3 text-rose-600" />
-                          <span>فشل الإرسال</span>
-                        </span>
-                      )}
+                    <td className="p-2.5 text-gray-700 font-medium">
+                      {log.gateway}
                     </td>
-                    <td className="p-3 font-mono text-[11px] text-[#6C6356] whitespace-nowrap">
-                      {new Date(log.sentAt).toLocaleString('ar-MA', { timeZone: 'UTC' })} (GMT)
+                    <td className="p-2.5">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        log.status === 'delivered'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : log.status === 'pending'
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                      }`}>
+                        {log.status === 'delivered' ? 'ناجح ✓' : log.status === 'pending' ? 'قيد الإرسال' : 'تعذر'}
+                      </span>
                     </td>
                   </tr>
                 ))}

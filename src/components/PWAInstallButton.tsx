@@ -202,47 +202,35 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             </div>
 
             <div className="my-5 space-y-3.5 text-xs text-[#2A2118]">
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-white border border-[#E5DFD4]">
-                <div className="w-7 h-7 rounded-lg bg-[#EAE5D9] text-[#164E3F] flex items-center justify-center font-bold shrink-0">
-                  1
-                </div>
+              <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
                 <div>
-                  <div className="font-bold mb-0.5 flex items-center gap-1.5">
-                    افتح قائمة المتصفح (⋮)
+                  <div className="font-bold mb-1 text-sm text-emerald-950">
+                    تثبيت مباشر بلمسة واحدة
                   </div>
-                  <p className="text-[#6C6356] text-[11px]">
-                    اضغط على أيقونة الثلاث نقاط الرأسية في أعلى يسار أو يمين متصفح Chrome في هاتفك.
+                  <p className="text-emerald-800 text-xs leading-relaxed">
+                    يتم تثبيت المنظومة بأيقونة المدرسة الرسمية كبرنامج مستقل على هاتفك، يعمل بكامل الشاشة وبدون إعلانات أو أشرطة متصفح.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-white border border-[#E5DFD4]">
-                <div className="w-7 h-7 rounded-lg bg-[#EAE5D9] text-[#164E3F] flex items-center justify-center font-bold shrink-0">
-                  2
-                </div>
-                <div>
-                  <div className="font-bold mb-0.5 flex items-center gap-1.5 text-emerald-800">
-                    اضغط على "تثبيت التطبيق" (Install app) أو "إضافة إلى الشاشة الرئيسية"
-                  </div>
-                  <p className="text-[#6C6356] text-[11px]">
-                    ستظهر لك رسالة تأكيد التثبيت مع اسم وأيقونة المنظومة الرسمية.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-start gap-3 p-3 rounded-xl bg-white border border-[#E5DFD4]">
-                <div className="w-7 h-7 rounded-lg bg-[#EAE5D9] text-[#164E3F] flex items-center justify-center font-bold shrink-0">
-                  3
-                </div>
-                <div>
-                  <div className="font-bold mb-0.5 flex items-center gap-1.5">
-                    اضغط على "تثبيت" (Install)
-                  </div>
-                  <p className="text-[#6C6356] text-[11px]">
-                    سيتم تنزيل الأيقونة وإضافتها لشاشتك الرئيسية، ويمكن فتح المنظومة مباشرة كتطبيق هاتف سريع ومستقل!
-                  </p>
-                </div>
-              </div>
+              {/* Direct Install Button */}
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isInstallable) {
+                    await install();
+                    setShowAndroidGuide(false);
+                  } else {
+                    await install();
+                    setShowAndroidGuide(false);
+                  }
+                }}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-[#0F2445] to-[#1E3A8A] text-[#FDE88F] font-bold text-sm shadow-md hover:brightness-110 active:scale-98 transition cursor-pointer border border-[#E5B242]/40"
+              >
+                <Download className="w-4 h-4 text-[#FDE88F]" />
+                <span>تثبيت التطبيق الآن مباشرة بنقرة واحدة</span>
+              </button>
             </div>
 
             <div className="pt-3 border-t border-[#E5DFD4] flex items-center justify-between">

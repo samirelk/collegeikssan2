@@ -457,38 +457,79 @@ async function syncViolationsFromFirestore(db: any) {
 
     console.log(`📥 [FirestoreSync] Found ${list.length} violations in Firestore.`);
     const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO daily_violations (
+      INSERT INTO daily_violations (
         id, section_id, seat_num, student_name, student_number,
         violation_type, description, action_taken, teacher_name, teacher_subject,
         recorded_date, recorded_time, created_at, teacher_id
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        student_name = COALESCE(NULLIF(excluded.student_name, ''), daily_violations.student_name),
+        teacher_name = COALESCE(NULLIF(excluded.teacher_name, ''), daily_violations.teacher_name),
+        teacher_id = COALESCE(NULLIF(excluded.teacher_id, ''), daily_violations.teacher_id),
+        violation_type = COALESCE(NULLIF(excluded.violation_type, ''), daily_violations.violation_type),
+        action_taken = COALESCE(NULLIF(excluded.action_taken, ''), daily_violations.action_taken),
+        recorded_date = COALESCE(NULLIF(excluded.recorded_date, ''), daily_violations.recorded_date),
+        recorded_time = COALESCE(NULLIF(excluded.recorded_time, ''), daily_violations.recorded_time)
     `);
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
+    const isDeletedStmt = db.prepare('SELECT 1 FROM deleted_violation_ids WHERE id = ?');
 
     for (const v of list) {
-      if (!v.id || !v.sectionId) continue;
+      if (!v.id) continue;
+      if (isDeletedStmt.get(v.id)) {
+        // Skip deleted violation and remove from Firestore
+        deleteDoc('daily_violations', v.id).catch(() => {});
+        continue;
+      }
       try {
-        const sectionExists = checkSectionStmt.get(v.sectionId);
+        let effectiveSectionId = v.sectionId || v.section_id || '';
+        const sectionExists = effectiveSectionId ? checkSectionStmt.get(effectiveSectionId) : null;
         if (!sectionExists) {
-          console.warn(`[FirestoreSync] Skipping violation ${v.id}: Section ${v.sectionId} does not exist.`);
-          continue;
+          // Attempt to find matching section by student's name in seats
+          const matchedSeat = db.prepare(`
+            SELECT section_id, seat_num, student_number, massar_number 
+            FROM seats 
+            WHERE student_name != '' AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+            LIMIT 1
+          `).get(v.studentName || v.student_name || '') as any;
+          if (matchedSeat) {
+            effectiveSectionId = matchedSeat.section_id;
+          } else {
+            console.warn(`[FirestoreSync] Skipping violation ${v.id}: Section ${v.sectionId} does not exist.`);
+            continue;
+          }
+        }
+
+        let effectiveSeatNum = Number(v.seatNum || v.seat_num || 0);
+        let effectiveStudentNum = (v.studentNumber && v.studentNumber !== 'undefined') ? v.studentNumber : (v.student_number || '');
+        if (!effectiveSeatNum || effectiveSeatNum === 0 || !effectiveStudentNum) {
+          const seatInfo = db.prepare(`
+            SELECT seat_num, student_number, massar_number 
+            FROM seats 
+            WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) 
+            LIMIT 1
+          `).get(effectiveSectionId, v.studentName || v.student_name || '') as any;
+          if (seatInfo) {
+            if (!effectiveSeatNum && seatInfo.seat_num > 0) effectiveSeatNum = seatInfo.seat_num;
+            if (!effectiveStudentNum) effectiveStudentNum = seatInfo.student_number || '';
+          }
         }
 
         insertStmt.run(
           v.id,
-          v.sectionId,
-          Number(v.seatNum || 0),
-          v.studentName || '',
-          v.studentNumber || '',
-          v.violationType || 'مخالفة تربوية أخرى',
+          effectiveSectionId,
+          effectiveSeatNum,
+          v.studentName || v.student_name || '',
+          effectiveStudentNum,
+          v.violationType || v.violation_type || 'مخالفة تربوية أخرى',
           v.description || v.notes || 'مخالفة سلوكية',
-          v.actionTaken || 'تنبيه شفهي',
-          v.teacherName || '',
-          v.teacherSubject || '',
-          v.date || v.recordedDate || new Date().toISOString().slice(0, 10),
-          v.time || v.recordedTime || new Date().toTimeString().slice(0, 5),
-          v.createdAt || new Date().toISOString(),
-          v.teacherId || ''
+          v.actionTaken || v.action_taken || 'تنبيه شفهي',
+          v.teacherName || v.teacher_name || '',
+          v.teacherSubject || v.teacher_subject || '',
+          v.date || v.recordedDate || v.recorded_date || new Date().toISOString().slice(0, 10),
+          v.time || v.recordedTime || v.recorded_time || new Date().toTimeString().slice(0, 5),
+          v.createdAt || v.created_at || new Date().toISOString(),
+          v.teacherId || v.teacher_id || ''
         );
       } catch (rowErr: any) {
         console.warn(`[FirestoreSync] Skipping violation ${v.id}: ${rowErr?.message}`);
@@ -506,36 +547,74 @@ async function syncPositiveParticipationsFromFirestore(db: any) {
 
     console.log(`📥 [FirestoreSync] Found ${list.length} positive participations in Firestore.`);
     const insertStmt = db.prepare(`
-      INSERT OR REPLACE INTO positive_participations (
+      INSERT INTO positive_participations (
         id, section_id, seat_num, student_name, student_number, massar_number,
         participation_type, points, note, teacher_id, teacher_name, teacher_subject,
         recorded_date, recorded_time, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        student_name = COALESCE(NULLIF(excluded.student_name, ''), positive_participations.student_name),
+        teacher_name = COALESCE(NULLIF(excluded.teacher_name, ''), positive_participations.teacher_name),
+        teacher_id = COALESCE(NULLIF(excluded.teacher_id, ''), positive_participations.teacher_id),
+        participation_type = COALESCE(NULLIF(excluded.participation_type, ''), positive_participations.participation_type),
+        points = COALESCE(excluded.points, positive_participations.points),
+        note = COALESCE(NULLIF(excluded.note, ''), positive_participations.note),
+        recorded_date = COALESCE(NULLIF(excluded.recorded_date, ''), positive_participations.recorded_date),
+        recorded_time = COALESCE(NULLIF(excluded.recorded_time, ''), positive_participations.recorded_time)
     `);
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
 
     for (const p of list) {
-      if (!p.id || !p.sectionId) continue;
+      if (!p.id) continue;
       try {
-        const sectionExists = checkSectionStmt.get(p.sectionId);
-        if (!sectionExists) continue;
+        let effectiveSectionId = p.sectionId || p.section_id || '';
+        const sectionExists = effectiveSectionId ? checkSectionStmt.get(effectiveSectionId) : null;
+        if (!sectionExists) {
+          const matchedSeat = db.prepare(`
+            SELECT section_id, seat_num, student_number, massar_number 
+            FROM seats 
+            WHERE student_name != '' AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+            LIMIT 1
+          `).get(p.studentName || p.student_name || '') as any;
+          if (matchedSeat) {
+            effectiveSectionId = matchedSeat.section_id;
+          } else {
+            console.warn(`[FirestoreSync] Skipping participation ${p.id}: Section ${p.sectionId} not found.`);
+            continue;
+          }
+        }
+
+        let effectiveSeatNum = Number(p.seatNum || p.seat_num || 0);
+        let effectiveStudentNum = (p.studentNumber && p.studentNumber !== 'undefined') ? p.studentNumber : (p.student_number || '');
+        if (!effectiveSeatNum || effectiveSeatNum === 0 || !effectiveStudentNum) {
+          const seatInfo = db.prepare(`
+            SELECT seat_num, student_number, massar_number 
+            FROM seats 
+            WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) 
+            LIMIT 1
+          `).get(effectiveSectionId, p.studentName || p.student_name || '') as any;
+          if (seatInfo) {
+            if (!effectiveSeatNum && seatInfo.seat_num > 0) effectiveSeatNum = seatInfo.seat_num;
+            if (!effectiveStudentNum) effectiveStudentNum = seatInfo.student_number || '';
+          }
+        }
 
         insertStmt.run(
           p.id,
-          p.sectionId,
-          Number(p.seatNum || 0),
-          p.studentName || '',
-          p.studentNumber || '',
-          p.massarNumber || '',
-          p.participationType || 'مشاركة متميزة',
+          effectiveSectionId,
+          effectiveSeatNum,
+          p.studentName || p.student_name || '',
+          effectiveStudentNum,
+          p.massarNumber || p.massar_number || '',
+          p.participationType || p.participation_type || 'مشاركة متميزة',
           Number(p.points || 1),
           p.note || '',
-          p.teacherId || '',
-          p.teacherName || '',
-          p.teacherSubject || '',
-          p.recordedDate || new Date().toISOString().slice(0, 10),
-          p.recordedTime || new Date().toTimeString().slice(0, 5),
-          p.createdAt || new Date().toISOString()
+          p.teacherId || p.teacher_id || '',
+          p.teacherName || p.teacher_name || '',
+          p.teacherSubject || p.teacher_subject || '',
+          p.recordedDate || p.recorded_date || p.date || new Date().toISOString().slice(0, 10),
+          p.recordedTime || p.recorded_time || p.time || new Date().toTimeString().slice(0, 5),
+          p.createdAt || p.created_at || new Date().toISOString()
         );
       } catch (rowErr: any) {
         console.warn(`[FirestoreSync] Skipping participation ${p.id}: ${rowErr?.message}`);
@@ -781,7 +860,80 @@ async function pushMissingLocalDataToFirestore(db: any) {
   if (isQuotaExhausted()) return;
 
   try {
-    // 1. Users
+    // 1. Daily Violations (Highest Priority: ensure teacher & director records sync immediately)
+    const localViolations = db.prepare('SELECT * FROM daily_violations').all() as any[];
+    if (localViolations.length > 0) {
+      const violationDocs = localViolations.map((v) => {
+        const d = v.recorded_date || v.date || new Date().toISOString().slice(0, 10);
+        const t = v.recorded_time || v.time || new Date().toTimeString().slice(0, 5);
+        const desc = v.description || v.notes || v.violation_type || '';
+        return {
+          id: v.id,
+          data: {
+            id: v.id,
+            sectionId: v.section_id,
+            seatNum: Number(v.seat_num || 0),
+            studentName: v.student_name || '',
+            studentNumber: v.student_number || '',
+            massarNumber: v.massar_number || '',
+            violationType: v.violation_type || '',
+            actionTaken: v.action_taken || '',
+            teacherName: v.teacher_name || '',
+            teacherSubject: v.teacher_subject || '',
+            date: d,
+            recordedDate: d,
+            recorded_date: d,
+            time: t,
+            recordedTime: t,
+            recorded_time: t,
+            academicYear: '2026/2027',
+            notes: desc,
+            description: desc,
+            createdAt: v.created_at || new Date().toISOString(),
+            teacherId: v.teacher_id || ''
+          }
+        };
+      });
+      await batchSetDocs('daily_violations', violationDocs);
+    }
+
+    if (isQuotaExhausted()) return;
+
+    // 1b. Positive Participations (High Priority alongside daily_violations)
+    const localParticipations = db.prepare('SELECT * FROM positive_participations').all() as any[];
+    if (localParticipations.length > 0) {
+      const partDocs = localParticipations.map((p) => {
+        const d = p.recorded_date || new Date().toISOString().slice(0, 10);
+        const t = p.recorded_time || new Date().toTimeString().slice(0, 5);
+        return {
+          id: p.id,
+          data: {
+            id: p.id,
+            sectionId: p.section_id,
+            seatNum: Number(p.seat_num || 0),
+            studentName: p.student_name || '',
+            studentNumber: p.student_number || '',
+            massarNumber: p.massar_number || '',
+            participationType: p.participation_type || 'مشاركة متميزة',
+            points: Number(p.points || 1),
+            note: p.note || '',
+            teacherId: p.teacher_id || '',
+            teacherName: p.teacher_name || '',
+            teacherSubject: p.teacher_subject || '',
+            recordedDate: d,
+            recorded_date: d,
+            recordedTime: t,
+            recorded_time: t,
+            createdAt: p.created_at || new Date().toISOString()
+          }
+        };
+      });
+      await batchSetDocs('positive_participations', partDocs);
+    }
+
+    if (isQuotaExhausted()) return;
+
+    // 2. Users
     const localUsers = db.prepare('SELECT * FROM users').all() as any[];
     if (localUsers.length > 0) {
       const userDocs = localUsers.map((u) => ({
@@ -808,7 +960,7 @@ async function pushMissingLocalDataToFirestore(db: any) {
 
     if (isQuotaExhausted()) return;
 
-    // 2. Sections
+    // 3. Sections
     const localSections = db.prepare('SELECT * FROM sections').all() as any[];
     if (localSections.length > 0) {
       const sectionDocs = localSections.map((s) => {
@@ -838,7 +990,7 @@ async function pushMissingLocalDataToFirestore(db: any) {
 
     if (isQuotaExhausted()) return;
 
-    // 3. Settings
+    // 4. Settings
     const localSettings = db.prepare('SELECT * FROM app_settings').all() as any[];
     if (localSettings.length > 0) {
       const settingsDocs = localSettings.map((s) => ({
@@ -850,35 +1002,6 @@ async function pushMissingLocalDataToFirestore(db: any) {
         }
       }));
       await batchSetDocs('app_settings', settingsDocs);
-    }
-
-    if (isQuotaExhausted()) return;
-
-    // 4. Daily Violations (with teacherId)
-    const localViolations = db.prepare('SELECT * FROM daily_violations').all() as any[];
-    if (localViolations.length > 0) {
-      const violationDocs = localViolations.map((v) => ({
-        id: v.id,
-        data: {
-          id: v.id,
-          sectionId: v.section_id,
-          seatNum: Number(v.seat_num || 0),
-          studentName: v.student_name || '',
-          studentNumber: v.student_number || '',
-          massarNumber: v.massar_number || '',
-          violationType: v.violation_type || '',
-          actionTaken: v.action_taken || '',
-          teacherName: v.teacher_name || '',
-          teacherSubject: v.teacher_subject || '',
-          date: v.recorded_date || '',
-          time: v.recorded_time || '',
-          academicYear: '2025/2026',
-          notes: v.description || '',
-          createdAt: v.created_at || new Date().toISOString(),
-          teacherId: v.teacher_id || ''
-        }
-      }));
-      await batchSetDocs('daily_violations', violationDocs);
     }
 
     if (isQuotaExhausted()) return;
@@ -1168,14 +1291,29 @@ export function cloudDeleteAttendance(id: string) {
 }
 
 export function cloudSaveViolation(vio: any) {
+  const d = vio.date || vio.recorded_date || vio.recordedDate || new Date().toISOString().slice(0, 10);
+  const t = vio.time || vio.recorded_time || vio.recordedTime || new Date().toTimeString().slice(0, 5);
+  const desc = vio.description || vio.notes || vio.violationType || vio.violation_type || '';
   return trackCloudWrite(`cloudSaveViolation(${vio.id})`, () => setDoc('daily_violations', vio.id, {
-    id: vio.id, sectionId: vio.sectionId || vio.section_id, seatNum: Number(vio.seatNum || vio.seat_num || 0),
-    studentName: vio.studentName || vio.student_name || '', studentNumber: vio.studentNumber || vio.student_number || '',
-    massarNumber: vio.massarNumber || vio.massar_number || '', violationType: vio.violationType || vio.violation_type || '',
-    actionTaken: vio.actionTaken || vio.action_taken || '', teacherName: vio.teacherName || vio.teacher_name || '',
-    teacherSubject: vio.teacherSubject || vio.teacher_subject || '', date: vio.date || '', time: vio.time || '',
-    academicYear: vio.academicYear || vio.academic_year || '2025/2026', notes: vio.notes || '',
-    createdAt: vio.createdAt || vio.created_at || new Date().toISOString(), teacherId: vio.teacherId || vio.teacher_id || ''
+    id: vio.id,
+    sectionId: vio.sectionId || vio.section_id,
+    seatNum: Number(vio.seatNum || vio.seat_num || 0),
+    studentName: vio.studentName || vio.student_name || '',
+    studentNumber: vio.studentNumber || vio.student_number || '',
+    massarNumber: vio.massarNumber || vio.massar_number || '',
+    violationType: vio.violationType || vio.violation_type || '',
+    actionTaken: vio.actionTaken || vio.action_taken || '',
+    teacherName: vio.teacherName || vio.teacher_name || '',
+    teacherSubject: vio.teacherSubject || vio.teacher_subject || '',
+    date: d,
+    recordedDate: d,
+    time: t,
+    recordedTime: t,
+    academicYear: vio.academicYear || vio.academic_year || '2026/2027',
+    notes: desc,
+    description: desc,
+    createdAt: vio.createdAt || vio.created_at || new Date().toISOString(),
+    teacherId: vio.teacherId || vio.teacher_id || ''
   }));
 }
 

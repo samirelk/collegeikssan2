@@ -1429,6 +1429,87 @@ export default function App() {
     }
   };
 
+  // 8d. Deduct / Decrease Positive Participation Points
+  const handleDeductPositiveParticipationPoint = async (
+    targetSectionId?: string,
+    seatNum?: number,
+    student?: { name?: string; number?: string; massarNumber?: string }
+  ) => {
+    const secId = targetSectionId || activeSectionId;
+    if (!secId) return;
+
+    const studentName = student?.name || activePositiveParticipationModal?.studentName || '';
+    const studentNumber = student?.number || activePositiveParticipationModal?.studentNumber || '';
+    const massarNumber = student?.massarNumber || activePositiveParticipationModal?.massarNumber || '';
+
+    try {
+      const res = await fetch(`/api/sections/${secId}/positive-participations/deduct`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentUser ? { 'x-user-id': currentUser.id, 'x-user-role': currentUser.role } : {})
+        },
+        body: JSON.stringify({
+          seatNum,
+          studentName,
+          studentNumber,
+          massarNumber,
+          amount: 1
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (!data.deducted) {
+          showToast(data.message || `رصيد التلميذ (${studentName}) هو 0 نقاط بالفعل`);
+          return;
+        }
+
+        // Optimistically update seats in sections state
+        setSections((prev) =>
+          prev.map((sec) => {
+            if (sec.id !== secId) return sec;
+            return {
+              ...sec,
+              seats: sec.seats.map((st) => {
+                const isTarget = matchClientStudent(
+                  st.name,
+                  st.number,
+                  st.massarNumber,
+                  studentName,
+                  studentNumber,
+                  massarNumber
+                );
+                if (!isTarget) return st;
+
+                let updatedPos = [...(st.positiveParticipations || [])];
+                if (data.action === 'decremented' && data.targetId) {
+                  updatedPos = updatedPos.map((p) =>
+                    p.id === data.targetId ? { ...p, points: data.targetPoints } : p
+                  );
+                } else if (data.action === 'deleted' && data.targetId) {
+                  updatedPos = updatedPos.filter((p) => p.id !== data.targetId);
+                }
+                const updatedCount = updatedPos.reduce((sum, p) => sum + (p.points || 1), 0);
+                return {
+                  ...st,
+                  positiveParticipations: updatedPos,
+                  positiveParticipationCount: updatedCount
+                };
+              })
+            };
+          })
+        );
+
+        showToast(data.message || `تم خصم نقطة مشاركة واحدة للتلميذ (${studentName})`);
+      } else {
+        throw new Error(data.error || 'تعذر خصم النقطة');
+      }
+    } catch (err: any) {
+      console.error(err);
+      showToast(err.message || 'خطأ أثناء خصم النقطة');
+    }
+  };
+
   // Legacy Add Seat Note
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1964,8 +2045,9 @@ export default function App() {
     // 2. Mark student absent
     handleSeatChange(target.sectionId, targetSeatNum, 'attendance', 'absent');
 
-    // 3. Dispatch absence notification to parent if selected
-    if (sendNotification) {
+    // 3. Dispatch absence notification to parent if director selected
+    const isDirector = currentUser?.role === 'director' || currentUser?.role === 'admin';
+    if (sendNotification && isDirector) {
       try {
         const sec = sections.find((s) => s.id === target.sectionId);
         const sectionName = sec ? `${sec.level} - القسم ${sec.classNumber}` : '';
@@ -1990,8 +2072,7 @@ export default function App() {
               time: new Date().toLocaleTimeString('ar-MA', { hour: '2-digit', minute: '2-digit' }),
               subject: teacherSubject,
               reason: customNote || `غياب عن حصة مادة ${teacherSubject} (الأستاذ: ${teacherName})`
-            },
-            channel: 'both'
+            }
           })
         });
         const nData = await res.json();
@@ -3193,33 +3274,53 @@ export default function App() {
                                 </button>
                               </div>
 
-                              {/* Positive Participation Button */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setActivePositiveParticipationModal({
-                                    seatNum: st.seatNum || 1,
-                                    studentName: st.name.trim(),
-                                    studentNumber: st.number || '',
-                                    massarNumber: st.massarNumber || '',
-                                    rosterId: st.id
-                                  });
-                                }}
-                                className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
-                                  st.positivePoints > 0
-                                    ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 hover:bg-amber-500/30'
-                                    : 'bg-emerald-950/40 text-emerald-300/80 border-emerald-500/30 hover:bg-emerald-900/60 hover:text-white'
-                                }`}
-                                title="إضافة أو استعراض المشاركات الإيجابية ونقاط التميز"
-                              >
-                                <Star className={`w-3.5 h-3.5 ${st.positivePoints > 0 ? 'text-amber-400 fill-amber-400' : 'text-emerald-400'}`} />
-                                <span>مشاركة</span>
-                                {st.positivePoints > 0 && (
-                                  <span className="bg-amber-500 text-black font-black px-1.5 py-0.2 rounded-full text-[10px]">
-                                    +{st.positivePoints}
-                                  </span>
-                                )}
-                              </button>
+                              {/* Positive Participation Button & Deduct (-) Button */}
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActivePositiveParticipationModal({
+                                      seatNum: st.seatNum || 1,
+                                      studentName: st.name.trim(),
+                                      studentNumber: st.number || '',
+                                      massarNumber: st.massarNumber || '',
+                                      rosterId: st.id
+                                    });
+                                  }}
+                                  className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-2xs ${
+                                    st.positivePoints > 0
+                                      ? 'bg-amber-500/20 text-amber-200 border-amber-400/60 hover:bg-amber-500/30'
+                                      : 'bg-emerald-950/40 text-emerald-300/80 border-emerald-500/30 hover:bg-emerald-900/60 hover:text-white'
+                                  }`}
+                                  title="إضافة أو استعراض المشاركات الإيجابية ونقاط التميز"
+                                >
+                                  <Star className={`w-3.5 h-3.5 ${st.positivePoints > 0 ? 'text-amber-400 fill-amber-400' : 'text-emerald-400'}`} />
+                                  <span>مشاركة</span>
+                                  {st.positivePoints > 0 && (
+                                    <span className="bg-amber-500 text-black font-black px-1.5 py-0.2 rounded-full text-[10px]">
+                                      +{st.positivePoints}
+                                    </span>
+                                  )}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeductPositiveParticipationPoint(activeSection.id, st.seatNum || undefined, {
+                                    name: st.name,
+                                    number: st.number,
+                                    massarNumber: st.massarNumber
+                                  })}
+                                  disabled={st.positivePoints <= 0}
+                                  className={`px-2.5 py-1.5 rounded-xl text-xs font-black border transition-all flex items-center justify-center ${
+                                    st.positivePoints > 0
+                                      ? 'bg-rose-500/20 text-rose-200 border-rose-400/60 hover:bg-rose-500/30 active:bg-rose-500/40 cursor-pointer shadow-xs active:scale-95'
+                                      : 'bg-black/20 text-white/20 border-white/5 cursor-not-allowed opacity-50'
+                                  }`}
+                                  title={st.positivePoints > 0 ? `خصم نقطة مشاركة واحدة للتلميذ (${st.name})` : 'الرصيد 0 نقاط'}
+                                >
+                                  -
+                                </button>
+                              </div>
 
                               {/* Violations / Notes Button */}
                               <button
@@ -3275,6 +3376,9 @@ export default function App() {
                       massarNumber,
                       rosterId
                     });
+                  }}
+                  onDeductPositiveParticipation={(seatNum, student) => {
+                    handleDeductPositiveParticipationPoint(activeSection.id, seatNum, student);
                   }}
                   onOpenStudentRecord={openStudentRecord}
                   onBackTo2D={() => setClassroomViewMode('map')}
@@ -3385,6 +3489,7 @@ export default function App() {
                                     onAssignStudent={handleAssignStudent}
                                     onOpenNotes={() => openStudentRecord(seat1)}
                                     onRequestAbsenceConfirm={handleRequestAbsenceConfirm}
+                                    onDeductPositiveParticipation={handleDeductPositiveParticipationPoint}
                                     onOpenPositiveParticipation={() => {
                                       if (!seat1.name || !seat1.name.trim()) {
                                         showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
@@ -3431,6 +3536,7 @@ export default function App() {
                                     onAssignStudent={handleAssignStudent}
                                     onOpenNotes={() => openStudentRecord(seat2)}
                                     onRequestAbsenceConfirm={handleRequestAbsenceConfirm}
+                                    onDeductPositiveParticipation={handleDeductPositiveParticipationPoint}
                                     onOpenPositiveParticipation={() => {
                                       if (!seat2.name || !seat2.name.trim()) {
                                         showToast('يرجى تعيين تلميذ في المقعد أولاً لتسجيل مشاركة إيجابية');
@@ -4147,6 +4253,11 @@ export default function App() {
             onClose={() => setActivePositiveParticipationModal(null)}
             onAddPositiveParticipation={handleAddPositiveParticipation}
             onDeletePositiveParticipation={handleDeletePositiveParticipation}
+            onDeductPoint={() => handleDeductPositiveParticipationPoint(
+              activeSection.id,
+              currentSeat.seat,
+              { name: currentSeat.name, number: currentSeat.number, massarNumber: currentSeat.massarNumber }
+            )}
           />
         );
       })()}
@@ -4298,6 +4409,7 @@ export default function App() {
           guardianPhone={pendingAbsenceStudent.guardianPhone}
           guardianPhoneVerified={pendingAbsenceStudent.guardianPhoneVerified}
           institutionName={settings.institution || 'الثانوية الإعدادية ايكسان'}
+          isDirector={currentUser?.role === 'director' || currentUser?.role === 'admin'}
           onConfirm={handleConfirmAbsenceWithNotice}
         />
       )}
@@ -4379,6 +4491,7 @@ interface SeatCardProps {
   ) => void;
   onOpenNotes: () => void;
   onOpenPositiveParticipation?: () => void;
+  onDeductPositiveParticipation?: (sectionId: string, seatNum?: number, student?: { name: string; number?: string; massarNumber?: string }) => void;
   onRequestAbsenceConfirm?: (seat: SeatItem) => void;
   isDragging?: boolean;
   isDropTarget?: boolean;
@@ -4407,6 +4520,7 @@ function SeatCard({
   onAssignStudent,
   onOpenNotes,
   onOpenPositiveParticipation,
+  onDeductPositiveParticipation,
   onRequestAbsenceConfirm,
   isDragging = false,
   isDropTarget = false,
@@ -4731,22 +4845,50 @@ function SeatCard({
             : 0;
 
           return (
-            <button
-              id={`seat-positive-btn-${seat.seat}`}
-              type="button"
-              className={`note-btn !mt-0 transition-all flex items-center justify-center gap-1 ${
-                positivePoints > 0
-                  ? '!bg-emerald-50 hover:!bg-emerald-100 !text-emerald-900 border !border-emerald-300 font-bold'
-                  : '!bg-emerald-50/50 hover:!bg-emerald-100/60 !text-emerald-800 border !border-dashed !border-emerald-300'
-              }`}
-              onClick={onOpenPositiveParticipation || onOpenNotes}
-              title={hasStudentName ? `تسجيل مشاركة إيجابية للتلميذ (${seat.name})` : 'مقعد شاغر بدون تلميذ'}
-            >
-              <span>⭐ مشاركة</span>
-              {positivePoints > 0 && (
-                <span className="badge !bg-emerald-700 !text-white font-black">+{positivePoints}</span>
+            <div className="flex items-center gap-1 w-full">
+              <button
+                id={`seat-positive-btn-${seat.seat}`}
+                type="button"
+                className={`note-btn flex-1 !mt-0 transition-all flex items-center justify-center gap-1 ${
+                  positivePoints > 0
+                    ? '!bg-emerald-50 hover:!bg-emerald-100 !text-emerald-900 border !border-emerald-300 font-bold'
+                    : '!bg-emerald-50/50 hover:!bg-emerald-100/60 !text-emerald-800 border !border-dashed !border-emerald-300'
+                }`}
+                onClick={onOpenPositiveParticipation || onOpenNotes}
+                title={hasStudentName ? `تسجيل مشاركة إيجابية للتلميذ (${seat.name})` : 'مقعد شاغر بدون تلميذ'}
+              >
+                <span>⭐ مشاركة</span>
+                {positivePoints > 0 && (
+                  <span className="badge !bg-emerald-700 !text-white font-black">+{positivePoints}</span>
+                )}
+              </button>
+
+              {hasStudentName && (
+                <button
+                  type="button"
+                  id={`seat-deduct-btn-${seat.seat}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onDeductPositiveParticipation) {
+                      onDeductPositiveParticipation(sectionId, seat.seat, {
+                        name: seat.name,
+                        number: seat.number,
+                        massarNumber: seat.massarNumber
+                      });
+                    }
+                  }}
+                  disabled={positivePoints <= 0}
+                  className={`h-full min-h-[30px] px-2 rounded-lg border text-xs font-black transition-all flex items-center justify-center ${
+                    positivePoints > 0
+                      ? 'bg-rose-50 hover:bg-rose-100 active:bg-rose-200 text-rose-800 border-rose-300 shadow-2xs hover:shadow-xs active:scale-95 cursor-pointer'
+                      : 'bg-stone-100 text-stone-300 border-stone-200 cursor-not-allowed opacity-50'
+                  }`}
+                  title={positivePoints > 0 ? `خصم نقطة مشاركة واحدة للتلميذ (${seat.name})` : 'الرصيد 0 نقاط'}
+                >
+                  -
+                </button>
               )}
-            </button>
+            </div>
           );
         })()}
 

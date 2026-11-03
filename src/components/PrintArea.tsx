@@ -27,6 +27,16 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
         <div style={{ fontSize: '13px', fontWeight: 'bold', color: '#991b1b', marginTop: '2px' }}>
           {settings.institution || 'الثانوية الإعدادية ايكسان'}
         </div>
+        {settings.siteName && (
+          <div style={{ fontSize: '11.5px', fontWeight: 'bold', color: '#1A4E47', marginTop: '1px' }}>
+            {settings.siteName}
+          </div>
+        )}
+        {settings.siteUrl && (
+          <div style={{ fontSize: '10px', color: '#1A4E47', direction: 'ltr', marginTop: '1px', fontWeight: 'bold', fontFamily: 'monospace' }}>
+            {settings.siteUrl}
+          </div>
+        )}
         <div style={{ fontSize: '10.5px', color: '#6b7280', marginTop: '2px' }}>
           الموسم الدراسي: <b>{settings.year || '2026/2027'}</b> • تاريخ الطباعة: <b>{printDate} — {printTime} (GMT)</b>
         </div>
@@ -82,7 +92,7 @@ export const PrintArea: React.FC<PrintAreaProps> = ({ settings, section, seat })
       </table>
 
       <div className="print-footer">
-        منظومة تدبير الفصول والأقسام • الموقع الرسمي: www.lyceecom.com
+        {settings.siteName || 'منظومة تدبير الفصول والأقسام'} • الموقع الرسمي: {settings.siteUrl || 'https://school.ma'}
       </div>
     </div>
   );

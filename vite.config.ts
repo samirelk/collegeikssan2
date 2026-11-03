@@ -15,7 +15,7 @@ export default defineConfig(() => {
         manifest: {
           id: '/',
           name: 'المدرسة الإلكترونية',
-          short_name: 'المدرسة الإلكترونية',
+          short_name: 'المدرسة',
           description: 'منظومة المدرسة الإلكترونية لتدبير الفصول والغيابات والمخالفات والتواصل مع التلاميذ وأولياء الأمور',
           theme_color: '#1E3A8A',
           background_color: '#FAF8F5',
@@ -81,7 +81,8 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: false,
+          enabled: true,
+          type: 'module',
         },
       }),
     ],
