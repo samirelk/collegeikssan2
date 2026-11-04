@@ -938,18 +938,19 @@ export function initDatabase() {
         ORDER BY seat_num DESC
       `).all(sec.id) as any[];
 
-      // Self-healing: if any student is assigned to multiple seats in this section, keep only the latest seat and vacate duplicates!
-      const seenNames = new Set<string>();
+      // Deduplicate: if the exact same student (by unique Massar number or roster_id) is in multiple seats, keep only the latest seat
+      const seenMassar = new Set<string>();
       const deduplicatedOccupied = [];
       for (const s of occupiedSeats) {
-        const cleanName = s.student_name.trim().toLowerCase();
-        if (seenNames.has(cleanName)) {
+        const m = (s.massar_number || '').trim().toUpperCase();
+        const key = m ? `m_${m}` : (s.roster_id ? `r_${s.roster_id}` : null);
+        if (key && seenMassar.has(key)) {
           db.prepare(`
             UPDATE seats SET student_name = '', student_number = '', massar_number = '', roster_id = NULL, attendance = NULL, status_color = 'default', updated_at = ?
             WHERE section_id = ? AND seat_num = ?
           `).run(now, sec.id, s.seat_num);
         } else {
-          seenNames.add(cleanName);
+          if (key) seenMassar.add(key);
           deduplicatedOccupied.push(s);
         }
       }
@@ -1575,33 +1576,26 @@ export function matchStudent(
   recordNum?: string,
   recordMassar?: string
 ): boolean {
-  const tName = normalizeArabic(targetName);
-  const rName = normalizeArabic(recordName);
-
-  if (!tName && !rName) return false;
-
-  // 1. If Massar number matches, it's definitively the exact same student
+  // 1. Massar Number is the PRIMARY KEY! If both have Massar numbers, it is the sole definitive check.
   const tMassar = (targetMassar || '').trim().toUpperCase();
   const rMassar = (recordMassar || '').trim().toUpperCase();
-  if (tMassar && rMassar && tMassar === rMassar) {
-    return true;
+  if (tMassar && rMassar) {
+    return tMassar === rMassar;
   }
 
-  // 2. If Arabic names match exactly after normalization
-  if (tName && rName && tName === rName) {
-    return true;
+  // 2. Class order number (Foreign Key within section) - if different numbers are given, they are distinct students
+  const tNum = String(targetNum || '').trim();
+  const rNum = String(recordNum || '').trim();
+  if (tNum && rNum && tNum !== rNum) {
+    return false;
   }
 
-  // 3. If one name contains the other (e.g. compound name or slight difference) AND numbers match if both present
-  if (tName && rName && (tName.includes(rName) || rName.includes(tName))) {
-    const tNum = String(targetNum || '').trim();
-    const rNum = String(recordNum || '').trim();
-    if (!tNum || !rNum || tNum === rNum) {
-      return true;
-    }
-  }
+  // 3. Exact normalized Arabic name check (no loose substrings)
+  const tName = normalizeArabic(targetName);
+  const rName = normalizeArabic(recordName);
+  if (!tName || !rName) return false;
 
-  return false;
+  return tName === rName;
 }
 
 export function calculateHoursDifference(startIso?: string, endIso?: string): number {
@@ -2317,12 +2311,9 @@ export function getCurrentSchoolPeriod(): string {
   return totalMin < 13 * 60 ? 'الفترة الصباحية (08:30 - 12:30)' : 'الفترة المسائية (14:30 - 18:30)';
 }
 
-function clearSeatAbsenceHistory(sectionId: string, seatNum: number) {
-  try {
-    db.prepare(`DELETE FROM attendance_history WHERE section_id = ? AND seat_num = ?`).run(sectionId, seatNum);
-  } catch {
-    // Non-critical cleanup
-  }
+function clearSeatAbsenceHistory(_sectionId: string, _seatNum: number) {
+  // Absences belong to the student (Massar number / name), NOT to the physical chair!
+  // Never delete historical attendance records when seats are edited, vacated, or swapped.
 }
 
 export function updateSeat(
@@ -3062,6 +3053,9 @@ export function addStudentViolation(
   sectionId: string,
   seatNum: number,
   data: {
+    studentName?: string;
+    studentNumber?: string;
+    massarNumber?: string;
     violationType: string;
     actionTaken?: string;
     teacherName?: string;
@@ -3102,9 +3096,19 @@ export function addStudentViolation(
     ? data.teacherSubject.trim() 
     : (secInfo?.teacher_subject || 'المادة');
 
-  const studentName = seat?.student_name || `المقعد #${seatNum}`;
-  const studentNumber = seat?.student_number || '';
-  const massarNumber = seat?.massar_number || '';
+  let studentName = (data.studentName && data.studentName.trim()) || (seat?.student_name || `المقعد #${seatNum}`).trim();
+  let studentNumber = (data.studentNumber && data.studentNumber.trim()) || (seat?.student_number || '').trim();
+  let massarNumber = (data.massarNumber && data.massarNumber.trim()) || (seat?.massar_number || '').trim();
+
+  // If massarNumber is missing, resolve it from student_accounts (authoritative Primary Key)
+  if (!massarNumber && studentName) {
+    const acc = db.prepare('SELECT massar_number, student_number FROM student_accounts WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) LIMIT 1').get(sectionId, studentName) as any;
+    if (acc) {
+      massarNumber = acc.massar_number || '';
+      if (!studentNumber && acc.student_number) studentNumber = acc.student_number;
+    }
+  }
+
   const actionTaken = data.actionTaken || 'تنبيه شفهي';
 
   db.prepare(`
@@ -7796,7 +7800,7 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   // 1. Absences Query for targetDate
   let absenceQuery = `
     SELECT ah.id, ah.section_id, ah.seat_num, ah.student_name, ah.student_number,
-           COALESCE(s.massar_number, '') as massar_number,
+           COALESCE(NULLIF(ah.massar_number, ''), s.massar_number, '') as massar_number,
            ah.status, ah.recorded_date, ah.session_period, ah.teacher_name, ah.teacher_subject,
            ah.justified, ah.justification_reason, ah.notes, ah.created_at,
            ah.remover_name, ah.remover_subject, ah.removed_at,
@@ -7805,7 +7809,10 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
            sec.roster_json
     FROM attendance_history ah
     JOIN sections sec ON ah.section_id = sec.id
-    LEFT JOIN seats s ON ah.section_id = s.section_id AND ah.seat_num = s.seat_num
+    LEFT JOIN seats s ON ah.section_id = s.section_id AND (
+      (ah.massar_number != '' AND ah.massar_number IS NOT NULL AND ah.massar_number = s.massar_number)
+      OR LOWER(TRIM(ah.student_name)) = LOWER(TRIM(s.student_name))
+    )
     WHERE ah.recorded_date IN (${datePlaceholders})
       AND ah.status IN ('absent', 'late')
   `;
@@ -7834,7 +7841,7 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
   // 1b. Active / Unsettled Absences Query across all dates (الغيابات غير المسوّاة)
   let activeAbsenceQuery = `
     SELECT ah.id, ah.section_id, ah.seat_num, ah.student_name, ah.student_number,
-           COALESCE(s.massar_number, '') as massar_number,
+           COALESCE(NULLIF(ah.massar_number, ''), s.massar_number, '') as massar_number,
            ah.status, ah.recorded_date, ah.session_period, ah.teacher_name, ah.teacher_subject,
            ah.justified, ah.justification_reason, ah.notes, ah.created_at,
            ah.remover_name, ah.remover_subject, ah.removed_at,
@@ -7843,7 +7850,10 @@ export function getDailyArchive(dateStr?: string, sectionId?: string, teacherId?
            sec.roster_json
     FROM attendance_history ah
     JOIN sections sec ON ah.section_id = sec.id
-    LEFT JOIN seats s ON ah.section_id = s.section_id AND ah.seat_num = s.seat_num
+    LEFT JOIN seats s ON ah.section_id = s.section_id AND (
+      (ah.massar_number != '' AND ah.massar_number IS NOT NULL AND ah.massar_number = s.massar_number)
+      OR LOWER(TRIM(ah.student_name)) = LOWER(TRIM(s.student_name))
+    )
     WHERE ah.status = 'absent'
       AND (ah.removed_at IS NULL OR ah.removed_at = '')
   `;
@@ -9060,6 +9070,7 @@ export function addDailyViolation(data: {
   seatNum?: number;
   studentName: string;
   studentNumber?: string;
+  massarNumber?: string;
   violationType: string;
   description: string;
   actionTaken?: string;
@@ -9092,26 +9103,37 @@ export function addDailyViolation(data: {
   let seatNum = data.seatNum && data.seatNum > 0 ? data.seatNum : null;
   let cleanStudentNumber = (data.studentNumber || '').trim();
   if (cleanStudentNumber === 'undefined') cleanStudentNumber = '';
-  let massarNumber = '';
+  let massarNumber = (data.massarNumber || '').trim();
 
-  // Auto-resolve seatNum, studentNumber and massarNumber from seats if available
+  // Resolve Massar number (authoritative Primary Key) and seatNum/studentNumber
   if (data.sectionId && data.studentName) {
     try {
       const sTrim = data.studentName.trim();
-      const foundSeat = db.prepare(`
-        SELECT seat_num, student_number, massar_number 
-        FROM seats 
-        WHERE section_id = ? AND (
-          LOWER(TRIM(student_name)) = LOWER(TRIM(?))
-          OR TRIM(student_name) LIKE '%' || TRIM(?) || '%'
-          OR TRIM(?) LIKE '%' || TRIM(student_name) || '%'
-        )
-        LIMIT 1
-      `).get(data.sectionId, sTrim, sTrim, sTrim) as any;
-      if (foundSeat) {
-        if (!seatNum && foundSeat.seat_num > 0) seatNum = foundSeat.seat_num;
-        if (!cleanStudentNumber && foundSeat.student_number) cleanStudentNumber = foundSeat.student_number;
-        if (foundSeat.massar_number) massarNumber = foundSeat.massar_number;
+      // 1. Check student_accounts by Massar or exact student name
+      if (massarNumber) {
+        const acc = db.prepare('SELECT student_number, seat_num FROM student_accounts WHERE massar_number = ? LIMIT 1').get(massarNumber) as any;
+        if (acc && !cleanStudentNumber && acc.student_number) cleanStudentNumber = acc.student_number;
+      } else {
+        const acc = db.prepare('SELECT massar_number, student_number FROM student_accounts WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?)) LIMIT 1').get(data.sectionId, sTrim) as any;
+        if (acc) {
+          massarNumber = acc.massar_number || '';
+          if (!cleanStudentNumber && acc.student_number) cleanStudentNumber = acc.student_number;
+        }
+      }
+
+      // 2. Check seats by exact name if massar or seatNum still missing
+      if (!seatNum || !massarNumber) {
+        const foundSeat = db.prepare(`
+          SELECT seat_num, student_number, massar_number 
+          FROM seats 
+          WHERE section_id = ? AND LOWER(TRIM(student_name)) = LOWER(TRIM(?))
+          LIMIT 1
+        `).get(data.sectionId, sTrim) as any;
+        if (foundSeat) {
+          if (!seatNum && foundSeat.seat_num > 0) seatNum = foundSeat.seat_num;
+          if (!cleanStudentNumber && foundSeat.student_number) cleanStudentNumber = foundSeat.student_number;
+          if (!massarNumber && foundSeat.massar_number) massarNumber = foundSeat.massar_number;
+        }
       }
     } catch {}
   }
@@ -9263,12 +9285,15 @@ export function getAllViolations(filters?: {
       dv.*,
       sec.level as section_level,
       sec.class_number as section_class,
-      COALESCE(st.massar_number, sa.massar_number, dv.massar_number, '') as massar_number,
-      COALESCE(st.student_number, dv.student_number, '') as clean_student_number
+      COALESCE(NULLIF(dv.massar_number, ''), sa.massar_number, st.massar_number, '') as massar_number,
+      COALESCE(NULLIF(dv.student_number, ''), sa.student_number, st.student_number, '') as clean_student_number
     FROM daily_violations dv
     LEFT JOIN sections sec ON dv.section_id = sec.id
-    LEFT JOIN seats st ON dv.section_id = st.section_id AND dv.seat_num = st.seat_num
-    LEFT JOIN student_accounts sa ON dv.section_id = sa.section_id AND LOWER(TRIM(dv.student_name)) = LOWER(TRIM(sa.student_name))
+    LEFT JOIN student_accounts sa ON (dv.massar_number != '' AND dv.massar_number IS NOT NULL AND dv.massar_number = sa.massar_number) OR (dv.section_id = sa.section_id AND LOWER(TRIM(dv.student_name)) = LOWER(TRIM(sa.student_name)))
+    LEFT JOIN seats st ON dv.section_id = st.section_id AND (
+      (dv.massar_number != '' AND dv.massar_number IS NOT NULL AND dv.massar_number = st.massar_number)
+      OR LOWER(TRIM(dv.student_name)) = LOWER(TRIM(st.student_name))
+    )
     WHERE 1=1
   `;
   const params: any[] = [];
@@ -9402,12 +9427,15 @@ export function getAllPositiveParticipations(filters?: {
       pp.*,
       sec.level as section_level,
       sec.class_number as section_class,
-      COALESCE(st.massar_number, sa.massar_number, pp.massar_number, '') as massar_number,
-      COALESCE(st.student_number, pp.student_number, '') as clean_student_number
+      COALESCE(NULLIF(pp.massar_number, ''), sa.massar_number, st.massar_number, '') as massar_number,
+      COALESCE(NULLIF(pp.student_number, ''), sa.student_number, st.student_number, '') as clean_student_number
     FROM positive_participations pp
     LEFT JOIN sections sec ON pp.section_id = sec.id
-    LEFT JOIN seats st ON pp.section_id = st.section_id AND pp.seat_num = st.seat_num
-    LEFT JOIN student_accounts sa ON pp.section_id = sa.section_id AND LOWER(TRIM(pp.student_name)) = LOWER(TRIM(sa.student_name))
+    LEFT JOIN student_accounts sa ON (pp.massar_number != '' AND pp.massar_number IS NOT NULL AND pp.massar_number = sa.massar_number) OR (pp.section_id = sa.section_id AND LOWER(TRIM(pp.student_name)) = LOWER(TRIM(sa.student_name)))
+    LEFT JOIN seats st ON pp.section_id = st.section_id AND (
+      (pp.massar_number != '' AND pp.massar_number IS NOT NULL AND pp.massar_number = st.massar_number)
+      OR LOWER(TRIM(pp.student_name)) = LOWER(TRIM(st.student_name))
+    )
     WHERE 1=1
   `;
   const params: any[] = [];
@@ -11243,7 +11271,7 @@ export function ensureStudentAccountsExist() {
       WHERE section_id = ? AND student_name IS NOT NULL AND TRIM(student_name) != ''
     `).all(sec.id) as any[];
 
-    // Merge students
+    // Merge students using unique Massar if present or unique section+number+name
     const studentMap = new Map<string, { name: string; number: string; massar: string }>();
 
     seats.forEach(s => {
@@ -11251,7 +11279,8 @@ export function ensureStudentAccountsExist() {
       if (!name) return;
       const massar = (s.massar_number || '').trim();
       const num = String(s.student_number || s.seat_num || '');
-      studentMap.set(name.toLowerCase(), { name, number: num, massar });
+      const key = massar ? `m_${massar.toUpperCase()}` : `s_${num}_${name.toLowerCase()}`;
+      studentMap.set(key, { name, number: num, massar });
     });
 
     roster.forEach((r, idx) => {
@@ -11259,13 +11288,16 @@ export function ensureStudentAccountsExist() {
       if (!name) return;
       const massar = (r.massarNumber || '').trim();
       const num = String(r.number || idx + 1);
-      const existing = studentMap.get(name.toLowerCase());
+      const key = massar ? `m_${massar.toUpperCase()}` : `s_${num}_${name.toLowerCase()}`;
+      const existing = studentMap.get(key);
       if (existing) {
         if (!existing.massar && massar) existing.massar = massar;
       } else {
-        studentMap.set(name.toLowerCase(), { name, number: num, massar });
+        studentMap.set(key, { name, number: num, massar });
       }
     });
+
+    let rosterUpdated = false;
 
     // For each student, check/insert into student_accounts
     for (const [_, st] of studentMap) {
@@ -11274,7 +11306,7 @@ export function ensureStudentAccountsExist() {
         // Deterministic pseudo Massar code for students without official Massar code
         const safeClass = (sec.class_number || '1').replace(/\D/g, '') || '1';
         const safeNum = st.number.replace(/\D/g, '') || '1';
-        finalMassar = `M26${sec.id.slice(0, 3).toUpperCase()}${safeClass.padStart(2, '0')}${safeNum.padStart(2, '0')}`;
+        finalMassar = `M26${sec.id.slice(-4).toUpperCase()}${safeClass.padStart(2, '0')}${safeNum.padStart(2, '0')}`;
       }
 
       const existingAccount = db.prepare(`
@@ -11289,22 +11321,58 @@ export function ensureStudentAccountsExist() {
             id, massar_number, student_name, section_id, student_number, access_code, created_at, updated_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `).run(id, finalMassar, st.name, sec.id, st.number, code, now, now);
-
-        // Also update seats / roster with this Massar number if empty
-        if (!st.massar) {
-          try {
-            db.prepare(`
-              UPDATE seats SET massar_number = ? WHERE section_id = ? AND TRIM(student_name) = TRIM(?)
-            `).run(finalMassar, sec.id, st.name);
-          } catch {}
-        }
       } else {
-        // Keep updated
         db.prepare(`
           UPDATE student_accounts SET student_name = ?, section_id = ?, student_number = ?, updated_at = ?
           WHERE id = ?
         `).run(st.name, sec.id, st.number, now, existingAccount.id);
       }
+
+      // Propagate Massar number to seats where missing
+      try {
+        db.prepare(`
+          UPDATE seats SET massar_number = ? 
+          WHERE section_id = ? AND (massar_number = '' OR massar_number IS NULL) AND TRIM(student_name) = TRIM(?)
+        `).run(finalMassar, sec.id, st.name);
+      } catch {}
+
+      // Backfill Massar number to daily_violations where missing
+      try {
+        db.prepare(`
+          UPDATE daily_violations SET massar_number = ?
+          WHERE section_id = ? AND (massar_number = '' OR massar_number IS NULL) AND TRIM(student_name) = TRIM(?)
+        `).run(finalMassar, sec.id, st.name);
+      } catch {}
+
+      // Backfill Massar number to attendance_history where missing
+      try {
+        db.prepare(`
+          UPDATE attendance_history SET massar_number = ?
+          WHERE section_id = ? AND (massar_number = '' OR massar_number IS NULL) AND TRIM(student_name) = TRIM(?)
+        `).run(finalMassar, sec.id, st.name);
+      } catch {}
+
+      // Backfill Massar number to positive_participations where missing
+      try {
+        db.prepare(`
+          UPDATE positive_participations SET massar_number = ?
+          WHERE section_id = ? AND (massar_number = '' OR massar_number IS NULL) AND TRIM(student_name) = TRIM(?)
+        `).run(finalMassar, sec.id, st.name);
+      } catch {}
+
+      // Check if roster has this massar
+      const rItem = roster.find(r => r.name && r.name.trim().toLowerCase() === st.name.toLowerCase());
+      if (rItem && !rItem.massarNumber) {
+        rItem.massarNumber = finalMassar;
+        rosterUpdated = true;
+      }
+    }
+
+    if (rosterUpdated) {
+      try {
+        db.prepare('UPDATE sections SET roster_json = ?, updated_at = ? WHERE id = ?')
+          .run(JSON.stringify(roster), now, sec.id);
+      } catch {}
     }
   }
 }

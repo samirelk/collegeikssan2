@@ -2833,6 +2833,7 @@ async function startServer() {
         seatNum,
         studentName,
         studentNumber,
+        massarNumber,
         violationType,
         description,
         actionTaken,
@@ -2859,6 +2860,7 @@ async function startServer() {
         seatNum: seatNum ? Number(seatNum) : undefined,
         studentName,
         studentNumber,
+        massarNumber,
         violationType: violationType || 'مخالفة تربوية أخرى',
         description: effDescription,
         actionTaken: actionTaken || 'تنبيه شفهي',
@@ -2877,11 +2879,12 @@ async function startServer() {
           sectionId,
           studentName,
           studentNumber,
-          reason: `مخالفة تربوية: ${violationType || 'سلوك غير منضبط'} (${description.slice(0, 50)})`,
+          massarNumber,
+          reason: `مخالفة تربوية: ${violationType || 'سلوك غير منضبط'} (${effDescription.slice(0, 50)})`,
           summonsDate: summonsDate || todayStr,
           appointmentTime: appointmentTime || '10:00',
           createdBy: teacherName || 'الأستاذ',
-          notes: `مسجلة بناءً على مخالفة تربوية: ${description}`
+          notes: `مسجلة بناءً على مخالفة تربوية: ${effDescription}`
         });
       }
 

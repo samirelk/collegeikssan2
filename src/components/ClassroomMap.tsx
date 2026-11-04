@@ -353,12 +353,12 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           setDropTargetSeat(null);
         }}
       >
-        {/* Seat Number Badge */}
+        {/* Seat Position Badge (De-emphasized layout indicator) */}
         <div
-          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-[#1F3E32] text-[#F2EFE3] border-2 border-[#C98A3C] flex items-center justify-center text-xs font-black shadow-xs z-10"
-          title={`المقعد رقم ${seat.seat}`}
+          className="absolute -top-2.5 -right-2.5 px-1.5 h-5 rounded-md bg-[#1F3E32]/85 text-[#F2EFE3] border border-[#C98A3C]/70 flex items-center justify-center text-[10px] font-mono font-bold shadow-2xs z-10"
+          title={`موضع المقعد رقم ${seat.seat} (لترتيب القاعة فقط - لا يؤثر على سجلات التلميذ)`}
         >
-          {seat.seat}
+          مقعد {seat.seat}
         </div>
 
         {/* Top Mini Drag & Swap Bar */}
@@ -418,11 +418,33 @@ export const ClassroomMap: React.FC<ClassroomMapProps> = ({
           </div>
         </div>
 
-        {/* Student Number field */}
+        {/* Primary Key: Massar Number (رقم مسار) */}
+        <div className="mb-2">
+          <div className="flex items-center justify-between mb-0.5">
+            <label className="block text-[10px] font-bold text-emerald-900 flex items-center gap-1">
+              <span>رقم مسار</span>
+              <span className="text-[9px] bg-emerald-100/90 text-emerald-800 px-1 rounded font-mono font-bold">المعرف الأساسي</span>
+            </label>
+          </div>
+          <input
+            type="text"
+            value={seat.massarNumber || ''}
+            placeholder="مثال: M130000000"
+            onChange={(e) => {
+              const val = e.target.value.trim().toUpperCase();
+              onUpdateSeat(seat.seat, { massarNumber: val });
+            }}
+            className="w-full bg-emerald-50/60 border-b border-emerald-300 focus:border-emerald-600 text-xs font-mono font-bold text-emerald-950 py-0.5 px-1 rounded-xs outline-hidden placeholder:text-stone-400"
+            title="رقم مسار هو المعرف الأساسي والفريد للتلميذ"
+          />
+        </div>
+
+        {/* Student Class Order Number (رقم التلميذ في القسم) */}
         <div className="mb-2">
           <div className="flex items-center justify-between gap-2">
-            <label className="block text-[10px] font-bold text-[#5B5040] mb-0.5">
-              رقم
+            <label className="block text-[10px] font-bold text-[#5B5040] mb-0.5 flex items-center gap-1">
+              <span>رقم الترتيب بالقسم</span>
+              <span className="text-[9px] text-[#A96E28] font-normal">(في اللائحة)</span>
             </label>
             <button
               type="button"

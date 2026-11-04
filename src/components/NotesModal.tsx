@@ -75,8 +75,13 @@ export const NotesModal: React.FC<NotesModalProps> = ({
               ملاحظات — {studentDisplayName}
             </h3>
             <div className="text-[11px] sm:text-xs text-[#5B5040] mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap">
-              <span>المقعد #{seat.seat}</span>
-              {seat.number && <span>· الرقم: {seat.number}</span>}
+              {seat.massarNumber && (
+                <span className="font-mono bg-emerald-100 text-emerald-900 border border-emerald-300 px-1.5 py-0.5 rounded text-[10px] font-bold">
+                  مسار: {seat.massarNumber}
+                </span>
+              )}
+              {seat.number && <span>· الترتيب بالقسم: #{seat.number}</span>}
+              <span className="text-stone-500">· موضع: {seat.seat}</span>
               <span>· {section.level} ({section.classNumber})</span>
             </div>
           </div>
