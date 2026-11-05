@@ -19,6 +19,7 @@ import {
 import { SeatItem, SectionItem, AppSettings, User as UserType, ViolationTypeItem, StudentViolationRecord } from '../types';
 import { printViolationsReport, printSingleViolationNotice, shareViolationViaWhatsApp } from '../utils/printNotes';
 import { ParentNotificationModal, StudentNotificationItem } from './ParentNotificationModal';
+import { UNIFIED_VIOLATION_CATEGORIES, UNIFIED_DISCIPLINARY_ACTIONS } from './ViolationsRegisterModal';
 
 interface ViolationsModalProps {
   section: SectionItem;
@@ -28,13 +29,18 @@ interface ViolationsModalProps {
   onClose: () => void;
   onAddViolation: (data: {
     violationType: string;
+    description?: string;
     actionTaken?: string;
+    issueParentSummons?: boolean;
+    summonsDate?: string;
+    appointmentTime?: string;
     teacherName?: string;
     teacherSubject?: string;
     date?: string;
     time?: string;
   }) => Promise<void>;
   onDeleteViolation: (violationId: string) => Promise<void>;
+  onOpenSectionRegister?: () => void;
   studentHistory?: {
     absences: Array<{
       id: number;
@@ -73,19 +79,29 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
   onClose,
   onAddViolation,
   onDeleteViolation,
+  onOpenSectionRegister,
   studentHistory,
   isStudentHistoryLoading = false
 }) => {
   const isDirector = currentUser?.role === 'director' || currentUser?.role === 'admin';
-  const [violationTypes, setViolationTypes] = useState<ViolationTypeItem[]>([]);
-  const [selectedType, setSelectedType] = useState<string>('');
-  const [actionTaken, setActionTaken] = useState<string>('تنبيه شفهي');
-  const [isLoadingTypes, setIsLoadingTypes] = useState(true);
+  const [violationTypes, setViolationTypes] = useState<ViolationTypeItem[]>(
+    UNIFIED_VIOLATION_CATEGORIES.map((title, idx) => ({ id: `unified_${idx}`, title, orderIndex: idx }))
+  );
+  const [selectedType, setSelectedType] = useState<string>(UNIFIED_VIOLATION_CATEGORIES[0]);
+  const [description, setDescription] = useState<string>('');
+  const [actionTaken, setActionTaken] = useState<string>(UNIFIED_DISCIPLINARY_ACTIONS[0]);
+  const [issueParentSummons, setIssueParentSummons] = useState<boolean>(false);
+  const [summonsDate, setSummonsDate] = useState<string>(
+    new Date(Date.now() + 86400000).toISOString().split('T')[0]
+  );
+  const [summonsAppointmentTime, setSummonsAppointmentTime] = useState<string>('10:00');
+  const [isLoadingTypes, setIsLoadingTypes] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [justRecordedViolation, setJustRecordedViolation] = useState<{
     violationType: string;
+    description?: string;
     actionTaken: string;
     teacherName: string;
     teacherSubject: string;
@@ -104,33 +120,20 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
 
   const fetchViolationTypes = async () => {
     try {
-      setIsLoadingTypes(true);
       const res = await fetch('/api/violation-types');
       const data = await res.json();
       if (data.success && Array.isArray(data.types) && data.types.length > 0) {
         setViolationTypes(data.types);
         setSelectedType(data.types[0].title);
       } else {
-        // Fallback default list
-        const fallback = [
-          'عدم إحضار الأدوات المدرسية',
-          'عدم إنجاز الواجبات المنزلية',
-          'التشويش داخل القسم',
-          'عدم احترام الأستاذ',
-          'عدم احترام زملاء القسم',
-          'استعمال الهاتف أثناء الحصة',
-          'مغادرة القسم دون إذن',
-          'عدم الانضباط',
-          'إتلاف ممتلكات المؤسسة',
-          'مخالفة النظام الداخلي'
-        ].map((title, idx) => ({ id: `fallback_${idx}`, title, orderIndex: idx }));
-        setViolationTypes(fallback as any);
-        setSelectedType(fallback[0].title);
+        const unified = UNIFIED_VIOLATION_CATEGORIES.map((title, idx) => ({ id: `unified_${idx}`, title, orderIndex: idx }));
+        setViolationTypes(unified);
+        setSelectedType(unified[0].title);
       }
-    } catch (err) {
-      console.error('Error fetching violation types:', err);
-    } finally {
-      setIsLoadingTypes(false);
+    } catch {
+      const unified = UNIFIED_VIOLATION_CATEGORIES.map((title, idx) => ({ id: `unified_${idx}`, title, orderIndex: idx }));
+      setViolationTypes(unified);
+      setSelectedType(unified[0].title);
     }
   };
 
@@ -164,9 +167,15 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
       const teacherName = currentUser?.fullName || section.teacher || settings.teacher || 'أستاذ المادة';
       const teacherSubject = currentUser?.subject || 'المادة';
 
+      const isSummons = actionTaken === 'استدعاء ولي الأمر';
+
       await onAddViolation({
         violationType: selectedType.trim(),
+        description: description.trim() || selectedType.trim(),
         actionTaken,
+        issueParentSummons: isSummons && issueParentSummons,
+        summonsDate: (isSummons && issueParentSummons) ? summonsDate : undefined,
+        appointmentTime: (isSummons && issueParentSummons) ? summonsAppointmentTime : undefined,
         teacherName,
         teacherSubject,
         date,
@@ -175,12 +184,14 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
 
       setJustRecordedViolation({
         violationType: selectedType.trim(),
+        description: description.trim() || selectedType.trim(),
         actionTaken,
         teacherName,
         teacherSubject,
         date,
         time
       });
+      setDescription('');
     } catch (err: any) {
       setErrorMsg(err.message || 'حدث خطأ أثناء تسجيل المخالفة');
     } finally {
@@ -316,6 +327,19 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2">
+            {onOpenSectionRegister && (
+              <button
+                type="button"
+                onClick={onOpenSectionRegister}
+                className="flex items-center gap-1.5 px-2.5 py-1 sm:px-3 sm:py-1.5 text-xs font-bold rounded-lg bg-[#1A4E47] hover:bg-[#133D37] text-white transition-colors cursor-pointer shadow-2xs"
+                title="عرض سجل المخالفات والانضباط الكامل للقسم"
+              >
+                <ShieldAlert className="w-3.5 h-3.5 text-[#C98A3C]" />
+                <span className="hidden sm:inline">سجل مخالفات القسم بالكامل 📋</span>
+                <span className="sm:hidden">سجل القسم 📋</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handlePrint}
@@ -508,23 +532,77 @@ export const ViolationsModal: React.FC<ViolationsModalProps> = ({
                 {/* Select Action Taken */}
                 <div className="space-y-1">
                   <label htmlFor="select-action-taken" className="block text-xs font-bold text-[#4F3F2F]">
-                    الإجراء المتخذ
+                    الإجراء المتخذ *
                   </label>
                   <select
                     id="select-action-taken"
                     value={actionTaken}
                     onChange={(e) => setActionTaken(e.target.value)}
-                    className="w-full bg-white border border-[#D5CDC0] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1F2926] focus:outline-hidden focus:ring-2 focus:ring-red-500/20 focus:border-red-500 cursor-pointer shadow-2xs"
+                    className="w-full bg-white border border-[#D5CDC0] rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-[#1F2926] focus:outline-hidden focus:ring-2 focus:ring-red-500/20 focus:border-red-500 cursor-pointer shadow-2xs"
                   >
-                    <option value="تنبيه شفهي">تنبيه شفهي</option>
-                    <option value="تنبيه كتابي">تنبيه كتابي</option>
-                    <option value="تسجيل في الدفتر">تسجيل في الدفتر</option>
-                    <option value="إشعار ولي الأمر">إشعار ولي الأمر</option>
-                    <option value="إحالة على الحراسة العامة">إحالة على الحراسة العامة</option>
-                    <option value="إحالة على مجلس الانضباط">إحالة على مجلس الانضباط</option>
+                    {UNIFIED_DISCIPLINARY_ACTIONS.map((act) => (
+                      <option key={act} value={act}>
+                        {act}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
+
+              {/* Description Input */}
+              <div className="space-y-1">
+                <label htmlFor="input-violation-description" className="block text-xs font-bold text-[#4F3F2F]">
+                  حيثيات وتفاصيل المخالفة (اختياري)
+                </label>
+                <input
+                  id="input-violation-description"
+                  type="text"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="ملاحظات توضيحية حول حيثيات المخالفة وسياق حدوثها..."
+                  className="w-full bg-white border border-[#D5CDC0] rounded-xl px-3 py-2 text-xs sm:text-sm text-[#1F2926] focus:outline-hidden focus:ring-2 focus:ring-red-500/20 focus:border-red-500 shadow-2xs"
+                />
+              </div>
+
+              {/* Parent Summons Appointment Fields */}
+              {actionTaken === 'استدعاء ولي الأمر' && (
+                <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-300 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="modal-issue-summons"
+                      checked={issueParentSummons}
+                      onChange={(e) => setIssueParentSummons(e.target.checked)}
+                      className="w-4 h-4 rounded text-red-700 cursor-pointer"
+                    />
+                    <label htmlFor="modal-issue-summons" className="text-xs font-bold text-amber-950 cursor-pointer">
+                      📅 تحديد موعد رسمي لحضور ولي الأمر للمؤسسة (تضمينه في الاستدعاء)
+                    </label>
+                  </div>
+                  {issueParentSummons && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#6C6356] mb-1">تاريخ الموعد المقترح</label>
+                        <input
+                          type="date"
+                          value={summonsDate}
+                          onChange={(e) => setSummonsDate(e.target.value)}
+                          className="w-full bg-white border border-[#D5CDC0] rounded-lg px-2.5 py-1.5 text-xs text-[#1F2926]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-[#6C6356] mb-1">توقيت الحضور</label>
+                        <input
+                          type="time"
+                          value={summonsAppointmentTime}
+                          onChange={(e) => setSummonsAppointmentTime(e.target.value)}
+                          className="w-full bg-white border border-[#D5CDC0] rounded-lg px-2.5 py-1.5 text-xs text-[#1F2926]"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex items-center justify-between pt-1">
                 <span className="text-[11px] text-[#7A6B58]">

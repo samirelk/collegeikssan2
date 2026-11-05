@@ -23,7 +23,8 @@ import {
   cloudSaveAssignment,
   cloudDeleteAssignment,
   cloudSaveTimetableEntry,
-  cloudDeleteTimetableEntry
+  cloudDeleteTimetableEntry,
+  cloudSaveTombstone
 } from './firestoreSync.ts';
 import { commitBatchDocs } from './firestoreService.ts';
 import { markDirty, purgeAllSnapshots } from './cloudBackup.ts';
@@ -494,6 +495,11 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       deleted_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS deleted_attendance_ids (
+      id TEXT PRIMARY KEY,
+      deleted_at TEXT NOT NULL
+    );
   `);
 
   // Ensure massar_number column in daily_violations
@@ -674,21 +680,25 @@ export function initDatabase() {
     }
   }
 
-  // Seed default predefined violation types if table is empty
+  // Seed default predefined violation types if table is empty or has outdated non-unified types
   try {
     const vtCount = (db.prepare('SELECT COUNT(*) as count FROM violation_types').get() as any).count;
-    if (vtCount === 0) {
+    const hasOldType = db.prepare("SELECT COUNT(*) as count FROM violation_types WHERE title = 'عدم إحضار الأدوات المدرسية'").get() as any;
+    if (vtCount === 0 || hasOldType.count > 0) {
+      db.prepare('DELETE FROM violation_types').run();
       const defaultTypes = [
-        'عدم إحضار الأدوات المدرسية',
-        'عدم إنجاز الواجبات المنزلية',
-        'التشويش داخل القسم',
+        'تشويش داخل القسم',
+        'عدم إحضار اللوازم المدرسية',
+        'عدم إنجاز الواجب المنزلي',
+        'سوء سلوك وقلة انضباط',
+        'استخدام الهاتف النقال',
+        'تأخر متكرر عن الحصة',
+        'هندام غير لائق',
+        'مغادرة القسم دون إذن',
         'عدم احترام الأستاذ',
         'عدم احترام زملاء القسم',
-        'استعمال الهاتف أثناء الحصة',
-        'مغادرة القسم دون إذن',
-        'عدم الانضباط',
-        'إتلاف ممتلكات المؤسسة',
-        'مخالفة النظام الداخلي'
+        'إتلاف التجهيزات المدرسية',
+        'مخالفة تربوية أخرى'
       ];
       const insertVt = db.prepare('INSERT INTO violation_types (id, title, severity, order_index, created_at) VALUES (?, ?, ?, ?, ?)');
       const now = new Date().toISOString();
@@ -1017,8 +1027,50 @@ export function backupAllViolationsToDisk() {
   }
 }
 
+// Hardcoded synthetic baseline violations that must be purged permanently
+const SYNTHETIC_BASELINE_IDS = [
+  'v_director_3_lahmidi',
+  'v_mvta2rn0jha1',
+  'v_mv0qmfjo6won',
+  'v_mvao2vrstw9v',
+  'v_mutw04pzrt0l',
+  'v_mvt91l447r2s',
+  'v_mvrzn1vlhaou',
+  'v_muwfqi1cx1m8',
+  'v_muv3oe23geyj',
+  'v_mvtafonvh9x0',
+  'v_benali_1_marrakchi',
+  'v_benali_2_belkadi',
+  'v_benali_3_riyahi',
+  'v_benali_4_aalam',
+  'v_benali_5_qlich',
+  'v_benali_6_hiti',
+  'v_director_4_lakmouchi',
+  'v_director_5_fnassi',
+  'v_director_6_kourari',
+  'v_director_7_daadouai',
+  'v_samir_boumazough',
+  'v_warda_3_hssak',
+  'v_warda_2_hiti',
+  'v_warda_1_bakkali'
+];
+
 export function ensureBaselineViolationsExist() {
   try {
+    const now = new Date().toISOString();
+
+    // 1. Permanently purge any synthetic fabricated violations
+    for (const synId of SYNTHETIC_BASELINE_IDS) {
+      try {
+        db.prepare('DELETE FROM daily_violations WHERE id = ?').run(synId);
+        db.prepare('DELETE FROM notes WHERE id = ?').run(synId);
+        db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(synId, now);
+        db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('violation', ?, ?)").run(synId, now);
+        cloudDeleteViolation(synId);
+        cloudSaveTombstone('violation', synId);
+      } catch {}
+    }
+
     const storePath = path.join(DATA_DIR, 'violations_store.json');
     let diskViolations: any[] = [];
     if (fs.existsSync(storePath)) {
@@ -1028,6 +1080,14 @@ export function ensureBaselineViolationsExist() {
         diskViolations = [];
       }
     }
+
+    let deletedIds = new Set<string>(SYNTHETIC_BASELINE_IDS);
+    try {
+      const rows = db.prepare('SELECT id FROM deleted_violation_ids').all() as any[];
+      rows.forEach((r: any) => deletedIds.add(r.id));
+      const tombRows = db.prepare("SELECT item_id FROM deleted_tombstones WHERE type = 'violation'").all() as any[];
+      tombRows.forEach((r: any) => deletedIds.add(r.item_id));
+    } catch {}
 
     const insertStmt = db.prepare(`
       INSERT INTO daily_violations (
@@ -1046,35 +1106,7 @@ export function ensureBaselineViolationsExist() {
         recorded_time = COALESCE(NULLIF(excluded.recorded_time, ''), daily_violations.recorded_time)
     `);
 
-    let deletedIds = new Set<string>();
-    try {
-      const rows = db.prepare('SELECT id FROM deleted_violation_ids').all() as any[];
-      deletedIds = new Set(rows.map((r: any) => r.id));
-    } catch {}
-
-    // Insert baseline violations
-    for (const v of BASELINE_VIOLATIONS) {
-      if (deletedIds.has(v.id)) continue;
-      insertStmt.run(
-        v.id,
-        v.section_id,
-        v.seat_num,
-        v.student_name,
-        v.student_number || '',
-        v.massar_number || '',
-        v.violation_type,
-        v.description,
-        v.action_taken,
-        v.teacher_name,
-        v.teacher_subject,
-        v.recorded_date,
-        v.recorded_time,
-        v.created_at,
-        v.teacher_id || ''
-      );
-    }
-
-    // Insert any disk saved violations
+    // Only restore genuine user disk violations (never fake or deleted ones)
     if (Array.isArray(diskViolations)) {
       for (const dv of diskViolations) {
         if (!dv.id || deletedIds.has(dv.id)) continue;
@@ -1098,9 +1130,9 @@ export function ensureBaselineViolationsExist() {
       }
     }
 
-    // Always update the persistent store on disk
+    // Always update the persistent store on disk with only legitimate records
     backupAllViolationsToDisk();
-    console.log('🛡️ [DB] Permanent Violations Shield active: verified baseline & disk violations in SQLite.');
+    console.log('🛡️ [DB] Permanent Violations Shield active: verified genuine user violations only.');
   } catch (err: any) {
     console.error('Error in ensureBaselineViolationsExist:', err);
   }
@@ -3005,16 +3037,18 @@ export function deleteViolationType(id: string) {
 export function resetViolationTypes() {
   db.prepare('DELETE FROM violation_types').run();
   const defaultTypes = [
-    'عدم إحضار الأدوات المدرسية',
-    'عدم إنجاز الواجبات المنزلية',
-    'التشويش داخل القسم',
+    'تشويش داخل القسم',
+    'عدم إحضار اللوازم المدرسية',
+    'عدم إنجاز الواجب المنزلي',
+    'سوء سلوك وقلة انضباط',
+    'استخدام الهاتف النقال',
+    'تأخر متكرر عن الحصة',
+    'هندام غير لائق',
+    'مغادرة القسم دون إذن',
     'عدم احترام الأستاذ',
     'عدم احترام زملاء القسم',
-    'استعمال الهاتف أثناء الحصة',
-    'مغادرة القسم دون إذن',
-    'عدم الانضباط',
-    'إتلاف ممتلكات المؤسسة',
-    'مخالفة النظام الداخلي'
+    'إتلاف التجهيزات المدرسية',
+    'مخالفة تربوية أخرى'
   ];
   const insertVt = db.prepare('INSERT INTO violation_types (id, title, severity, order_index, created_at) VALUES (?, ?, ?, ?, ?)');
   const now = new Date().toISOString();
@@ -3027,7 +3061,7 @@ export function resetViolationTypes() {
     VALUES (?, ?, ?, ?)
   `).run(
     'reset_violation_types',
-    'استعادة قائمة المخالفات الافتراضية المعتمدة (10 مخالفات)',
+    'استعادة قائمة المخالفات الافتراضية المعتمدة (12 مخالفة موحدة)',
     JSON.stringify({ count: defaultTypes.length }),
     now
   );
@@ -3057,12 +3091,16 @@ export function addStudentViolation(
     studentNumber?: string;
     massarNumber?: string;
     violationType: string;
+    description?: string;
     actionTaken?: string;
     teacherName?: string;
     teacherSubject?: string;
     date?: string;
     time?: string;
     teacherId?: string;
+    issueParentSummons?: boolean;
+    summonsDate?: string;
+    appointmentTime?: string;
   }
 ) {
   const cleanType = (data.violationType || '').trim();
@@ -3110,6 +3148,7 @@ export function addStudentViolation(
   }
 
   const actionTaken = data.actionTaken || 'تنبيه شفهي';
+  const effDescription = (data.description && data.description.trim()) ? data.description.trim() : cleanType;
 
   db.prepare(`
     INSERT INTO daily_violations (
@@ -3119,7 +3158,7 @@ export function addStudentViolation(
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id, sectionId, seatNum, studentName, studentNumber, massarNumber,
-    cleanType, cleanType, actionTaken, teacherName, teacherSubject,
+    cleanType, effDescription, actionTaken, teacherName, teacherSubject,
     recordedDate, recordedTime, now, data.teacherId || ''
   );
 
@@ -3131,6 +3170,26 @@ export function addStudentViolation(
     `).run(id, sectionId, seatNum, cleanType, recordedDate, recordedTime, now, data.teacherId || '');
   } catch {}
 
+  // Auto-create parent summons if requested or if action is 'استدعاء ولي الأمر'
+  if (data.issueParentSummons || actionTaken === 'استدعاء ولي الأمر') {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      createParentSummons({
+        sectionId,
+        studentName,
+        studentNumber,
+        massarNumber,
+        reason: `مخالفة تربوية: ${cleanType} (${effDescription.slice(0, 50)})`,
+        summonsDate: data.summonsDate || todayStr,
+        appointmentTime: data.appointmentTime || '10:00',
+        createdBy: teacherName || 'الأستاذ',
+        notes: `مسجلة بناءً على مخالفة تربوية: ${effDescription}`
+      });
+    } catch (summonsErr) {
+      console.warn('Failed to auto-create parent summons:', summonsErr);
+    }
+  }
+
   // Sync to Firestore Cloud
   try {
     cloudSaveViolation({
@@ -3141,14 +3200,14 @@ export function addStudentViolation(
       studentNumber,
       massarNumber,
       violationType: cleanType,
-      description: cleanType,
+      description: effDescription,
       actionTaken,
       teacherName,
       teacherSubject,
       date: recordedDate,
       time: recordedTime,
       academicYear: '2026/2027',
-      notes: cleanType,
+      notes: effDescription,
       teacherId: data.teacherId || ''
     });
   } catch (err) {
@@ -3161,7 +3220,7 @@ export function addStudentViolation(
   `).run(
     'add_violation',
     `تسجيل مخالفة [${cleanType}] للتلميذ ${studentName} في المقعد #${seatNum} (المادة: ${teacherSubject} - الأستاذ: ${teacherName})`,
-    JSON.stringify({ sectionId, seatNum, studentName, violationType: cleanType, actionTaken, recordedDate, recordedTime }),
+    JSON.stringify({ sectionId, seatNum, studentName, violationType: cleanType, description: effDescription, actionTaken, recordedDate, recordedTime }),
     now
   );
 
@@ -3199,8 +3258,10 @@ export function deleteStudentViolation(sectionId: string, seatNum: number, viola
       }
     }
   }
+  const now = new Date().toISOString();
   try {
-    db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(violationId, new Date().toISOString());
+    db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(violationId, now);
+    db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('violation', ?, ?)").run(violationId, now);
   } catch {}
   // Delete by ID to ensure it is cleanly deleted regardless of seat movements
   db.prepare('DELETE FROM daily_violations WHERE id = ?').run(violationId);
@@ -3210,6 +3271,7 @@ export function deleteStudentViolation(sectionId: string, seatNum: number, viola
 
   try {
     cloudDeleteViolation(violationId);
+    cloudSaveTombstone('violation', violationId);
   } catch (err) {
     console.warn('Firestore cloudDeleteViolation failed:', err);
   }
@@ -4242,6 +4304,15 @@ export function exportFullBackup() {
   const studentAccounts = db.prepare('SELECT * FROM student_accounts').all();
   const teacherTimetable = db.prepare('SELECT * FROM teacher_timetable').all();
 
+  let deletedTombstones: any[] = [];
+  let deletedViolationIds: any[] = [];
+  let deletedAttendanceIds: any[] = [];
+  try {
+    deletedTombstones = db.prepare('SELECT * FROM deleted_tombstones').all();
+    deletedViolationIds = db.prepare('SELECT * FROM deleted_violation_ids').all();
+    deletedAttendanceIds = db.prepare('SELECT * FROM deleted_attendance_ids').all();
+  } catch {}
+
   return {
     version: '2.2.0',
     app: 'خرائط الأقسام',
@@ -4258,7 +4329,10 @@ export function exportFullBackup() {
     dailyViolations,
     positiveParticipations,
     studentAccounts,
-    teacherTimetable
+    teacherTimetable,
+    deletedTombstones,
+    deletedViolationIds,
+    deletedAttendanceIds
   };
 }
 
@@ -4454,6 +4528,39 @@ export function importFullBackup(backupData: any) {
       }
     }
 
+    // 6b. Deletion Tombstones
+    const deletedAttSet = new Set<string>();
+    const deletedVioSet = new Set<string>(SYNTHETIC_BASELINE_IDS);
+
+    if (Array.isArray(backupData.deletedAttendanceIds)) {
+      const ins = db.prepare('INSERT OR REPLACE INTO deleted_attendance_ids (id, deleted_at) VALUES (?, ?)');
+      for (const d of backupData.deletedAttendanceIds) {
+        if (d?.id) {
+          deletedAttSet.add(String(d.id));
+          ins.run(String(d.id), d.deleted_at || now);
+        }
+      }
+    }
+    if (Array.isArray(backupData.deletedViolationIds)) {
+      const ins = db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)');
+      for (const d of backupData.deletedViolationIds) {
+        if (d?.id) {
+          deletedVioSet.add(String(d.id));
+          ins.run(String(d.id), d.deleted_at || now);
+        }
+      }
+    }
+    if (Array.isArray(backupData.deletedTombstones)) {
+      const ins = db.prepare('INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES (?, ?, ?)');
+      for (const t of backupData.deletedTombstones) {
+        if (t?.type && t?.item_id) {
+          ins.run(t.type, String(t.item_id), t.created_at || now);
+          if (t.type === 'attendance') deletedAttSet.add(String(t.item_id));
+          if (t.type === 'violation') deletedVioSet.add(String(t.item_id));
+        }
+      }
+    }
+
     // 7. Attendance History
     if (Array.isArray(backupData.attendanceHistory)) {
       const insertAtt = db.prepare(`
@@ -4463,7 +4570,7 @@ export function importFullBackup(backupData: any) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const a of backupData.attendanceHistory) {
-        if (!a.id || !a.section_id) continue;
+        if (!a.id || !a.section_id || deletedAttSet.has(String(a.id))) continue;
         insertAtt.run(
           a.id,
           a.section_id,
@@ -4493,7 +4600,7 @@ export function importFullBackup(backupData: any) {
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       for (const v of backupData.dailyViolations) {
-        if (!v.id || !v.section_id) continue;
+        if (!v.id || !v.section_id || deletedVioSet.has(String(v.id))) continue;
         insertVio.run(
           v.id,
           v.section_id,
@@ -8765,18 +8872,28 @@ export function deleteDailyAbsence(id: number) {
     db.prepare('UPDATE seats SET attendance = NULL WHERE id = ?').run(seatId);
     return { success: true, message: 'تم إزالة الغياب اللحظي بنجاح' };
   }
+  const strId = String(id);
+  const now = new Date().toISOString();
+
+  // 1. Record tombstone in SQLite so it never resurrects
+  try {
+    db.prepare('INSERT OR REPLACE INTO deleted_attendance_ids (id, deleted_at) VALUES (?, ?)').run(strId, now);
+    db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('attendance', ?, ?)").run(strId, now);
+  } catch {}
+
   const existing = db.prepare('SELECT * FROM attendance_history WHERE id = ?').get(id) as any;
   db.prepare('DELETE FROM attendance_history WHERE id = ?').run(id);
 
-  if (existing) {
-    // 1. Delete from Firestore cloud so it NEVER resurrects!
-    try {
-      cloudDeleteAttendance(String(id));
-    } catch (err) {
-      console.warn('[deleteDailyAbsence] cloudDeleteAttendance warning:', err);
-    }
+  // 2. Delete and record tombstone in Firestore so it NEVER resurrects!
+  try {
+    cloudDeleteAttendance(strId);
+    cloudSaveTombstone('attendance', strId);
+  } catch (err) {
+    console.warn('[deleteDailyAbsence] cloudDeleteAttendance warning:', err);
+  }
 
-    // 2. Also reset attendance in seats table if it was today's attendance
+  if (existing) {
+    // 3. Also reset attendance in seats table if it was today's attendance
     try {
       const today = new Date().toISOString().slice(0, 10);
       if (existing.recorded_date === today) {
@@ -8792,6 +8909,7 @@ export function deleteDailyAbsence(id: number) {
     } catch {}
   }
 
+  markDirty();
   return { success: true };
 }
 
@@ -8840,11 +8958,31 @@ export async function resetAbsences(options: {
   } else if (mode === 'section' && sectionId) {
     const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE section_id = ? AND (attendance = 'absent' OR attendance = 'late')`).run(sectionId);
     clearedSeats = Number(res.changes);
+    const rows = db.prepare('SELECT id FROM attendance_history WHERE section_id = ?').all(sectionId) as any[];
+    for (const r of rows) {
+      const strId = String(r.id);
+      try {
+        db.prepare('INSERT OR REPLACE INTO deleted_attendance_ids (id, deleted_at) VALUES (?, ?)').run(strId, now);
+        db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('attendance', ?, ?)").run(strId, now);
+        cloudDeleteAttendance(strId);
+        cloudSaveTombstone('attendance', strId);
+      } catch {}
+    }
     const histRes = db.prepare(`DELETE FROM attendance_history WHERE section_id = ?`).run(sectionId);
     clearedHistory = Number(histRes.changes);
   } else if (mode === 'all') {
     const res = db.prepare(`UPDATE seats SET attendance = NULL WHERE attendance = 'absent' OR attendance = 'late'`).run();
     clearedSeats = Number(res.changes);
+    const rows = db.prepare('SELECT id FROM attendance_history').all() as any[];
+    for (const r of rows) {
+      const strId = String(r.id);
+      try {
+        db.prepare('INSERT OR REPLACE INTO deleted_attendance_ids (id, deleted_at) VALUES (?, ?)').run(strId, now);
+        db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('attendance', ?, ?)").run(strId, now);
+        cloudDeleteAttendance(strId);
+        cloudSaveTombstone('attendance', strId);
+      } catch {}
+    }
     const histRes = db.prepare(`DELETE FROM attendance_history`).run();
     clearedHistory = Number(histRes.changes);
 
@@ -9236,15 +9374,19 @@ export function updateDailyViolation(id: string, data: {
 }
 
 export function deleteDailyViolation(id: string) {
+  const strId = String(id);
+  const now = new Date().toISOString();
   try {
-    db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(id, new Date().toISOString());
+    db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)').run(strId, now);
+    db.prepare("INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES ('violation', ?, ?)").run(strId, now);
   } catch {}
-  db.prepare('DELETE FROM daily_violations WHERE id = ?').run(id);
+  db.prepare('DELETE FROM daily_violations WHERE id = ?').run(strId);
   try {
-    db.prepare('DELETE FROM notes WHERE id = ?').run(id);
+    db.prepare('DELETE FROM notes WHERE id = ?').run(strId);
   } catch {}
   try {
-    cloudDeleteViolation(id);
+    cloudDeleteViolation(strId);
+    cloudSaveTombstone('violation', strId);
   } catch (err) {
     console.warn('Firestore cloudDeleteViolation warning:', err);
   }

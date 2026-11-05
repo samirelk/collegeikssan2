@@ -74,9 +74,16 @@ interface ViolationsRegisterModalProps {
   sections: SectionItem[];
   settings: AppSettings;
   onRefreshData?: () => void;
+  initialSectionId?: string;
+  initialStudent?: {
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    seatNum?: number;
+  };
 }
 
-const VIOLATION_CATEGORIES = [
+export const UNIFIED_VIOLATION_CATEGORIES = [
   'تشويش داخل القسم',
   'عدم إحضار اللوازم المدرسية',
   'عدم إنجاز الواجب المنزلي',
@@ -91,7 +98,7 @@ const VIOLATION_CATEGORIES = [
   'مخالفة تربوية أخرى'
 ];
 
-const DISCIPLINARY_ACTIONS = [
+export const UNIFIED_DISCIPLINARY_ACTIONS = [
   'تنبيه شفهي',
   'إنذار كتابي',
   'إشعار لولي الأمر',
@@ -101,13 +108,18 @@ const DISCIPLINARY_ACTIONS = [
   'تعهد خطي بالانضباط'
 ];
 
+const VIOLATION_CATEGORIES = UNIFIED_VIOLATION_CATEGORIES;
+const DISCIPLINARY_ACTIONS = UNIFIED_DISCIPLINARY_ACTIONS;
+
 export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = ({
   isOpen,
   onClose,
   currentUser,
   sections,
   settings,
-  onRefreshData
+  onRefreshData,
+  initialSectionId,
+  initialStudent
 }) => {
   const isTeacher = currentUser?.role === 'teacher';
   const isDirector = currentUser?.role === 'director' || currentUser?.role === 'admin';
@@ -223,9 +235,26 @@ export const ViolationsRegisterModal: React.FC<ViolationsRegisterModalProps> = (
 
   useEffect(() => {
     if (isOpen) {
+      if (initialSectionId) {
+        setSelectedSectionFilter(initialSectionId);
+        setNewSectionId(initialSectionId);
+      }
+      if (initialStudent) {
+        setNewStudentName(initialStudent.name);
+        if (initialStudent.number) setNewStudentNumber(initialStudent.number);
+        if (initialStudent.massarNumber) setNewMassarNumber(initialStudent.massarNumber);
+        if (initialStudent.seatNum !== undefined) setNewSeatNum(initialStudent.seatNum);
+        setSearchQuery(initialStudent.name);
+      }
       fetchViolations();
     }
-  }, [isOpen, selectedSectionFilter, teacherScope]);
+  }, [isOpen, initialSectionId, initialStudent]);
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchViolations();
+    }
+  }, [selectedSectionFilter, teacherScope]);
 
   // Students list for selected section in Add Modal
   const currentAddSection = useMemo(() => {

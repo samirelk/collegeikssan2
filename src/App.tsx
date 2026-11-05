@@ -113,6 +113,13 @@ export default function App() {
   const [showTeacherHomeworkModal, setShowTeacherHomeworkModal] = useState(false);
   const [showTeacherLeaveModal, setShowTeacherLeaveModal] = useState(false);
   const [showViolationsRegisterModal, setShowViolationsRegisterModal] = useState(false);
+  const [violationsRegisterInitialSection, setViolationsRegisterInitialSection] = useState<string | undefined>(undefined);
+  const [violationsRegisterInitialStudent, setViolationsRegisterInitialStudent] = useState<{
+    name: string;
+    number?: string;
+    massarNumber?: string;
+    seatNum?: number;
+  } | undefined>(undefined);
   const [showAdminApprovalsModal, setShowAdminApprovalsModal] = useState(false);
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
@@ -1164,7 +1171,11 @@ export default function App() {
   // 7. Add Student Violation
   const handleAddViolation = async (data: {
     violationType: string;
+    description?: string;
     actionTaken?: string;
+    issueParentSummons?: boolean;
+    summonsDate?: string;
+    appointmentTime?: string;
     teacherName?: string;
     teacherSubject?: string;
     date?: string;
@@ -1183,7 +1194,11 @@ export default function App() {
           },
           body: JSON.stringify({
             violationType: data.violationType,
+            description: data.description || data.violationType,
             actionTaken: data.actionTaken,
+            issueParentSummons: data.issueParentSummons,
+            summonsDate: data.summonsDate,
+            appointmentTime: data.appointmentTime,
             teacherName: currentUser?.fullName || data.teacherName,
             teacherSubject: currentUser?.subject || data.teacherSubject,
             teacherId: currentUser?.id || '',
@@ -2759,6 +2774,20 @@ export default function App() {
                     <span>سجل المشاركات الإيجابية ⭐</span>
                   </button>
 
+                  <button
+                    id="section-violations-register-btn"
+                    className="btn btn-ghost btn-sm text-rose-200 border-rose-500/40 hover:bg-rose-500/15 flex items-center gap-1.5 font-bold shadow-xs cursor-pointer"
+                    onClick={() => {
+                      setViolationsRegisterInitialSection(activeSection.id);
+                      setViolationsRegisterInitialStudent(undefined);
+                      setShowViolationsRegisterModal(true);
+                    }}
+                    title="سجل المخالفات والانضباط المدرسي الخاص بهذا القسم بالكامل"
+                  >
+                    <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+                    <span>سجل المخالفات والانضباط 🛡️</span>
+                  </button>
+
                   {currentUser?.role === 'admin' && (
                     <>
                       <button
@@ -4231,6 +4260,17 @@ export default function App() {
             }}
             onAddViolation={handleAddViolation}
             onDeleteViolation={handleDeleteViolation}
+            onOpenSectionRegister={() => {
+              setActiveSeatModal(null);
+              setViolationsRegisterInitialSection(activeSection.id);
+              setViolationsRegisterInitialStudent({
+                name: currentSeat.name,
+                number: currentSeat.number,
+                massarNumber: currentSeat.massarNumber,
+                seatNum: currentSeat.seat
+              });
+              setShowViolationsRegisterModal(true);
+            }}
             studentHistory={studentHistory}
             isStudentHistoryLoading={isStudentHistoryLoading}
           />
@@ -4365,11 +4405,17 @@ export default function App() {
       {/* Independent Violations Register Modal (سجل المخالفات والانضباط المدرسي المستقل) */}
       <ViolationsRegisterModal
         isOpen={showViolationsRegisterModal}
-        onClose={() => setShowViolationsRegisterModal(false)}
+        onClose={() => {
+          setShowViolationsRegisterModal(false);
+          setViolationsRegisterInitialSection(undefined);
+          setViolationsRegisterInitialStudent(undefined);
+        }}
         currentUser={currentUser}
         sections={sections}
         settings={settings}
         onRefreshData={() => fetchInitialData(currentUser)}
+        initialSectionId={violationsRegisterInitialSection}
+        initialStudent={violationsRegisterInitialStudent}
       />
 
       {/* Roster Reorder & Renumber Modal (سحب وترتيب التلاميذ وتحيين الأرقام) */}

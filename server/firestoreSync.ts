@@ -22,6 +22,9 @@ export async function syncDatabaseWithFirestore(db: any) {
       return;
     }
 
+    // 0. Sync Deleted Tombstones (Prevents deleted absences and violations from resurrecting)
+    await syncDeletedTombstonesFromFirestore(db);
+
     // A. Sync Users (Admins, Directors, Teachers)
     await syncUsersFromFirestore(db);
 
@@ -61,6 +64,37 @@ export async function syncDatabaseWithFirestore(db: any) {
     console.log('✅ [FirestoreSync] Full Cloud Firestore synchronization complete!');
   } catch (err: any) {
     console.error('❌ [FirestoreSync] Error during Firestore synchronization:', err?.message || err);
+  }
+}
+
+async function syncDeletedTombstonesFromFirestore(db: any) {
+  try {
+    const list = await listDocs('deleted_tombstones');
+    if (!list || list.length === 0) return;
+
+    console.log(`📥 [FirestoreSync] Found ${list.length} deletion tombstones in Firestore.`);
+    const insertTomb = db.prepare('INSERT OR REPLACE INTO deleted_tombstones (type, item_id, created_at) VALUES (?, ?, ?)');
+    const insertDelVio = db.prepare('INSERT OR REPLACE INTO deleted_violation_ids (id, deleted_at) VALUES (?, ?)');
+    const insertDelAtt = db.prepare('INSERT OR REPLACE INTO deleted_attendance_ids (id, deleted_at) VALUES (?, ?)');
+
+    for (const t of list) {
+      const type = t.type || '';
+      const itemId = String(t.itemId || t.item_id || t.id || '').replace(/^([a-z]+)_(.*)$/, '$2');
+      const realItemId = t.itemId || t.item_id || itemId;
+      const createdAt = t.deletedAt || t.created_at || new Date().toISOString();
+      if (!realItemId || !type) continue;
+
+      try {
+        insertTomb.run(type, String(realItemId), createdAt);
+        if (type === 'violation') {
+          insertDelVio.run(String(realItemId), createdAt);
+        } else if (type === 'attendance') {
+          insertDelAtt.run(String(realItemId), createdAt);
+        }
+      } catch {}
+    }
+  } catch (err: any) {
+    console.warn('[FirestoreSync] Failed to sync deleted tombstones:', err?.message || err);
   }
 }
 
@@ -394,9 +428,17 @@ async function syncAttendanceFromFirestore(db: any) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
+    const isDeletedAttStmt = db.prepare('SELECT 1 FROM deleted_attendance_ids WHERE id = ?');
+    const isAttTombstoneStmt = db.prepare("SELECT 1 FROM deleted_tombstones WHERE type = 'attendance' AND item_id = ?");
 
     for (const a of list) {
       if (!a.id || !a.sectionId) continue;
+      const strId = String(a.id);
+      if (isDeletedAttStmt.get(strId) || isAttTombstoneStmt.get(strId)) {
+        // Skip deleted attendance and ensure it is removed from Firestore so it never resurrects!
+        deleteDoc('attendance_history', strId).catch(() => {});
+        continue;
+      }
       try {
         const sectionExists = checkSectionStmt.get(a.sectionId);
         if (!sectionExists) {
@@ -473,12 +515,14 @@ async function syncViolationsFromFirestore(db: any) {
     `);
     const checkSectionStmt = db.prepare('SELECT 1 FROM sections WHERE id = ?');
     const isDeletedStmt = db.prepare('SELECT 1 FROM deleted_violation_ids WHERE id = ?');
+    const isVioTombstoneStmt = db.prepare("SELECT 1 FROM deleted_tombstones WHERE type = 'violation' AND item_id = ?");
 
     for (const v of list) {
       if (!v.id) continue;
-      if (isDeletedStmt.get(v.id)) {
-        // Skip deleted violation and remove from Firestore
-        deleteDoc('daily_violations', v.id).catch(() => {});
+      const strId = String(v.id);
+      if (isDeletedStmt.get(strId) || isVioTombstoneStmt.get(strId)) {
+        // Skip deleted violation and remove from Firestore so it never resurrects
+        deleteDoc('daily_violations', strId).catch(() => {});
         continue;
       }
       try {
@@ -1415,4 +1459,19 @@ export function cloudSaveTimetableEntry(entry: any) {
 
 export function cloudDeleteTimetableEntry(id: string) {
   return trackCloudWrite(`cloudDeleteTimetableEntry(${id})`, () => deleteDoc('teacher_timetable', id));
+}
+
+export function cloudSaveTombstone(type: string, itemId: string) {
+  const docId = `${type}_${itemId}`;
+  return trackCloudWrite(`cloudSaveTombstone(${docId})`, () => setDoc('deleted_tombstones', docId, {
+    id: docId,
+    type,
+    itemId: String(itemId),
+    deletedAt: new Date().toISOString()
+  }));
+}
+
+export function cloudDeleteTombstone(type: string, itemId: string) {
+  const docId = `${type}_${itemId}`;
+  return trackCloudWrite(`cloudDeleteTombstone(${docId})`, () => deleteDoc('deleted_tombstones', docId));
 }
